@@ -16,9 +16,9 @@ opencode, Pi, …) share one board. No team concept, no message bus, no daemon.
 | ---------------------- | ------ | -------------------------------------------------------------------- |
 | `@using-kanban/core`   | ✅     | Event-sourced engine: event log, projection, transition guards       |
 | `@using-kanban/server` | ✅     | REST + SSE API, token auth, OpenAPI, static UI hosting, `ukb-server` |
-| `@using-kanban/mcp`    | ⬜     | MCP stdio server — the multi-framework front door                    |
-| `@using-kanban/web`    | ⬜     | Default single-file Web UI (drag & drop, live updates)               |
-| `@using-kanban/cli`    | ⬜     | Thin client, binary `ukb` + `init --for <framework>` installers      |
+| `@using-kanban/mcp`    | ✅     | MCP stdio server, 14 tools — the multi-framework front door          |
+| `@using-kanban/web`    | ✅     | Default Web UI: drag & drop, live over SSE, one self-contained file  |
+| `@using-kanban/cli`    | ✅     | `ukb` binary + `ukb init --for <framework>` installers               |
 
 ## Why event-sourced
 
@@ -265,21 +265,49 @@ The UI is a _consumer_ like any other: `GET /api/board` + `POST
 /api/cards/:id/<verb>` + SSE. Build your own against the same API, or embed the
 handler in your product and point your own frontend at it.
 
-## CLI (planned, `@using-kanban/cli`)
+## CLI (`@using-kanban/cli`)
 
-The `ukb` binary is a thin client over the same core — same board, same events:
+The `ukb` binary talks to the core in-process — same board, same events, no
+daemon and no server needed:
 
 ```bash
-ukb                                       # my open cards (a call to act, not a status dump)
-ukb board                                 # full board
-ukb add "fix flaky test" --assignee claude-code --reviewer jyxc
-ukb claim 3                               # todo → doing, assigned to me
-ukb review 3                              # → review, notifies the reviewer
-ukb done 3
-ukb web                                   # start the local Web UI and open it
+ukb                                # your open cards — a call to act, not a list
+ukb board                          # the whole board
+ukb show 3                         # detail + event history
+ukb add "fix the flaky test" --body "AC: green on CI" --assignee codex --reviewer jyxc
+ukb claim 3                        # todo → doing, assigned to you
+ukb review 3                       # → review
+ukb done 3                         # → done
+ukb reopen 3                       # → todo
+ukb move 3 doing
+ukb edit 3 --body "…"              # empty string clears a field
+ukb block 4 --by 3                 # dependencies
+ukb web                            # start the API + Web UI and open a browser
+ukb doctor                         # is this project wired up?
 ```
 
-Run it from the project you want to board — the store lives at `<project>/.ukb/`.
+Agents pass `--agent <name> --agent-type agent` so cards are attributable
+(`UKB_AGENT` / `UKB_AGENT_TYPE` work too); `--dir` / `--storage` select the
+board. Domain failures exit non-zero with the stable code:
+`claim_conflict: card 3 is already being worked by codex`.
+
+### Onboarding a framework in one command
+
+```bash
+ukb init --for claude-code     # writes .mcp.json + CLAUDE.md
+ukb init --for codex           # marker block in ~/.codex/config.toml + AGENTS.md
+ukb init --for opencode        # merges opencode.json + AGENTS.md
+ukb init --for pi              # prints the config to paste, writes AGENTS.md
+```
+
+Every installer is idempotent — re-running produces byte-identical files — and
+preserves whatever was already there. The `AGENTS.md` / `CLAUDE.md` snippet is
+the part that teaches the workflow (claim before working, review when ready),
+which is why it lands even for harnesses with no dedicated installer.
+
+`ukb doctor` reports node, store, sqlite, MCP server, default UI, wired
+frameworks, and your resolved identity — and exits non-zero when something needs
+attention.
 
 ## Development
 

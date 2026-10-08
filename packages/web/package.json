@@ -1,7 +1,7 @@
 {
   "name": "@using-kanban/web",
   "version": "0.1.0",
-  "description": "Default Web UI for using-kanban — zero-build, zero-dependency, drag & drop, live over SSE",
+  "description": "Default Web UI for using-kanban \u2014 zero-build, zero-dependency, drag & drop, live over SSE",
   "license": "MIT",
   "type": "module",
   "keywords": [
@@ -16,6 +16,7 @@
   "main": "./dist/index.html",
   "exports": {
     ".": "./dist/index.html",
+    "./package.json": "./package.json",
     "./dist/index.html": "./dist/index.html",
     "./src/*": "./src/*"
   },

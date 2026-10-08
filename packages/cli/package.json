@@ -1,0 +1,51 @@
+{
+  "name": "@using-kanban/cli",
+  "version": "0.1.0",
+  "description": "ukb \u2014 command line for using-kanban, plus init --for installers for agent frameworks",
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "kanban",
+    "agents",
+    "cli",
+    "mcp"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "ukb": "./dist/bin.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm build"
+  },
+  "dependencies": {
+    "@using-kanban/core": "workspace:*",
+    "@using-kanban/server": "workspace:*",
+    "@using-kanban/web": "workspace:*",
+    "@using-kanban/mcp": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.3",
+    "vitest": "^3.2.4"
+  }
+}
