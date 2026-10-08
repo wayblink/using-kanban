@@ -1,0 +1,64 @@
+import type { Event } from "@using-kanban/core";
+import { HttpError } from "../http.js";
+import type { RequestContext } from "../router.js";
+
+const HEARTBEAT_MS = 15_000;
+
+/**
+ * `GET /api/events?since=<id>` — Server-Sent Events stream of the shared log.
+ *
+ * Backfills everything after `since`, then streams live events. Because the
+ * broker tails the event log, mutations made by the CLI or an MCP server show
+ * up here too.
+ */
+export function streamEvents(ctx: RequestContext): void {
+  const since = parseSince(ctx);
+  const res = ctx.res;
+
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no",
+  });
+  res.write("retry: 2000\n\n");
+
+  const send = (event: Event): void => {
+    // Each connection tracks its own cursor: the broker may hand us events the
+    // client already received via backfill (or via an earlier poll).
+    if (event.id <= lastSent) return;
+    lastSent = event.id;
+    if (res.writableEnded || res.destroyed) return;
+    res.write(`id: ${event.id}\ndata: ${JSON.stringify(event)}\n\n`);
+  };
+
+  let lastSent = since;
+  for (const event of ctx.kanban.eventsSince(since)) {
+    send(event);
+  }
+
+  const unsubscribe = ctx.broker.subscribe(send);
+  const heartbeat = setInterval(() => {
+    if (!res.writableEnded && !res.destroyed) res.write(": ping\n\n");
+  }, HEARTBEAT_MS);
+  heartbeat.unref();
+
+  res.on("close", () => {
+    unsubscribe();
+    clearInterval(heartbeat);
+  });
+}
+
+function parseSince(ctx: RequestContext): number {
+  const raw = ctx.query.get("since");
+  if (raw === null || raw === "") return 0;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) {
+    throw new HttpError(
+      400,
+      "invalid_input",
+      "since must be a non-negative integer event id",
+    );
+  }
+  return value;
+}

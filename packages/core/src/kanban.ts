@@ -79,6 +79,11 @@ export class Kanban {
     return this.log.since(0);
   }
 
+  /** Events appended after `id` — used to tail the log for SSE. */
+  eventsSince(id: number): Event[] {
+    return this.log.since(id);
+  }
+
   /** Open cards assigned to `assignee` — the "what should I work on" call. */
   mine(assignee: string): Card[] {
     this.projection.sync(this.log);

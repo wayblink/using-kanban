@@ -12,13 +12,13 @@ opencode, Pi, …) share one board. No team concept, no message bus, no daemon.
 
 ## Status
 
-| Package                | Status | What it is                                                      |
-| ---------------------- | ------ | --------------------------------------------------------------- |
-| `@using-kanban/core`   | ✅     | Event-sourced engine: event log, projection, transition guards  |
-| `@using-kanban/server` | ⬜     | REST + SSE API, loopback + token auth, OpenAPI, static hosting  |
-| `@using-kanban/mcp`    | ⬜     | MCP stdio server — the multi-framework front door               |
-| `@using-kanban/web`    | ⬜     | Default single-file Web UI (drag & drop, live updates)          |
-| `@using-kanban/cli`    | ⬜     | Thin client, binary `ukb` + `init --for <framework>` installers |
+| Package                | Status | What it is                                                           |
+| ---------------------- | ------ | -------------------------------------------------------------------- |
+| `@using-kanban/core`   | ✅     | Event-sourced engine: event log, projection, transition guards       |
+| `@using-kanban/server` | ✅     | REST + SSE API, token auth, OpenAPI, static UI hosting, `ukb-server` |
+| `@using-kanban/mcp`    | ⬜     | MCP stdio server — the multi-framework front door                    |
+| `@using-kanban/web`    | ⬜     | Default single-file Web UI (drag & drop, live updates)               |
+| `@using-kanban/cli`    | ⬜     | Thin client, binary `ukb` + `init --for <framework>` installers      |
 
 ## Why event-sourced
 
@@ -97,22 +97,67 @@ kanban.history(card.id); // full event trail
   `claim_conflict`, `forbidden`, `revision_conflict` — front doors map these to
   MCP tool errors and HTTP statuses
 
-## API surface (planned, `@using-kanban/server`)
+## HTTP API (`@using-kanban/server`)
 
 ```
 GET    /api/board                     columns + cards
-GET    /api/cards?state=open&assignee=me
-GET    /api/cards/:id                 card + history
+GET    /api/cards?state=open&assignee=me&reviewer=me&q=text
+GET    /api/cards/:id                 card + event history
 POST   /api/cards                     { title, body, assignee, reviewer, blockedBy }
 PATCH  /api/cards/:id                 edit fields
-POST   /api/cards/:id/{claim,review,done,reopen,move}
 DELETE /api/cards/:id                 creator only
+GET    /api/cards/:id/history
+POST   /api/cards/:id/{claim,review,done,reopen,move}
+POST   /api/cards/:id/{block,unblock} { blockedBy: <id> }
 GET    /api/events                    SSE: card.created / card.moved / card.updated / card.deleted
-GET    /openapi.json
+GET    /api/me                        current actor, storage info, column counts
+GET    /openapi.json                  full spec
 ```
 
-Bound to `127.0.0.1` with a per-launch token by default; `--host` + fixed token
-for embedding into another product.
+Errors are a stable envelope: `{ "error": { "code", "message" } }` with codes
+`invalid_input` (400), `card_not_found` (404), `claim_conflict` / `invalid_state` /
+`revision_conflict` (409), `forbidden` (403), `unauthorized` (401).
+
+**Auth** — bound to `127.0.0.1` by default with a generated token. Mutations
+always need it (`Authorization: Bearer <token>` or `?token=`, which is how a
+browser `EventSource` passes it); reads are free on loopback and need the token
+once you bind elsewhere. `--host` + `--token` is the embedding configuration.
+
+**Identity** — every mutation carries an actor: `X-Actor-Name` +
+`X-Actor-Type: human|agent` headers (or `?actor=&actor-type=`), falling back to
+the configured default. `X-Source: web|api|cli|mcp` tags where the event came
+from, so history shows who did what.
+
+**Concurrency** — send `If-Match: <revision>` (or `expectedRevision` in the
+body); a stale revision gets `409 revision_conflict` instead of clobbering a
+concurrent edit.
+
+### Run it
+
+```bash
+ukb-server --dir . --port 4173 --ui ./packages/web/dist
+# → http://127.0.0.1:4173/?token=<generated>
+```
+
+### Embed it
+
+The handler is a plain `(req, res) => void` function — drop it into any host:
+
+```ts
+import { createServer } from "node:http";
+import { createKanbanHandler } from "@using-kanban/server";
+
+const handler = createKanbanHandler({
+  dir: ".",
+  token: "my-fixed-token",
+  corsOrigin: "*",
+});
+createServer(handler).listen(8080);
+// or: app.use(handler) inside Express / Fastify
+```
+
+`GET /api/events` is an SSE stream of the shared log, so a custom UI (or another
+product) gets live updates — including changes made by the CLI or an MCP server.
 
 ## MCP (planned, `@using-kanban/mcp`)
 
