@@ -159,16 +159,79 @@ createServer(handler).listen(8080);
 `GET /api/events` is an SSE stream of the shared log, so a custom UI (or another
 product) gets live updates — including changes made by the CLI or an MCP server.
 
-## MCP (planned, `@using-kanban/mcp`)
+## MCP (`@using-kanban/mcp`)
 
-One stdio server, tools mapped 1:1 onto core actions: `board`, `my_cards`,
-`card_show`, `card_add`, `card_edit`, `card_claim`, `card_review`, `card_done`,
-`card_reopen`, `card_move`, `card_delete`, `card_block`.
+One stdio server, `ukb-mcp`, exposing the board as tools to any MCP-capable
+agent. It talks to the core in-process — no daemon, no HTTP hop.
 
-The workflow lives in the tool descriptions — `my_cards` says _"call at turn
-start; claim todo cards before working them; move to review when ready"_ — so
-even a naive agent behaves correctly. `init --for claude-code|cursor|opencode|…`
-writes the MCP config plus an `AGENTS.md` snippet for each framework.
+| Tool                              | Purpose                                    |
+| --------------------------------- | ------------------------------------------ |
+| `kanban_my_cards`                 | **Your open cards** — the call to act      |
+| `kanban_review_queue`             | Cards waiting for your review              |
+| `kanban_board`                    | Full board (todo/doing/review/done)        |
+| `kanban_show`                     | Card detail: body, blockers, event history |
+| `kanban_add`                      | Create a card (todo)                       |
+| `kanban_claim`                    | todo → doing, assigned to you              |
+| `kanban_review`                   | → review                                   |
+| `kanban_done`                     | → done (idempotent)                        |
+| `kanban_reopen`                   | → todo                                     |
+| `kanban_move`                     | → any column                               |
+| `kanban_edit`                     | Edit fields (creator or assignee)          |
+| `kanban_delete`                   | Delete (creator only)                      |
+| `kanban_block` / `kanban_unblock` | Dependencies                               |
+
+Plus the `kanban://board` resource (the board as JSON).
+
+Domain failures come back as tool errors with the stable code prefix —
+`claim_conflict: card 3 is already being worked by codex` — so the agent knows
+exactly what happened and can recover.
+
+### Install into a framework
+
+The server takes its identity from `--agent`, which is what makes cards
+attributable per framework:
+
+```jsonc
+// Claude Code — .mcp.json or `claude mcp add`
+{
+  "mcpServers": {
+    "using-kanban": {
+      "command": "npx",
+      "args": ["-y", "@using-kanban/mcp", "--agent", "claude-code"],
+    },
+  },
+}
+```
+
+```toml
+# Codex — ~/.codex/config.toml
+[mcp_servers.using-kanban]
+command = "npx"
+args = ["-y", "@using-kanban/mcp", "--agent", "codex"]
+```
+
+```jsonc
+// opencode — opencode.json
+{
+  "mcp": {
+    "using-kanban": {
+      "type": "local",
+      "command": ["npx", "-y", "@using-kanban/mcp", "--agent", "opencode"],
+    },
+  },
+}
+```
+
+(Config shapes vary by harness version — `ukb init --for <framework>` will write
+them for you once the CLI lands.)
+
+Other flags/env: `--dir` / `UKB_DIR` (board directory, defaults to the project
+the agent runs in), `--storage` / `UKB_STORAGE`, `--agent-type` / `UKB_AGENT_TYPE`.
+
+**Why the workflow is in the descriptions:** `kanban_my_cards` reads as a call
+to act — _claim todo cards before starting work, move to review when ready_ — so
+even an agent that never sees your docs behaves correctly. That inheritance from
+agkanban is deliberate.
 
 ## CLI (planned, `@using-kanban/cli`)
 
