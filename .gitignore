@@ -1,6 +1,6 @@
 node_modules/
 dist/
 coverage/
-.kanban/
+.ukb/
 *.log
 .DS_Store

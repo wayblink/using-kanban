@@ -16,13 +16,16 @@ export interface OpenKanbanOptions {
   readonly path?: string | undefined;
 }
 
+/** Per-project store directory, created on first open. */
+export const DEFAULT_STORAGE_DIR = ".ukb";
+
 const DEFAULT_FILE_NAMES: Record<Exclude<StorageKind, "memory">, string> = {
   sqlite: "board.db",
   jsonl: "events.jsonl",
 };
 
 /**
- * Opens a kanban backed by a per-project store at `<dir>/.kanban/`.
+ * Opens a kanban backed by a per-project store at `<dir>/.ukb/`.
  *
  * No daemon: every call opens the store directly, which is safe because the
  * event log (SQLite WAL) supports concurrent appends from several processes.
@@ -36,7 +39,7 @@ export function openKanban(options: OpenKanbanOptions = {}): Kanban {
   const dir = resolve(options.dir ?? process.cwd());
   const path = options.path
     ? resolve(options.path)
-    : join(dir, ".kanban", DEFAULT_FILE_NAMES[storage]);
+    : join(dir, DEFAULT_STORAGE_DIR, DEFAULT_FILE_NAMES[storage]);
   mkdirSync(dirname(path), { recursive: true });
 
   const log =

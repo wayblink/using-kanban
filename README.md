@@ -12,13 +12,13 @@ opencode, Pi, …) share one board. No team concept, no message bus, no daemon.
 
 ## Status
 
-| Package          | Status | What it is                                                     |
-| ---------------- | ------ | -------------------------------------------------------------- |
-| `@kanban/core`   | ✅     | Event-sourced engine: event log, projection, transition guards |
-| `@kanban/server` | ⬜     | REST + SSE API, loopback + token auth, OpenAPI, static hosting |
-| `@kanban/mcp`    | ⬜     | MCP stdio server — the multi-framework front door              |
-| `@kanban/web`    | ⬜     | Default single-file Web UI (drag & drop, live updates)         |
-| `@kanban/cli`    | ⬜     | Thin client + `init --for <framework>` installers              |
+| Package                | Status | What it is                                                      |
+| ---------------------- | ------ | --------------------------------------------------------------- |
+| `@using-kanban/core`   | ✅     | Event-sourced engine: event log, projection, transition guards  |
+| `@using-kanban/server` | ⬜     | REST + SSE API, loopback + token auth, OpenAPI, static hosting  |
+| `@using-kanban/mcp`    | ⬜     | MCP stdio server — the multi-framework front door               |
+| `@using-kanban/web`    | ⬜     | Default single-file Web UI (drag & drop, live updates)          |
+| `@using-kanban/cli`    | ⬜     | Thin client, binary `ukb` + `init --for <framework>` installers |
 
 ## Why event-sourced
 
@@ -58,9 +58,9 @@ external API consumer, and idles out on its own.
 ## Quick start
 
 ```ts
-import { openKanban } from "@kanban/core";
+import { openKanban } from "@using-kanban/core";
 
-const kanban = openKanban({ dir: process.cwd() }); // <dir>/.kanban/board.db
+const kanban = openKanban({ dir: process.cwd() }); // <dir>/.ukb/board.db
 
 const human = { type: "human", name: "jyxc" };
 const agent = { type: "agent", name: "claude-code" };
@@ -97,7 +97,7 @@ kanban.history(card.id); // full event trail
   `claim_conflict`, `forbidden`, `revision_conflict` — front doors map these to
   MCP tool errors and HTTP statuses
 
-## API surface (planned, `@kanban/server`)
+## API surface (planned, `@using-kanban/server`)
 
 ```
 GET    /api/board                     columns + cards
@@ -114,7 +114,7 @@ GET    /openapi.json
 Bound to `127.0.0.1` with a per-launch token by default; `--host` + fixed token
 for embedding into another product.
 
-## MCP (planned, `@kanban/mcp`)
+## MCP (planned, `@using-kanban/mcp`)
 
 One stdio server, tools mapped 1:1 onto core actions: `board`, `my_cards`,
 `card_show`, `card_add`, `card_edit`, `card_claim`, `card_review`, `card_done`,
@@ -124,6 +124,22 @@ The workflow lives in the tool descriptions — `my_cards` says _"call at turn
 start; claim todo cards before working them; move to review when ready"_ — so
 even a naive agent behaves correctly. `init --for claude-code|cursor|opencode|…`
 writes the MCP config plus an `AGENTS.md` snippet for each framework.
+
+## CLI (planned, `@using-kanban/cli`)
+
+The `ukb` binary is a thin client over the same core — same board, same events:
+
+```bash
+ukb                                       # my open cards (a call to act, not a status dump)
+ukb board                                 # full board
+ukb add "fix flaky test" --assignee claude-code --reviewer jyxc
+ukb claim 3                               # todo → doing, assigned to me
+ukb review 3                              # → review, notifies the reviewer
+ukb done 3
+ukb web                                   # start the local Web UI and open it
+```
+
+Run it from the project you want to board — the store lives at `<project>/.ukb/`.
 
 ## Development
 

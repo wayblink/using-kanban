@@ -1,5 +1,5 @@
 {
-  "name": "@kanban/core",
+  "name": "@using-kanban/core",
   "version": "0.1.0",
   "description": "Event-sourced kanban engine: append-only event log, board projection, and transition guards",
   "license": "MIT",

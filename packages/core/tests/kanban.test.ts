@@ -1,11 +1,11 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { KanbanError } from "../src/errors.js";
 import { MemoryEventLog } from "../src/event-log.js";
 import { Kanban } from "../src/kanban.js";
-import { openKanban } from "../src/open.js";
+import { openKanban, DEFAULT_STORAGE_DIR } from "../src/open.js";
 import type { Actor } from "../src/types.js";
 
 const human: Actor = { type: "human", name: "jyxc" };
@@ -320,10 +320,12 @@ describe("shared stores (no daemon)", () => {
     expect(writer.card(card.id)?.state).toBe("done");
   });
 
-  it("defaults to sqlite at <dir>/.kanban/board.db", () => {
+  it("defaults to a sqlite store at <dir>/.ukb/board.db", () => {
     const dir = tempDir();
     const kanban = openKanban({ dir });
     const { card } = kanban.add({ title: "default location" }, human);
+
+    expect(existsSync(join(dir, DEFAULT_STORAGE_DIR, "board.db"))).toBe(true);
     expect(openKanban({ dir }).card(card.id)?.title).toBe("default location");
   });
 });

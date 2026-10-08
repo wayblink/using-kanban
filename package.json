@@ -1,5 +1,5 @@
 {
-  "name": "kanban",
+  "name": "using-kanban",
   "version": "0.0.0",
   "private": true,
   "description": "Headless kanban engine for AI agents and humans — HTTP + SSE + MCP out of the box, bring your own UI",
