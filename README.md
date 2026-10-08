@@ -233,6 +233,38 @@ to act — _claim todo cards before starting work, move to review when ready_ �
 even an agent that never sees your docs behaves correctly. That inheritance from
 agkanban is deliberate.
 
+## Web UI (`@using-kanban/web`)
+
+The default UI is dependency-free — no framework, no build step, no
+`node_modules` in the browser. `ukb-server --ui ./packages/web/src` serves it,
+or drop the single inlined file anywhere:
+
+```bash
+node packages/web/scripts/inline.mjs   # → dist/index.html (one self-contained file, ~36 KB)
+ukb-server --dir . --ui ./packages/web/dist
+```
+
+- **Four columns**, drag & drop between them. A drop maps to the matching intent
+  verb — onto _Doing_ runs `claim` (and assigns the card to you), onto _Review_
+  runs `review`, onto _Done_ runs `done`, back onto _Todo_ reopens. A failed
+  claim (someone else got there first) surfaces the server's error and the board
+  snaps back to server state.
+- **Live**: `EventSource` on `/api/events`, so cards moved by an agent — or by
+  the CLI, or another browser tab — appear without a refresh.
+- **Identity**: the top bar is _who this browser acts as_ (persisted in
+  `localStorage`, sent as `X-Actor-Name`/`X-Actor-Type`). The human and the
+  agents share one board and one namespace.
+- **Card drawer**: edit title/body/assignee/reviewer, run transitions, add or
+  remove blockers, read the event history, delete (creator only).
+- **Filters** by text, assignee, and reviewer; **new card** modal with body
+  field for target files and acceptance criteria.
+- Light and dark via `prefers-color-scheme`; single-column snap layout on
+  narrow screens; keyboard-openable cards; `Esc` closes panels.
+
+The UI is a _consumer_ like any other: `GET /api/board` + `POST
+/api/cards/:id/<verb>` + SSE. Build your own against the same API, or embed the
+handler in your product and point your own frontend at it.
+
 ## CLI (planned, `@using-kanban/cli`)
 
 The `ukb` binary is a thin client over the same core — same board, same events:

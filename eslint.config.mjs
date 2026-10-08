@@ -27,4 +27,13 @@ export default [
       "@typescript-eslint/consistent-type-imports": "error",
     },
   },
+  {
+    // The default Web UI is dependency-free browser code.
+    files: ["packages/web/src/**/*.js"],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "module",
+      globals: { ...globals.browser },
+    },
+  },
 ];
