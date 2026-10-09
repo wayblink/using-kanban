@@ -159,6 +159,20 @@ export class Projection {
     return all.filter((card) => card.project === project);
   }
 
+  /**
+   * Blockers of `card` that still stand in the way: they exist and are not
+   * done. A blocker that has been deleted counts as satisfied — otherwise
+   * deleting a card could block another one forever.
+   */
+  openBlockers(card: Card): number[] {
+    const open: number[] = [];
+    for (const id of card.blockedBy) {
+      const blocker = this.cards.get(id);
+      if (blocker && blocker.state !== "done") open.push(id);
+    }
+    return open;
+  }
+
   /** True when `targetId` is reachable from `fromId` by following blockedBy edges. */
   isBlockedTransitively(fromId: number, targetId: number): boolean {
     const seen = new Set<number>();

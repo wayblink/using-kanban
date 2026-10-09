@@ -357,6 +357,29 @@ export class Kanban {
     if (card.state === to && patch === undefined) {
       return { card, events: [] };
     }
+    // Starting work on a card whose blockers are unfinished would let someone
+    // pick up work that is not actually ready. `done` is deliberately not
+    // gated: a card must always be closable, or an irrelevant blocker becomes a
+    // dead end with no way out.
+    if (to === "doing") {
+      const open = this.projection.openBlockers(card);
+      if (open.length > 0) {
+        const waiting = open
+          .map((blockerId) => {
+            const blocker = this.projection.card(blockerId);
+            return blocker
+              ? `#${blockerId} (${blocker.state})`
+              : `#${blockerId}`;
+          })
+          .join(", ");
+        throw new KanbanError(
+          "invalid_state",
+          `card ${id} is blocked by ${waiting} — finish or unblock ${
+            open.length === 1 ? "it" : "them"
+          } first`,
+        );
+      }
+    }
     return this.emit({
       actor,
       source,

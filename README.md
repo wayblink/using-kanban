@@ -87,7 +87,9 @@ kanban.history(card.id); // full event trail
 - **Actors**: `{ type: "human" | "agent", name }` — one namespace, so a human
   can review an agent's card and vice versa
 - **Dependencies**: `block(id, blockedById)` / `unblock`, multiple per card,
-  cycles rejected
+  cycles rejected. A card with an unfinished blocker cannot be claimed or moved
+  into `doing` — the guard names the blockers so the failure is actionable.
+  `done` is never gated, so an irrelevant blocker cannot become a dead end.
 - **Optimistic concurrency**: every mutation accepts `expectedRevision`; a
   stale revision fails with `revision_conflict` instead of clobbering a
   concurrent update (drag-drop vs. an agent claiming the same card)

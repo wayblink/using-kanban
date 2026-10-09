@@ -519,7 +519,10 @@ const DOCS_EN = [
             "kanban_claim / kanban_review / kanban_done / kanban_reopen / kanban_move",
             "the transitions",
           ],
-          ["kanban_block / kanban_unblock", "dependencies"],
+          [
+            "kanban_block / kanban_unblock",
+            "dependencies — a card with an unfinished blocker cannot be claimed or moved to doing",
+          ],
           [
             "kanban_projects",
             "the project slugs in use — call before filtering",
@@ -877,7 +880,10 @@ const DOCS_ZH = [
             "kanban_claim / kanban_review / kanban_done / kanban_reopen / kanban_move",
             "状态流转",
           ],
-          ["kanban_block / kanban_unblock", "依赖关系"],
+          [
+            "kanban_block / kanban_unblock",
+            "依赖关系——有未完成阻塞项的卡片无法被认领或移入进行中",
+          ],
           ["kanban_projects", "正在使用的项目标识——过滤前先调用"],
         ],
       },

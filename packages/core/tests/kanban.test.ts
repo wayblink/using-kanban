@@ -462,3 +462,86 @@ describe("projects", () => {
     expect(reopened.board().todo).toHaveLength(1);
   });
 });
+
+describe("blockers gate starting work", () => {
+  const setup = () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    const blocker = kanban.add({ title: "blocker" }, human).card;
+    const blocked = kanban.add(
+      { title: "blocked", blockedBy: [blocker.id] },
+      human,
+    ).card;
+    return { kanban, blocker, blocked };
+  };
+
+  it("refuses to claim a card whose blocker is unfinished", () => {
+    const { kanban, blocked, blocker } = setup();
+    let error: KanbanError | undefined;
+    try {
+      kanban.claim(blocked.id, agent);
+    } catch (caught) {
+      error = caught as KanbanError;
+    }
+    expect(error).toBeInstanceOf(KanbanError);
+    expect(error?.code).toBe("invalid_state");
+    // the message must name the blocker and its state, so it is actionable
+    expect(error?.message).toContain(`#${blocker.id}`);
+    expect(error?.message).toContain("todo");
+    expect(kanban.card(blocked.id)?.state).toBe("todo");
+  });
+
+  it("refuses to move it into doing, but allows any other column", () => {
+    const { kanban, blocked } = setup();
+    expect(() => kanban.move(blocked.id, "doing", agent)).toThrow(KanbanError);
+    // review is not gated: the work is already done by then, and refusing would
+    // only create friction
+    expect(kanban.move(blocked.id, "review", agent).card.state).toBe("review");
+  });
+
+  it("lets the card through once the blocker is done", () => {
+    const { kanban, blocked, blocker } = setup();
+    kanban.done(blocker.id, agent);
+    const claimed = kanban.claim(blocked.id, agent);
+    expect(claimed.card.state).toBe("doing");
+    expect(claimed.card.assignee).toBe("claude-code");
+  });
+
+  it("treats a deleted blocker as satisfied", () => {
+    const { kanban, blocked, blocker } = setup();
+    kanban.remove(blocker.id, human);
+    // otherwise deleting a card could block another one forever
+    expect(kanban.claim(blocked.id, agent).card.state).toBe("doing");
+  });
+
+  it("never gates done — a card must always be closable", () => {
+    const { kanban, blocked } = setup();
+    expect(kanban.done(blocked.id, agent).card.state).toBe("done");
+  });
+
+  it("reports every open blocker, not just the first", () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    const first = kanban.add({ title: "one" }, human).card;
+    const second = kanban.add({ title: "two" }, human).card;
+    const blocked = kanban.add(
+      { title: "blocked", blockedBy: [first.id, second.id] },
+      human,
+    ).card;
+
+    let message = "";
+    try {
+      kanban.claim(blocked.id, agent);
+    } catch (caught) {
+      message = (caught as KanbanError).message;
+    }
+    expect(message).toContain(`#${first.id}`);
+    expect(message).toContain(`#${second.id}`);
+    // plural, because there are two
+    expect(message).toContain("them");
+  });
+
+  it("does not gate a card with no blockers", () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    const card = kanban.add({ title: "free" }, human).card;
+    expect(kanban.claim(card.id, agent).card.state).toBe("doing");
+  });
+});

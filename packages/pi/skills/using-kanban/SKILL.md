@@ -69,6 +69,22 @@ ukb delete <id>                  # creator only
 ukb web                          # API + Web UI for a human to watch
 ```
 
+## Blockers are enforced
+
+A card with an unfinished blocker **cannot be claimed or moved into `doing`** —
+the point is that nobody picks up work that is not actually ready. The error
+names the blockers and their states:
+
+```
+invalid_state: card 7 is blocked by #3 (doing) — finish or unblock it first
+```
+
+Two deliberate exceptions: a blocker that has been **deleted** counts as
+satisfied, otherwise deleting a card could block another one forever; and
+`done` is never gated, so an irrelevant blocker cannot become a dead end.
+`review` is not gated either — by then the work is already finished, and
+refusing would only create friction.
+
 ## Permissions and failures
 
 Cooperative, not enforced: `delete` is creator-only, `edit`/`block` are

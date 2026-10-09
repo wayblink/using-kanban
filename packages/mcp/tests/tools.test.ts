@@ -388,3 +388,55 @@ describe("projects", () => {
     expect(queue).toContain("Nothing waiting");
   });
 });
+
+describe("blockers gate starting work", () => {
+  it("refuses to claim a blocked card with an actionable message", async () => {
+    const connection = await connect(tempDir());
+    const call = (name: string, args: Record<string, unknown> = {}) =>
+      connection.client.callTool({ name, arguments: args });
+
+    await call("kanban_add", { title: "blocker", reviewer: "jyxc" });
+    await call("kanban_add", { title: "blocked", blockedBy: [1] });
+
+    const result = await call("kanban_claim", { id: 2 });
+    expect(result.isError).toBe(true);
+    const text = (result.content as { text: string }[])[0]?.text ?? "";
+    // the code is localisable, the detail names the blocker and its state
+    expect(text).toContain("invalid_state");
+    expect(text).toContain("#1");
+    expect(text).toContain("todo");
+    expect(text).toContain("unblock");
+  });
+
+  it("allows the claim once the blocker is done", async () => {
+    const connection = await connect(tempDir());
+    const call = (name: string, args: Record<string, unknown> = {}) =>
+      connection.client.callTool({ name, arguments: args });
+
+    await call("kanban_add", { title: "blocker" });
+    await call("kanban_add", { title: "blocked", blockedBy: [1] });
+    await call("kanban_done", { id: 1 });
+
+    const result = await call("kanban_claim", { id: 2 });
+    expect(result.isError).toBeFalsy();
+    expect((result.content as { text: string }[])[0]?.text).toContain(
+      "[doing]",
+    );
+  });
+
+  it("still allows a blocked card to be reviewed and done", async () => {
+    const connection = await connect(tempDir());
+    const call = (name: string, args: Record<string, unknown> = {}) =>
+      connection.client.callTool({ name, arguments: args });
+
+    await call("kanban_add", { title: "blocker" });
+    await call("kanban_add", {
+      title: "blocked",
+      blockedBy: [1],
+      assignee: "claude-code",
+    });
+    // review is not gated — the work is already done by that point
+    expect((await call("kanban_review", { id: 2 })).isError).toBeFalsy();
+    expect((await call("kanban_done", { id: 2 })).isError).toBeFalsy();
+  });
+});

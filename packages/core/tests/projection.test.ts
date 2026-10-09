@@ -18,11 +18,14 @@ function scenario(kanban: Kanban): void {
     human,
   ).card;
 
-  kanban.claim(second.id, agent, "mcp");
   kanban.block(second.id, first.id, human);
   kanban.edit(second.id, { body: "openapi.json first" }, human);
-  kanban.review(second.id, agent, "mcp");
+  // the blocker has to be finished before the blocked card may be claimed —
+  // this scenario used to claim it first, which was only possible because
+  // blockers were not enforced
   kanban.done(first.id, human);
+  kanban.claim(second.id, agent, "mcp");
+  kanban.review(second.id, agent, "mcp");
   kanban.remove(first.id, human);
   kanban.reopen(second.id, human);
 }
