@@ -29,7 +29,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "node --check src/app.js && node --check scripts/inline.mjs",
-    "browser-check": "node scripts/browser-check.mjs"
+    "browser-check": "node scripts/browser-check.mjs",
+    "drag-check": "node scripts/drag-check.mjs"
   },
   "devDependencies": {
     "@using-kanban/server": "workspace:*",

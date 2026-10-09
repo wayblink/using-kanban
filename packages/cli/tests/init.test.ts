@@ -43,6 +43,7 @@ async function init(
   framework: string,
   options: {
     dryRun?: boolean;
+    browser?: boolean;
     files?: Record<string, string>;
     homeFiles?: Record<string, string>;
   } = {},
@@ -58,6 +59,7 @@ async function init(
     "--for",
     framework,
     ...(options.dryRun ? ["--dry-run"] : []),
+    ...(options.browser ? ["--browser"] : []),
   ];
   const code = await runCommand(argv, io);
   expect(code).toBe(0);
@@ -136,13 +138,19 @@ describe("ukb init", () => {
     expect(contents).toContain("[mcp_servers.using-kanban]");
     expect(contents).toContain('"codex"');
     expect(contents).toContain(project);
-    expect(contents.split("# >>> using-kanban >>>")).toHaveLength(2);
-    expect(contents.trimEnd().endsWith("# <<< using-kanban <<<")).toBe(true);
+    expect(contents.split("# >>> using-kanban:using-kanban >>>")).toHaveLength(
+      2,
+    );
+    expect(
+      contents.trimEnd().endsWith("# <<< using-kanban:using-kanban <<<"),
+    ).toBe(true);
 
     // idempotent: a second run replaces the block instead of appending another
     await runCommand(["init", "--for", "codex"], makeIo(project, home));
     expect(
-      readFileSync(configPath, "utf8").split("# >>> using-kanban >>>"),
+      readFileSync(configPath, "utf8").split(
+        "# >>> using-kanban:using-kanban >>>",
+      ),
     ).toHaveLength(2);
 
     // and the project gets the workflow docs
@@ -211,5 +219,68 @@ describe("ukb init", () => {
       expect(spec.notes.length).toBeGreaterThan(0);
       expect(key).toBe(spec.agent);
     }
+  });
+});
+
+describe("ukb init --browser", () => {
+  it("adds the Playwright MCP server next to the board for Claude Code", async () => {
+    const { project, out } = await init("claude-code", { browser: true });
+    const mcp = JSON.parse(
+      readFileSync(join(project, ".mcp.json"), "utf8"),
+    ) as {
+      mcpServers: Record<string, { command: string; args: string[] }>;
+    };
+    expect(Object.keys(mcp.mcpServers).sort()).toEqual([
+      "playwright",
+      "using-kanban",
+    ]);
+    expect(mcp.mcpServers.playwright?.command).toBe("npx");
+    expect(mcp.mcpServers.playwright?.args).toContain("@playwright/mcp@latest");
+    expect(out.join("\n")).toContain("playwright MCP server");
+  });
+
+  it("adds a second marker block to the Codex config", async () => {
+    const { home } = await init("codex", { browser: true });
+    const contents = readFileSync(join(home, ".codex", "config.toml"), "utf8");
+    expect(contents).toContain("[mcp_servers.using-kanban]");
+    expect(contents).toContain("[mcp_servers.playwright]");
+    expect(contents).toContain("@playwright/mcp@latest");
+    // both blocks stay marker-delimited and idempotent
+    expect(contents.split("# >>> using-kanban:using-kanban >>>")).toHaveLength(
+      2,
+    );
+    expect(contents.split("# >>> using-kanban:playwright >>>")).toHaveLength(2);
+  });
+
+  it("adds it to opencode.json in opencode's shape", async () => {
+    const { project } = await init("opencode", { browser: true });
+    const config = JSON.parse(
+      readFileSync(join(project, "opencode.json"), "utf8"),
+    ) as {
+      mcp: Record<string, { type: string; command: string[] }>;
+    };
+    expect(Object.keys(config.mcp).sort()).toEqual([
+      "playwright",
+      "using-kanban",
+    ]);
+    expect(config.mcp.playwright?.type).toBe("local");
+    expect(config.mcp.playwright?.command).toContain("@playwright/mcp@latest");
+  });
+
+  it("prints it for unknown frameworks", async () => {
+    const { out } = await init("pi", { browser: true });
+    const text = out.join("\n");
+    expect(text).toContain('"playwright"');
+    expect(text).toContain('"using-kanban"');
+  });
+
+  it("does nothing browser-related without the flag", async () => {
+    const { project } = await init("claude-code");
+    const mcp = JSON.parse(
+      readFileSync(join(project, ".mcp.json"), "utf8"),
+    ) as {
+      mcpServers: Record<string, unknown>;
+    };
+    expect(Object.keys(mcp.mcpServers)).toEqual(["using-kanban"]);
   });
 });

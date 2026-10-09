@@ -6,8 +6,11 @@ import type { Io } from "./commands.js";
 
 const DOCS_START = "<!-- using-kanban:start -->";
 const DOCS_END = "<!-- using-kanban:end -->";
-const TOML_START = "# >>> using-kanban >>>";
-const TOML_END = "# <<< using-kanban <<<";
+/** Markers are keyed per server so several can coexist in one config file. */
+const tomlMarkers = (key: string) => ({
+  start: `# >>> using-kanban:${key} >>>`,
+  end: `# <<< using-kanban:${key} <<<`,
+});
 
 interface FrameworkSpec {
   /** Agent name written into the MCP config. */
@@ -26,8 +29,18 @@ interface WriteContext {
   projectDir: string;
   home: string;
   entry: Record<string, unknown>;
+  /** Second MCP server written when `--browser` is passed. */
+  browserEntry?: Record<string, unknown> | undefined;
   docsPath: string;
   dryRun: boolean;
+}
+
+/** The optional Playwright MCP server, so agents can drive a browser too. */
+function browserMcpEntry(): Record<string, unknown> {
+  return {
+    command: "npx",
+    args: ["-y", "@playwright/mcp@latest", "--headless"],
+  };
 }
 
 /** `npx -y @using-kanban/mcp --agent <name> --dir <project>` */
@@ -63,14 +76,11 @@ const FRAMEWORKS: Record<string, FrameworkSpec> = {
       "Restart Claude Code (or reload the project) so it picks up .mcp.json.",
       "Commit .mcp.json if you want the whole team to share the board.",
     ],
-    write: ({ projectDir, entry, docsPath, dryRun }) => {
-      mergeJson(
-        join(projectDir, ".mcp.json"),
-        "mcpServers",
-        "using-kanban",
-        entry,
-        dryRun,
-      );
+    write: ({ projectDir, entry, browserEntry, docsPath, dryRun }) => {
+      const config = join(projectDir, ".mcp.json");
+      mergeJson(config, "mcpServers", "using-kanban", entry, dryRun);
+      if (browserEntry)
+        mergeJson(config, "mcpServers", "playwright", browserEntry, dryRun);
       upsertDocs(docsPath, dryRun);
     },
   },
@@ -86,13 +96,10 @@ const FRAMEWORKS: Record<string, FrameworkSpec> = {
       "The config.toml block is marker-delimited and safe to re-run.",
       "AGENTS.md is read by Codex on every run in this project.",
     ],
-    write: ({ home, projectDir, entry, docsPath, dryRun }) => {
-      upsertToml(
-        join(home, ".codex", "config.toml"),
-        "using-kanban",
-        entry,
-        dryRun,
-      );
+    write: ({ home, projectDir, entry, browserEntry, docsPath, dryRun }) => {
+      const config = join(home, ".codex", "config.toml");
+      upsertToml(config, "using-kanban", entry, dryRun);
+      if (browserEntry) upsertToml(config, "playwright", browserEntry, dryRun);
       upsertDocs(docsPath, dryRun);
       void projectDir;
     },
@@ -106,14 +113,21 @@ const FRAMEWORKS: Record<string, FrameworkSpec> = {
       command: ["npx", ...mcpArgs("opencode", projectDir)],
     }),
     notes: ["opencode reads opencode.json from the project root."],
-    write: ({ projectDir, entry, docsPath, dryRun }) => {
-      mergeJson(
-        join(projectDir, "opencode.json"),
-        "mcp",
-        "using-kanban",
-        entry,
-        dryRun,
-      );
+    write: ({ projectDir, entry, browserEntry, docsPath, dryRun }) => {
+      const config = join(projectDir, "opencode.json");
+      mergeJson(config, "mcp", "using-kanban", entry, dryRun);
+      if (browserEntry) {
+        mergeJson(
+          config,
+          "mcp",
+          "playwright",
+          {
+            type: "local",
+            command: ["npx", ...(browserEntry.args as string[])],
+          },
+          dryRun,
+        );
+      }
       upsertDocs(docsPath, dryRun);
     },
   },
@@ -144,6 +158,9 @@ export async function runInit(
   }
 
   const dryRun = flagBoolean(flags, "dry-run");
+  const browserEntry = flagBoolean(flags, "browser")
+    ? browserMcpEntry()
+    : undefined;
   const key = ALIASES[requested] ?? requested;
   const spec = FRAMEWORKS[key];
   const agentName = spec?.agent ?? flagString(flags, "agent") ?? "agent";
@@ -165,9 +182,9 @@ export async function runInit(
       `No dedicated installer for "${requested}" yet. Add this MCP server to your harness:`,
     );
     io.stdout("");
-    io.stdout(
-      JSON.stringify({ mcpServers: { "using-kanban": entry } }, null, 2),
-    );
+    const servers: Record<string, unknown> = { "using-kanban": entry };
+    if (browserEntry) servers.playwright = browserEntry;
+    io.stdout(JSON.stringify({ mcpServers: servers }, null, 2));
     io.stdout("");
     upsertDocs(join(projectDir, "AGENTS.md"), dryRun);
     io.stdout(
@@ -180,6 +197,7 @@ export async function runInit(
     projectDir,
     home,
     entry,
+    browserEntry,
     docsPath: join(
       projectDir,
       key === "claude-code" ? "CLAUDE.md" : "AGENTS.md",
@@ -189,6 +207,9 @@ export async function runInit(
 
   for (const file of spec.files) {
     io.stdout(`  wrote    ${file}`);
+  }
+  if (browserEntry) {
+    io.stdout("  wrote    playwright MCP server (agents can drive a browser)");
   }
   for (const note of spec.notes) {
     io.stdout(`  note     ${note}`);
@@ -218,20 +239,21 @@ function upsertToml(
   entry: Record<string, unknown>,
   dryRun: boolean,
 ): void {
+  const { start: startMarker, end: endMarker } = tomlMarkers(key);
   const args = (entry.args as string[]).map((arg) => `"${arg}"`).join(", ");
   const block = [
-    TOML_START,
+    startMarker,
     `[mcp_servers.${key}]`,
     `command = "${String(entry.command)}"`,
     `args = [${args}]`,
-    TOML_END,
+    endMarker,
   ].join("\n");
 
   const current = readText(path);
   let next: string;
-  if (current.includes(TOML_START) && current.includes(TOML_END)) {
-    const start = current.indexOf(TOML_START);
-    const end = current.indexOf(TOML_END) + TOML_END.length;
+  if (current.includes(startMarker) && current.includes(endMarker)) {
+    const start = current.indexOf(startMarker);
+    const end = current.indexOf(endMarker) + endMarker.length;
     next = `${current.slice(0, start)}${block}${current.slice(end)}`;
   } else {
     const separator =

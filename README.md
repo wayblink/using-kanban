@@ -265,6 +265,25 @@ The UI is a _consumer_ like any other: `GET /api/board` + `POST
 /api/cards/:id/<verb>` + SSE. Build your own against the same API, or embed the
 handler in your product and point your own frontend at it.
 
+### Verifying the UI in a real browser
+
+Two harnesses, both runnable with zero setup:
+
+```bash
+pnpm --filter @using-kanban/web browser-check   # zero-dependency CDP driver
+pnpm --filter @using-kanban/web drag-check      # Playwright: real drag & drop
+```
+
+`browser-check` drives headless Chrome over the DevTools Protocol using Node's
+built-in WebSocket — no Playwright, no Puppeteer. It starts its own throwaway
+board, asserts the layout (hidden panels stay hidden, the board fills the
+viewport, four columns), clicks a card, presses Escape, opens and closes the
+modal, and fails on any console error.
+
+`drag-check` adds what synthetic mouse events cannot: HTML5 drag-and-drop. It
+drags a card onto **Doing** and asserts the card was _claimed_ and attributed to
+the identity shown in the top bar, then drags it back and asserts it reopened.
+
 ## CLI (`@using-kanban/cli`)
 
 The `ukb` binary talks to the core in-process — same board, same events, no
@@ -294,11 +313,16 @@ board. Domain failures exit non-zero with the stable code:
 ### Onboarding a framework in one command
 
 ```bash
-ukb init --for claude-code     # writes .mcp.json + CLAUDE.md
-ukb init --for codex           # marker block in ~/.codex/config.toml + AGENTS.md
-ukb init --for opencode        # merges opencode.json + AGENTS.md
-ukb init --for pi              # prints the config to paste, writes AGENTS.md
+ukb init --for claude-code           # writes .mcp.json + CLAUDE.md
+ukb init --for codex                 # marker block in ~/.codex/config.toml + AGENTS.md
+ukb init --for opencode              # merges opencode.json + AGENTS.md
+ukb init --for pi                    # prints the config to paste, writes AGENTS.md
+ukb init --for claude-code --browser # …plus the Playwright MCP server
 ```
+
+`--browser` adds a second MCP server (`@playwright/mcp`) to the same config, so
+the agents you onboard can also drive a browser — handy for letting them verify
+their own work against the running Web UI.
 
 Every installer is idempotent — re-running produces byte-identical files — and
 preserves whatever was already there. The `AGENTS.md` / `CLAUDE.md` snippet is

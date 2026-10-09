@@ -4,3 +4,4 @@ coverage/
 .ukb/
 *.log
 .DS_Store
+.playwright-mcp/

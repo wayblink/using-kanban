@@ -10,6 +10,9 @@ importers:
       "@eslint/js":
         specifier: ^9.18.0
         version: 9.39.5
+      "@playwright/mcp":
+        specifier: ^0.0.83
+        version: 0.0.83
       "@types/node":
         specifier: ^22.10.5
         version: 22.20.5
@@ -19,6 +22,9 @@ importers:
       globals:
         specifier: ^17.5.0
         version: 17.13.0
+      playwright:
+        specifier: ^1.64.0
+        version: 1.64.0
       prettier:
         specifier: ^3.4.2
         version: 3.9.9
@@ -763,6 +769,14 @@ packages:
     cpu: [x64]
     os: [linux]
     libc: [glibc]
+
+  "@playwright/mcp@0.0.83":
+    resolution:
+      {
+        integrity: sha512-oNcl+Ae2/IAjhfPeP46BfIkSakfmprY+aOtkv5MjrQ4lPav4/yNtPhL0iq8SlIM90oApWgBDUxaNKvktazUKOg==,
+      }
+    engines: { node: ">=18" }
+    hasBin: true
 
   "@rollup/rollup-android-arm-eabi@4.64.2":
     resolution:
@@ -2376,6 +2390,38 @@ packages:
         integrity: sha512-/Jm5M4RvtBFVkKWRu2BLUTNP8/M2a+UwuAX+ae4770q1qVGtfjG+WTCupoZixokjmHiry8uI+dlY8KXYV5HVVQ==,
       }
 
+  playwright-core@1.64.0:
+    resolution:
+      {
+        integrity: sha512-T9r+MZkTECl2+oUcZ26YgZzTrYidTsIhYYkJix+6iDOymOb1FB2RLLSOxRGnZGv5DStt+aduIVbt+E8WygXYpg==,
+      }
+    engines: { node: ">=20" }
+    hasBin: true
+
+  playwright-core@1.64.0-alpha-1790635538000:
+    resolution:
+      {
+        integrity: sha512-pNwaXirhXMRLaRQs4NQ18EpTdtDoFwyPH9FOaaDC7YXG4hpwE2xmwCic/1srbuExVQC7zT9LJSJpDBAru+Vo9A==,
+      }
+    engines: { node: ">=20" }
+    hasBin: true
+
+  playwright@1.64.0:
+    resolution:
+      {
+        integrity: sha512-kVzTnYFYEyQ9RGzBjNCd2+yEqWmVbxl3AHPynv3qQ6JTjv4a+kwRcnqQwIpuP3NnrnIrE/Q6wWAIAvMfIE2/Yg==,
+      }
+    engines: { node: ">=20" }
+    hasBin: true
+
+  playwright@1.64.0-alpha-1790635538000:
+    resolution:
+      {
+        integrity: sha512-/5XDUMxpOd/9AojJtWDFIRV3EJZNQ0AwvK69wgt3CPzy8wTgiBG9pX45VfxtqtvIRGwfWzMhrvawNKreG69Snw==,
+      }
+    engines: { node: ">=20" }
+    hasBin: true
+
   postcss-load-config@6.0.1:
     resolution:
       {
@@ -3286,6 +3332,11 @@ snapshots:
 
   "@napi-rs/lzma-linux-x64-gnu@1.5.1":
     optional: true
+
+  "@playwright/mcp@0.0.83":
+    dependencies:
+      playwright: 1.64.0-alpha-1790635538000
+      playwright-core: 1.64.0-alpha-1790635538000
 
   "@rollup/rollup-android-arm-eabi@4.64.2":
     optional: true
@@ -4209,6 +4260,18 @@ snapshots:
       confbox: 0.1.8
       mlly: 1.8.2
       pathe: 2.0.3
+
+  playwright-core@1.64.0: {}
+
+  playwright-core@1.64.0-alpha-1790635538000: {}
+
+  playwright@1.64.0:
+    dependencies:
+      playwright-core: 1.64.0
+
+  playwright@1.64.0-alpha-1790635538000:
+    dependencies:
+      playwright-core: 1.64.0-alpha-1790635538000
 
   postcss-load-config@6.0.1(postcss@8.5.29):
     dependencies:

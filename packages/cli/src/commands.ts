@@ -106,7 +106,9 @@ work:
 
 setup:
   ukb web [--port N] [--no-open]    start the API + Web UI
-  ukb init --for <framework>        wire this project into an agent framework
+  ukb init --for <framework> [--browser]
+                                     wire this project into an agent framework
+                                     (--browser also adds the Playwright MCP server)
   ukb doctor                        check the environment
 
 global flags:
