@@ -23,7 +23,10 @@ function flag(name, fallback) {
   return index === -1 ? fallback : args[index + 1];
 }
 
-let url = flag("url", "http://127.0.0.1:48080/");
+// Reusing whatever happens to listen on the default port makes the run
+// non-deterministic (and token-less). Only reuse a server when --url is given.
+const explicitUrl = args.includes("--url");
+let url = flag("url", "http://127.0.0.1:48999/");
 const out = flag("out", "/tmp/ukb-browser-check.png");
 const width = Number(flag("width", "1600"));
 const height = Number(flag("height", "1000"));
@@ -176,7 +179,7 @@ async function main() {
   // If nothing is serving the UI, start a throwaway board so the check is
   // self-contained: `pnpm browser-check` works with zero setup.
   let server = null;
-  if (!(await isReachable(url))) {
+  if (!explicitUrl) {
     const dir = mkdtempSync(join(tmpdir(), "ukb-browser-board-"));
     server = await startServer({
       dir,
@@ -480,15 +483,6 @@ async function main() {
   } finally {
     if (server) void server.close().catch(() => undefined);
     cleanup();
-  }
-}
-
-async function isReachable(target) {
-  try {
-    const response = await fetch(target, { signal: AbortSignal.timeout(1500) });
-    return response.ok;
-  } catch {
-    return false;
   }
 }
 

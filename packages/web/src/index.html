@@ -12,9 +12,11 @@
   </head>
   <body>
     <header class="topbar">
-      <div class="brand">
-        <span class="brand-mark" aria-hidden="true"></span>
-        using-kanban
+      <div class="topbar-left">
+        <a class="brand" href="#/docs">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <span class="brand-name">using-kanban</span>
+        </a>
       </div>
 
       <nav class="nav" aria-label="views">
@@ -22,6 +24,12 @@
         <a href="#/board" class="nav-link" data-route="board">Board</a>
       </nav>
 
+      <div class="topbar-right">
+        <span class="version" title="using-kanban version">v0.1</span>
+      </div>
+    </header>
+
+    <div id="board-controls" class="board-controls" hidden>
       <div class="identity" title="Who this browser acts as on the board">
         <label for="actor-name">acting as</label>
         <input
@@ -49,7 +57,7 @@
 
       <span id="live" class="live" data-state="connecting">connecting…</span>
       <button id="new-card" class="primary" type="button">+ New card</button>
-    </header>
+    </div>
 
     <main id="board" class="board" aria-label="kanban board" hidden></main>
     <main id="docs" class="docs" aria-label="documentation" hidden></main>

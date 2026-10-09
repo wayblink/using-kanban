@@ -263,6 +263,11 @@ ukb-server --dir . --ui ./packages/web/dist
   button. The board lives at `#/board`; the docs at `#/docs`. It is the first
   thing a new user (or a new agent) sees, and it is just another consumer of
   the API — so it doubles as a living example of building your own UI.
+- **Formal top navigation** — a tall sticky bar with the brand on the left,
+  _Docs / Board_ centred, and a version chip. The board's controls (identity,
+  filters, live indicator, new card) are a separate sticky strip that renders
+  only on the board route, so the docs read like a documentation site rather
+  than an app with a board bolted on.
 - Light and dark via `prefers-color-scheme`; single-column snap layout on
   narrow screens; keyboard-openable cards; `Esc` closes panels.
 

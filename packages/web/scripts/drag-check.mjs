@@ -38,7 +38,9 @@ page.on("console", (message) => {
 page.on("pageerror", (error) => consoleErrors.push(error.message));
 
 try {
-  await page.goto(`${base}/?token=drag-check`, { waitUntil: "networkidle" });
+  await page.goto(`${base}/?token=drag-check#/board`, {
+    waitUntil: "networkidle",
+  });
 
   // seed a card through the API, acting as the human
   const created = await fetch(`${base}/api/cards?token=drag-check`, {

@@ -479,6 +479,7 @@ function startApp() {
   const els = {
     board: document.getElementById("board"),
     docs: document.getElementById("docs"),
+    boardControls: document.getElementById("board-controls"),
     actorName: document.getElementById("actor-name"),
     actorType: document.getElementById("actor-type"),
     filterQ: document.getElementById("filter-q"),
@@ -515,10 +516,7 @@ function startApp() {
 
     els.board.hidden = onDocs;
     els.docs.hidden = !onDocs;
-    els.actorName.parentElement.hidden = onDocs;
-    els.filters.hidden = onDocs;
-    els.live.hidden = onDocs;
-    els.newCard.hidden = onDocs;
+    els.boardControls.hidden = onDocs;
 
     for (const link of document.querySelectorAll(".nav-link")) {
       const active = link.dataset.route === state.route;
