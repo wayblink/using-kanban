@@ -385,7 +385,38 @@ async function main() {
       docs.headings.join(" / "),
     ]);
 
+    // the table of contents must scroll, not just change the hash
+    const tocBefore = await cdp.evaluate(
+      `Math.round(document.querySelector('#docs').scrollTop)`,
+    );
+    const tocBox = await cdp.evaluate(`(() => {
+      const link = [...document.querySelectorAll('.docs-toc a')].find((a) => a.dataset.section === 'api');
+      const r = link.getBoundingClientRect();
+      return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+    })()`);
+    await cdp.clickPoint(tocBox.x, tocBox.y);
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    const tocAfter = JSON.parse(
+      await cdp.evaluate(`JSON.stringify({
+        scrollTop: Math.round(document.querySelector('#docs').scrollTop),
+        hash: window.location.hash,
+        active: document.querySelector('.docs-toc a.active')?.dataset.section ?? null,
+        sectionTop: Math.round(document.querySelector('#docs-api').getBoundingClientRect().top),
+        stillOnDocs: getComputedStyle(document.querySelector('#docs')).display !== 'none',
+      })`),
+    );
+    report.push([
+      "table of contents scrolls to the section",
+      tocAfter.scrollTop > tocBefore + 200 &&
+        tocAfter.active === "api" &&
+        tocAfter.stillOnDocs,
+      `scroll ${tocBefore}→${tocAfter.scrollTop} · active=${tocAfter.active} · section top ${tocAfter.sectionTop}px`,
+    ]);
+
     // the hero CTA must reach the board with the token intact
+    // (scroll the docs container back to the top first — the TOC click moved it)
+    await cdp.evaluate(`document.querySelector('#docs').scrollTo({ top: 0 })`);
+    await new Promise((resolve) => setTimeout(resolve, 300));
     await cdp.clickCenter(".docs-cta");
     await new Promise((resolve) => setTimeout(resolve, 500));
     const afterCta = await cdp.evaluate(`(() => ({

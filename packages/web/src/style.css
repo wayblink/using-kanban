@@ -709,25 +709,26 @@ button.primary:hover {
 .docs {
   flex: 1;
   overflow-y: auto;
-  padding: 56px 40px 120px;
+  padding: 64px 44px 140px;
+  scroll-behavior: smooth;
 }
 
 .docs-hero {
-  max-width: 860px;
-  margin: 0 auto 52px;
+  max-width: 940px;
+  margin: 0 auto 64px;
   text-align: center;
 }
 
 .docs-hero h1 {
-  margin: 0 0 10px;
-  font-size: 40px;
-  letter-spacing: -0.03em;
+  margin: 0 0 12px;
+  font-size: 52px;
+  letter-spacing: -0.035em;
 }
 
 .docs-tagline {
-  margin: 0 auto 26px;
-  max-width: 620px;
-  font-size: 16.5px;
+  margin: 0 auto 30px;
+  max-width: 680px;
+  font-size: 18.5px;
   line-height: 1.55;
   color: var(--text-dim);
 }
@@ -738,8 +739,9 @@ button.primary:hover {
   color: #fff;
   text-decoration: none;
   font-weight: 600;
-  padding: 10px 22px;
-  border-radius: 9px;
+  font-size: 15px;
+  padding: 12px 26px;
+  border-radius: 10px;
 }
 
 .docs-cta:hover {
@@ -747,40 +749,51 @@ button.primary:hover {
 }
 
 .docs-status {
-  margin: 16px 0 0;
-  font-size: 13px;
+  margin: 18px 0 0;
+  font-size: 14px;
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
 }
 
 .docs-layout {
-  max-width: 1240px;
+  max-width: 1560px;
   margin: 0 auto;
   display: grid;
-  grid-template-columns: 208px minmax(0, 1fr);
-  gap: 48px;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 64px;
   align-items: start;
 }
 
 .docs-toc {
   position: sticky;
-  top: 16px;
+  top: 24px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  font-size: 13px;
+  gap: 3px;
+  font-size: 14.5px;
 }
 
 .docs-toc a {
-  padding: 6px 10px;
-  border-radius: 7px;
+  padding: 8px 12px;
+  border-radius: 8px;
   color: var(--text-dim);
   text-decoration: none;
+  border-left: 2px solid transparent;
+  transition:
+    color 120ms ease,
+    background 120ms ease;
 }
 
 .docs-toc a:hover {
   background: var(--surface);
   color: var(--text);
+}
+
+.docs-toc a.active {
+  color: var(--text);
+  font-weight: 600;
+  background: var(--surface);
+  border-left-color: var(--accent);
 }
 
 .docs-body {
@@ -790,67 +803,72 @@ button.primary:hover {
 .docs-section {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 26px 30px;
-  margin-bottom: 20px;
+  border-radius: 14px;
+  padding: 34px 40px;
+  margin-bottom: 26px;
   box-shadow: var(--shadow);
-  scroll-margin-top: 156px;
+  scroll-margin-top: 120px;
 }
 
 .docs-section h2 {
-  margin: 0 0 4px;
-  font-size: 20px;
-  letter-spacing: -0.01em;
+  margin: 0 0 6px;
+  font-size: 27px;
+  letter-spacing: -0.02em;
 }
 
 .docs-section h3 {
-  margin: 22px 0 8px;
-  font-size: 14px;
+  margin: 30px 0 10px;
+  font-size: 13px;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
   color: var(--text-dim);
 }
 
 .docs-lead {
-  margin: 0 0 14px;
+  margin: 0 0 20px;
+  font-size: 17px;
   color: var(--text-dim);
 }
 
 .docs-section p {
-  margin: 0 0 12px;
+  margin: 0 0 14px;
+  font-size: 15.5px;
+  line-height: 1.65;
 }
 
 .docs-section pre {
-  margin: 0 0 14px;
-  padding: 14px 16px;
+  margin: 0 0 18px;
+  padding: 18px 20px;
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: 9px;
   overflow-x: auto;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12.5px;
-  line-height: 1.55;
+  font-size: 13.5px;
+  line-height: 1.65;
 }
 
 .docs-list {
-  margin: 0 0 12px;
-  padding-left: 18px;
+  margin: 0 0 16px;
+  padding-left: 20px;
+  font-size: 15.5px;
+  line-height: 1.6;
 }
 
 .docs-list li {
-  margin-bottom: 7px;
+  margin-bottom: 10px;
 }
 
 .docs-table {
   width: 100%;
   border-collapse: collapse;
-  margin: 0 0 14px;
-  font-size: 13px;
+  margin: 0 0 20px;
+  font-size: 14.5px;
 }
 
 .docs-table th {
   text-align: left;
-  padding: 7px 10px;
+  padding: 9px 12px;
   border-bottom: 2px solid var(--border);
   font-size: 11px;
   text-transform: uppercase;
@@ -859,7 +877,7 @@ button.primary:hover {
 }
 
 .docs-table td {
-  padding: 7px 10px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--border);
   vertical-align: top;
 }
@@ -874,14 +892,15 @@ button.primary:hover {
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: 5px;
-  padding: 1px 5px;
+  padding: 2px 6px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.92em;
+  font-size: 0.9em;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 1080px) {
   .docs-layout {
     grid-template-columns: 1fr;
+    gap: 28px;
   }
 
   .docs-toc {

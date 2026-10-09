@@ -504,10 +504,20 @@ function startApp() {
     route: currentRoute(),
   };
 
+  /** Guards against re-rendering the docs when only the section hash changes. */
+  let docsRendered = false;
+
   /** `#/board` or `#/docs` — the docs page is the home page. */
   function currentRoute() {
     const hash = window.location.hash.replace(/^#\/?/, "");
     return hash.startsWith("board") ? "board" : "docs";
+  }
+
+  /** The section targeted by `#/docs/<id>`, if any. */
+  function currentSection() {
+    const hash = window.location.hash.replace(/^#\/?/, "");
+    const match = /^docs\/([\w-]+)$/.exec(hash);
+    return match ? match[1] : null;
   }
 
   function applyRoute() {
@@ -524,12 +534,63 @@ function startApp() {
       link.setAttribute("aria-current", active ? "page" : "false");
     }
 
-    if (onDocs) {
+    if (!onDocs) {
+      void refresh();
+      return;
+    }
+
+    // Only build the docs once. A section link must scroll, not re-render —
+    // re-rendering would reset the scroll position.
+    if (!docsRendered) {
+      docsRendered = true;
       closeDrawer();
       closeModal();
       void renderDocs();
-    } else {
-      void refresh();
+      return;
+    }
+    scrollToSection(currentSection());
+  }
+
+  function scrollToSection(sectionId) {
+    if (!sectionId) return;
+    const target = els.docs.querySelector(`#docs-${sectionId}`);
+    if (!target) return;
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+    markTocActive(sectionId);
+  }
+
+  /** Highlights the table-of-contents entry for the section in view. */
+  function markTocActive(sectionId) {
+    for (const link of els.docs.querySelectorAll(".docs-toc a")) {
+      const active = link.dataset.section === sectionId;
+      link.classList.toggle("active", active);
+      if (active) link.setAttribute("aria-current", "true");
+      else link.removeAttribute("aria-current");
+    }
+  }
+
+  /**
+   * Scroll-spy via IntersectionObserver: the first section intersecting the
+   * top band of the scroll container is the active one. Robust to where a
+   * smooth scroll actually lands.
+   */
+  function watchDocsScroll() {
+    const container = els.docs;
+    if (!container || typeof IntersectionObserver === "undefined") return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+        const first = visible[0];
+        if (first) markTocActive(first.target.id.replace("docs-", ""));
+      },
+      { root: container, rootMargin: "-120px 0px -55% 0px", threshold: 0 },
+    );
+
+    for (const section of container.querySelectorAll(".docs-section")) {
+      observer.observe(section);
     }
   }
 
@@ -1166,6 +1227,15 @@ function startApp() {
     layout.append(toc, article);
     els.docs.textContent = "";
     els.docs.append(hero, layout);
+
+    // arriving at a specific section scrolls to it; otherwise start at the top
+    const target = currentSection();
+    if (target) {
+      requestAnimationFrame(() => scrollToSection(target));
+    } else {
+      els.docs.scrollTop = 0;
+    }
+    watchDocsScroll();
 
     // live counts in the hero, straight from the API
     void api("/api/me")
