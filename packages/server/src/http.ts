@@ -17,6 +17,8 @@ export class HttpError extends Error {
 const STATUS_BY_CODE: Record<KanbanErrorCode, number> = {
   invalid_input: 400,
   card_not_found: 404,
+  // no board in this directory — the client is pointed at the wrong place
+  board_not_found: 404,
   invalid_state: 409,
   claim_conflict: 409,
   forbidden: 403,

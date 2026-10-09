@@ -5,6 +5,7 @@ import {
   openKanban,
   type Actor,
   type Card,
+  type Kanban,
 } from "@wayblink/using-kanban-core";
 import { z } from "zod";
 
@@ -40,8 +41,27 @@ const MINE_DESCRIPTION = [
 const cardIdSchema = z.number().int().positive().describe("Card id");
 
 export function createMcpServer(options: ResolvedMcpOptions): McpServer {
-  const kanban = openKanban({ dir: options.dir, storage: options.storage });
   const actor: Actor = options.actor;
+
+  /**
+   * The store is opened on demand rather than at startup, because whether it
+   * may be created depends on the tool being called: a read in a directory
+   * with no board must fail loudly instead of silently reporting an empty
+   * board, while a write is what brings the board into existence.
+   *
+   * Once opened it is cached — the server is long-lived and every tool after
+   * the first shares one handle.
+   */
+  let opened: Kanban | undefined;
+  const kanbanFor = (create: boolean): Kanban => {
+    if (opened) return opened;
+    opened = openKanban({ dir: options.dir, storage: options.storage, create });
+    return opened;
+  };
+  /** Read-only tools: never create the store. */
+  const read = (): Kanban => kanbanFor(false);
+  /** Mutating tools: the store is created if this is the first card ever. */
+  const write = (): Kanban => kanbanFor(true);
 
   const server = new McpServer(
     { name: "using-kanban", version: "0.1.0" },
@@ -65,7 +85,7 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
       inputSchema: { project: projectSchemaOptional() },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    safe(({ project }) => text(formatBoard(kanban.board(project)))),
+    safe(({ project }) => text(formatBoard(read().board(project)))),
   );
 
   server.registerTool(
@@ -79,7 +99,7 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
     safe(({ project }) =>
       text(
         formatCards(
-          kanban.mine(actor.name, project),
+          read().mine(actor.name, project),
           "No open cards assigned to you.",
         ),
       ),
@@ -103,7 +123,7 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
     },
     safe(({ agent, project }) => {
       const name = agent ?? actor.name;
-      const cards = kanban.reviewQueue(name, project);
+      const cards = read().reviewQueue(name, project);
       return text(formatCards(cards, `Nothing waiting for ${name} to review.`));
     }),
   );
@@ -117,7 +137,7 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     safe(() => {
-      const projects = kanban.projects();
+      const projects = read().projects();
       return text(
         projects.length === 0
           ? "No projects in use yet — cards have no project until one is set."
@@ -136,8 +156,8 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     safe(({ id }) => {
-      const card = requireCard(kanban.card(id), id);
-      return text(formatCard(card, kanban.history(id)));
+      const card = requireCard(read().card(id), id);
+      return text(formatCard(card, read().history(id)));
     }),
   );
 
@@ -171,7 +191,7 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
       },
     },
     safe((input) => {
-      const { card } = kanban.add(
+      const { card } = write().add(
         {
           title: input.title,
           body: input.body,
@@ -203,7 +223,7 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
       },
     },
     safe((input) => {
-      const { card } = kanban.edit(
+      const { card } = write().edit(
         input.id,
         {
           title: input.title,
@@ -231,7 +251,7 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
       inputSchema: { id: cardIdSchema },
     },
     safe(({ id }) => {
-      const { card } = kanban.claim(id, actor, "mcp");
+      const { card } = write().claim(id, actor, "mcp");
       return text(`claimed ${formatCardBrief(card)}`);
     }),
   );
@@ -245,7 +265,7 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
       inputSchema: { id: cardIdSchema },
     },
     safe(({ id }) => {
-      const { card } = kanban.review(id, actor, "mcp");
+      const { card } = write().review(id, actor, "mcp");
       return text(`moved to review ${formatCardBrief(card)}`);
     }),
   );
@@ -259,7 +279,7 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
       inputSchema: { id: cardIdSchema },
     },
     safe(({ id }) => {
-      const { card } = kanban.done(id, actor, "mcp");
+      const { card } = write().done(id, actor, "mcp");
       return text(`done ${formatCardBrief(card)}`);
     }),
   );
@@ -272,7 +292,7 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
       inputSchema: { id: cardIdSchema },
     },
     safe(({ id }) => {
-      const { card } = kanban.reopen(id, actor, "mcp");
+      const { card } = write().reopen(id, actor, "mcp");
       return text(`reopened ${formatCardBrief(card)}`);
     }),
   );
@@ -289,7 +309,7 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
       },
     },
     safe(({ id, to }) => {
-      const { card } = kanban.move(id, to, actor, "mcp");
+      const { card } = write().move(id, to, actor, "mcp");
       return text(`moved to ${to} ${formatCardBrief(card)}`);
     }),
   );
@@ -303,7 +323,7 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
       annotations: { destructiveHint: true, openWorldHint: false },
     },
     safe(({ id }) => {
-      kanban.remove(id, actor, "mcp");
+      write().remove(id, actor, "mcp");
       return text(`deleted #${id}`);
     }),
   );
@@ -317,7 +337,7 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
       inputSchema: { id: cardIdSchema, blockedBy: z.number().int().positive() },
     },
     safe(({ id, blockedBy }) => {
-      const { card } = kanban.block(id, blockedBy, actor, "mcp");
+      const { card } = write().block(id, blockedBy, actor, "mcp");
       return text(`blocked ${formatCardBrief(card)}`);
     }),
   );
@@ -331,7 +351,7 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
       inputSchema: { id: cardIdSchema, blockedBy: z.number().int().positive() },
     },
     safe(({ id, blockedBy }) => {
-      const { card } = kanban.unblock(id, blockedBy, actor, "mcp");
+      const { card } = write().unblock(id, blockedBy, actor, "mcp");
       return text(`unblocked ${formatCardBrief(card)}`);
     }),
   );
@@ -351,7 +371,7 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
         {
           uri: uri.href,
           mimeType: "application/json",
-          text: JSON.stringify(kanban.board(), null, 2),
+          text: JSON.stringify(read().board(), null, 2),
         },
       ],
     }),

@@ -2,6 +2,7 @@
 export type KanbanErrorCode =
   | "invalid_input"
   | "card_not_found"
+  | "board_not_found"
   | "invalid_state"
   | "claim_conflict"
   | "forbidden"

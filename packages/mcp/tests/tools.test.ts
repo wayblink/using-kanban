@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -438,5 +438,49 @@ describe("blockers gate starting work", () => {
     // review is not gated — the work is already done by that point
     expect((await call("kanban_review", { id: 2 })).isError).toBeFalsy();
     expect((await call("kanban_done", { id: 2 })).isError).toBeFalsy();
+  });
+});
+
+describe("a board that does not exist yet", () => {
+  it("read tools fail loudly instead of reporting an empty board", async () => {
+    const connection = await connect(tempDir());
+    const call = (name: string, args: Record<string, unknown> = {}) =>
+      connection.client.callTool({ name, arguments: args });
+
+    for (const [name, args] of [
+      ["kanban_board", {}],
+      ["kanban_my_cards", {}],
+      ["kanban_review_queue", {}],
+      ["kanban_projects", {}],
+      ["kanban_show", { id: 1 }],
+    ] as const) {
+      const result = await call(name, args);
+      expect(result.isError, `${name} should fail`).toBe(true);
+      expect((result.content as { text: string }[])[0]?.text).toContain(
+        "board_not_found",
+      );
+    }
+  });
+
+  it("a write creates it, and reads then work", async () => {
+    const connection = await connect(tempDir());
+    const call = (name: string, args: Record<string, unknown> = {}) =>
+      connection.client.callTool({ name, arguments: args });
+
+    const added = await call("kanban_add", { title: "the first card" });
+    expect(added.isError).toBeFalsy();
+
+    const board = await call("kanban_board", {});
+    expect(board.isError).toBeFalsy();
+    expect((board.content as { text: string }[])[0]?.text).toContain(
+      "the first card",
+    );
+  });
+
+  it("does not leave a store behind after a failed read", async () => {
+    const dir = tempDir();
+    const connection = await connect(dir);
+    await connection.client.callTool({ name: "kanban_board", arguments: {} });
+    expect(existsSync(join(dir, ".ukb"))).toBe(false);
   });
 });

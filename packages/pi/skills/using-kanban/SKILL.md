@@ -69,6 +69,14 @@ ukb delete <id>                  # creator only
 ukb web                          # API + Web UI for a human to watch
 ```
 
+## If there is no board here
+
+Reads never create a board. In a directory with no `.ukb/`, `ukb board` /
+`ukb mine` / `ukb show` fail with `board_not_found` (exit 2) instead of showing
+an empty board — an empty board would read as "nothing to do" when the truth is
+"you are in the wrong directory". Check `pwd` and `UKB_DIR`. Any write
+(`ukb add`, `ukb claim`, …) creates the board.
+
 ## Blockers are enforced
 
 A card with an unfinished blocker **cannot be claimed or moved into `doing`** —

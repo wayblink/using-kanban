@@ -122,6 +122,9 @@ frameworks for init: claude-code, codex, opencode (anything else gets the generi
 `;
 
 /** Runs one command. Returns the process exit code. */
+/** Commands that only look. Everything else may create the store. */
+const READ_ONLY_COMMANDS = new Set(["mine", "board", "show"]);
+
 export async function runCommand(
   argv: readonly string[],
   io: Io,
@@ -161,7 +164,13 @@ export async function runCommand(
   }
 
   const actor = resolveActor(parsed.flags, io.env);
-  const kanban = openKanban({ dir, storage });
+  // Reads must not conjure a board: `ukb board` in the wrong directory should
+  // say so, not report an empty one.
+  const kanban = openKanban({
+    dir,
+    storage,
+    create: !READ_ONLY_COMMANDS.has(command),
+  });
   try {
     switch (command) {
       case "mine": {

@@ -1,8 +1,9 @@
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { JsonlEventLog } from "./event-log-jsonl.js";
 import { MemoryEventLog } from "./event-log.js";
 import { SqliteEventLog } from "./event-log-sqlite.js";
+import { KanbanError } from "./errors.js";
 import { Kanban } from "./kanban.js";
 
 export type StorageKind = "sqlite" | "jsonl" | "memory";
@@ -14,6 +15,16 @@ export interface OpenKanbanOptions {
   readonly dir?: string | undefined;
   /** Explicit log file (overrides `dir` + storage default name). */
   readonly path?: string | undefined;
+  /**
+   * Create the store when it does not exist yet. Defaults to `true`.
+   *
+   * Pass `false` for read-only operations. Without it, `ukb board` in a
+   * directory that has no board silently creates an empty one and reports an
+   * empty board — which reads as "there is no work here" rather than "you are
+   * in the wrong place". That distinction matters most to an agent, which
+   * cannot tell the two apart otherwise.
+   */
+  readonly create?: boolean | undefined;
 }
 
 /** Per-project store directory, created on first open. */
@@ -40,6 +51,12 @@ export function openKanban(options: OpenKanbanOptions = {}): Kanban {
   const path = options.path
     ? resolve(options.path)
     : join(dir, DEFAULT_STORAGE_DIR, DEFAULT_FILE_NAMES[storage]);
+  if (options.create === false && !existsSync(path)) {
+    throw new KanbanError(
+      "board_not_found",
+      `no board in ${dir} — create one first (ukb add / kanban_add)`,
+    );
+  }
   mkdirSync(dirname(path), { recursive: true });
 
   const log =

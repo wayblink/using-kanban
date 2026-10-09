@@ -86,6 +86,11 @@ kanban.history(card.id); // full event trail
 - **States**: `todo → doing → review → done` (`reopen` goes back to `todo`)
 - **Actors**: `{ type: "human" | "agent", name }` — one namespace, so a human
   can review an agent's card and vice versa
+- **No board yet?** Reads never create one. `ukb board` in a directory with no
+  `.ukb/` fails with `board_not_found` (exit 2) rather than quietly reporting an
+  empty board — "there is no work here" and "you are in the wrong place" are
+  different answers, and an agent cannot tell them apart otherwise. Any write
+  creates the store.
 - **Dependencies**: `block(id, blockedById)` / `unblock`, multiple per card,
   cycles rejected. A card with an unfinished blocker cannot be claimed or moved
   into `doing` — the guard names the blockers so the failure is actionable.

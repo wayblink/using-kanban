@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -96,6 +96,9 @@ describe("board commands", () => {
   it("errors on unknown cards and bad usage", async () => {
     const dir = tempDir();
     const io = makeIo(dir);
+    // `show` is read-only, so the board has to exist before a missing *card* is
+    // the thing that can be reported
+    await runCommand(["add", "something"], io);
 
     await expect(runCommand(["show", "999"], io)).rejects.toMatchObject({
       code: "card_not_found",
@@ -130,12 +133,33 @@ describe("board commands", () => {
   it("honours UKB_DIR and prints help without touching the board", async () => {
     const dir = tempDir();
     const io = makeIo("/nonexistent-cwd", { UKB_DIR: dir });
+    // seed the board from a different cwd so the read below has something to read
+    await runCommand(["add", "seeded"], makeIo(dir));
+
     const code = await runCommand(["board"], io);
     expect(code).toBe(0);
-    expect(io.out.join("\n")).toContain("todo (0)");
+    expect(io.out.join("\n")).toContain("todo (1)");
 
     const help = await run(["help"], dir);
     expect(help.out.join("\n")).toContain("ukb — using-kanban command line");
+  });
+
+  it("refuses to read a board that does not exist, instead of inventing one", async () => {
+    const dir = tempDir();
+    const io = makeIo(dir);
+
+    for (const command of [["board"], ["mine"], ["show", "1"]]) {
+      await expect(runCommand(command, io)).rejects.toMatchObject({
+        code: "board_not_found",
+      });
+    }
+    // and nothing was created on disk
+    expect(existsSync(join(dir, ".ukb"))).toBe(false);
+
+    // a write is what brings the board into existence
+    await runCommand(["add", "first"], io);
+    expect(existsSync(join(dir, ".ukb"))).toBe(true);
+    await expect(runCommand(["board"], io)).resolves.toBe(0);
   });
 });
 
