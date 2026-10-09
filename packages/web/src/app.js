@@ -447,6 +447,7 @@ const DOCS_EN = [
           "ukb init --for claude-code           # writes .mcp.json + CLAUDE.md\\n" +
           "ukb init --for codex                 # marker block in ~/.codex/config.toml + AGENTS.md\\n" +
           "ukb init --for opencode              # merges opencode.json + AGENTS.md\\n" +
+          "ukb init --for pi                    # registers the Pi package (extension + skill)\n" +
           "ukb init --for claude-code --browser # …plus the Playwright MCP server\n" +
           "ukb init --for claude-code --local  # point at this checkout, not the npm package",
       },
@@ -813,6 +814,7 @@ const DOCS_ZH = [
           "ukb init --for claude-code           # 写入 .mcp.json 与 CLAUDE.md\n" +
           "ukb init --for codex                 # 在 ~/.codex/config.toml 中写入标记块，并生成 AGENTS.md\n" +
           "ukb init --for opencode              # 合并 opencode.json，并生成 AGENTS.md\n" +
+          "ukb init --for pi                    # 注册 Pi 包（扩展 + 技能）\n" +
           "ukb init --for claude-code --browser # …并额外加入 Playwright MCP 服务器\n" +
           "ukb init --for claude-code --local  # 指向当前代码库，而不是 npm 上的包",
       },

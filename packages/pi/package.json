@@ -1,0 +1,39 @@
+{
+  "name": "@wayblink/using-kanban-pi",
+  "version": "0.1.0",
+  "description": "Pi extension for using-kanban — puts the board's tools directly in the agent's context",
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "pi-package",
+    "agent-skill",
+    "kanban"
+  ],
+  "author": "wayblink",
+  "homepage": "https://github.com/wayblink/using-kanban#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wayblink/using-kanban.git"
+  },
+  "bugs": {
+    "url": "https://github.com/wayblink/using-kanban/issues"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "files": [
+    "extensions",
+    "skills"
+  ]
+}

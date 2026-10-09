@@ -194,9 +194,32 @@ const FRAMEWORKS: Record<string, FrameworkSpec> = {
       upsertDocs(docsPath, dryRun);
     },
   },
+  pi: {
+    agent: "pi",
+    label: "Pi",
+    files: ["~/.pi/agent/settings.json", "AGENTS.md"],
+    // Pi has no project-level MCP file: it reads ~/.pi/agent/mcp.json for
+    // servers and ~/.pi/agent/settings.json `packages` for extensions.
+    entry: (projectDir, local) =>
+      local
+        ? {
+            command: process.execPath,
+            args: [resolveLocalMcpBin() ?? "", "--agent", "pi"],
+          }
+        : mcpEntry("pi", projectDir, false),
+    notes: [
+      "Pi picks the package up from ~/.pi/agent/settings.json — restart Pi to load it.",
+      "The package ships both the extension (tools in context) and the skill (workflow).",
+    ],
+    write: ({ home, projectDir, dryRun }) => {
+      registerPiPackage(home, dryRun);
+      upsertDocs(join(projectDir, "AGENTS.md"), dryRun);
+    },
+  },
 };
 
 const ALIASES: Record<string, string> = {
+  pi: "pi",
   claude: "claude-code",
   "claude-code": "claude-code",
   codex: "codex",
@@ -332,6 +355,47 @@ function upsertToml(
     next = `${current}${separator}${block}\n`;
   }
   writeText(path, next, dryRun);
+}
+
+/**
+ * Point Pi at the local `packages/pi` package by adding it to the `packages`
+ * array in ~/.pi/agent/settings.json.
+ *
+ * A plain mcp.json entry is not enough: it defaults to `exposure: "codemode"`,
+ * so the tools stay invisible to the model. The package registers the same
+ * server as an extension with `exposure: "direct"`, which is what puts the
+ * tools in the agent's context.
+ */
+function registerPiPackage(home: string, dryRun: boolean): void {
+  const settingsPath = join(home, ".pi", "agent", "settings.json");
+  const settings = readJson(settingsPath);
+  const existing = Array.isArray(settings.packages)
+    ? (settings.packages as unknown[])
+    : [];
+  const target = resolveLocalPiPackage();
+  if (!target) {
+    throw new Error(
+      "ukb init --for pi could not find packages/pi in this checkout. " +
+        "Run it from a source checkout, or add the package to ~/.pi/agent/settings.json by hand.",
+    );
+  }
+  if (!existing.includes(target)) settings.packages = [...existing, target];
+  writeText(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, dryRun);
+}
+
+/** `<repo>/packages/pi`, found by walking up from this package. */
+function resolveLocalPiPackage(): string | undefined {
+  const url = hereUrl();
+  if (!url) return undefined;
+  let dir = dirname(fileURLToPath(url));
+  for (let depth = 0; depth < 6; depth += 1) {
+    const candidate = join(dir, "packages", "pi", "package.json");
+    if (existsSync(candidate)) return dirname(candidate);
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return undefined;
 }
 
 function upsertDocs(path: string, dryRun: boolean): void {

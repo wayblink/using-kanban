@@ -352,13 +352,21 @@ cannot become two different projects by accident.
 ukb init --for claude-code           # writes .mcp.json + CLAUDE.md
 ukb init --for codex                 # marker block in ~/.codex/config.toml + AGENTS.md
 ukb init --for opencode              # merges opencode.json + AGENTS.md
-ukb init --for pi                    # prints the config to paste, writes AGENTS.md
+ukb init --for pi                    # registers the Pi package (extension + skill)
 ukb init --for claude-code --browser # …plus the Playwright MCP server
 ```
 
 ukb init --for claude-code --local # point at this checkout, not the npm package
 
 ````
+
+**Pi needs a package, not an MCP entry.** A server written to `mcp.json` defaults
+to `exposure: "codemode"`, so its tools are only reachable indirectly and never
+appear in the agent's tool list — the model does not know they exist and ignores
+them. `ukb init --for pi` instead registers `packages/pi`, which declares the
+same server as an *extension* with `exposure: "direct"`. That puts all 15 tools in
+the context the model actually reads, and the package also ships the skill. This
+is the difference between an agent using the board and never touching it.
 
 **Use `--local` before the packages are on npm.** The default config runs
 `npx -y @wayblink/using-kanban-mcp`, which only resolves once published.

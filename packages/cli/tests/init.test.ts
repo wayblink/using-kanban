@@ -188,9 +188,9 @@ describe("ukb init", () => {
   });
 
   it("falls back to a printable config for unknown frameworks", async () => {
-    const { project, out } = await init("pi");
+    const { project, out } = await init("deepseek");
     const text = out.join("\n");
-    expect(text).toContain('No dedicated installer for "pi"');
+    expect(text).toContain('No dedicated installer for "deepseek"');
     expect(text).toContain('"mcpServers"');
     expect(text).toContain('"@wayblink/using-kanban-mcp"');
     // The docs snippet still lands, because most harnesses read it.
@@ -333,7 +333,7 @@ describe("ukb init --browser", () => {
   });
 
   it("prints it for unknown frameworks", async () => {
-    const { out } = await init("pi", { browser: true });
+    const { out } = await init("stepcode", { browser: true });
     const text = out.join("\n");
     expect(text).toContain('"playwright"');
     expect(text).toContain('"using-kanban"');
@@ -347,5 +347,84 @@ describe("ukb init --browser", () => {
       mcpServers: Record<string, unknown>;
     };
     expect(Object.keys(mcp.mcpServers)).toEqual(["using-kanban"]);
+  });
+});
+
+describe("ukb init --for pi", () => {
+  const readSettings = (home: string) =>
+    JSON.parse(
+      readFileSync(join(home, ".pi", "agent", "settings.json"), "utf8"),
+    );
+
+  it("registers the pi package in ~/.pi/agent/settings.json", async () => {
+    const { project, home } = await init("pi", {
+      homeFiles: { ".pi/agent/settings.json": '{"theme":"dark"}\n' },
+    });
+
+    const settings = readSettings(home);
+    expect(settings.theme).toBe("dark");
+    expect(settings.packages).toEqual([expect.stringMatching(/packages\/pi$/)]);
+    // and it must be a real package, not just a path string
+    expect(existsSync(join(settings.packages[0], "package.json"))).toBe(true);
+    // AGENTS.md is still written, for harnesses that read it
+    expect(existsSync(join(project, "AGENTS.md"))).toBe(true);
+  });
+
+  it("is idempotent and preserves other packages", async () => {
+    const { home } = await init("pi", {
+      homeFiles: {
+        ".pi/agent/settings.json": JSON.stringify({
+          packages: ["/some/other/package"],
+        }),
+      },
+    });
+    const first = readSettings(home);
+    expect(first.packages).toHaveLength(2);
+    expect(first.packages[0]).toBe("/some/other/package");
+
+    const io = makeIo(tempDir(), home);
+    expect(await runCommand(["init", "--for", "pi"], io)).toBe(0);
+    expect(readSettings(home)).toEqual(first);
+  });
+
+  it("creates settings.json when Pi has never been configured", async () => {
+    const { home } = await init("pi");
+    expect(readSettings(home).packages).toEqual([
+      expect.stringMatching(/packages\/pi$/),
+    ]);
+  });
+
+  it("writes nothing on a dry run", async () => {
+    const { home } = await init("pi", {
+      dryRun: true,
+      homeFiles: { ".pi/agent/settings.json": '{"theme":"dark"}\n' },
+    });
+    expect(existsSync(join(home, ".pi", "agent", "settings.json"))).toBe(true);
+    expect(readSettings(home)).toEqual({ theme: "dark" });
+  });
+
+  it("the package it points at declares both an extension and a skill", async () => {
+    const { home } = await init("pi");
+    const pkg = readSettings(home).packages[0] as string;
+    const manifest = JSON.parse(
+      readFileSync(join(pkg, "package.json"), "utf8"),
+    );
+
+    expect(manifest.pi.extensions).toEqual(["./extensions"]);
+    expect(manifest.pi.skills).toEqual(["./skills"]);
+    // the extension must exist and register the MCP server with direct exposure
+    const extension = readFileSync(
+      join(pkg, "extensions/using-kanban/index.ts"),
+      "utf8",
+    );
+    expect(extension).toContain('exposure: "direct"');
+    expect(extension).toContain("registerMcpServer");
+    // and the skill must carry the workflow
+    const skill = readFileSync(
+      join(pkg, "skills/using-kanban/SKILL.md"),
+      "utf8",
+    );
+    expect(skill).toContain("ukb claim");
+    expect(skill).toContain("name: using-kanban");
   });
 });

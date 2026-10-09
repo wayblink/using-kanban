@@ -109,6 +109,7 @@ setup:
   ukb init --for <framework> [--browser]
                                      wire this project into an agent framework
                                      (--browser also adds the Playwright MCP server)
+                                     pi registers the extension + skill package
   ukb doctor                        check the environment
 
 global flags:
