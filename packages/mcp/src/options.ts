@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ActorSchema, StorageKind } from "@using-kanban/core";
+import type { ActorSchema, StorageKind } from "@wayblink/using-kanban-core";
 
 export const McpOptionsSchema = z.object({
   /** Board directory — the store lives at `<dir>/.ukb/`. */

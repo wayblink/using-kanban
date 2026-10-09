@@ -2,7 +2,7 @@ import { accessSync, constants, existsSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
-import { openKanban } from "@using-kanban/core";
+import { openKanban } from "@wayblink/using-kanban-core";
 import type { Io } from "./commands.js";
 import { resolveActor } from "./identity.js";
 
@@ -46,7 +46,7 @@ export async function runDoctor(
   // 3. sqlite driver (only relevant for the default storage)
   if (storage === "sqlite") {
     try {
-      const { SqliteEventLog } = await import("@using-kanban/core");
+      const { SqliteEventLog } = await import("@wayblink/using-kanban-core");
       const log = new SqliteEventLog(join(storeDir, ".doctor-probe.db"));
       log.close();
       checks.push({
@@ -65,24 +65,24 @@ export async function runDoctor(
 
   // 4. mcp server package
   try {
-    resolveFromHere("@using-kanban/mcp/package.json");
+    resolveFromHere("@wayblink/using-kanban-mcp/package.json");
     checks.push({
       ok: true,
       label: "mcp server",
-      detail: "@using-kanban/mcp resolvable",
+      detail: "@wayblink/using-kanban-mcp resolvable",
     });
   } catch {
     checks.push({
       ok: false,
       label: "mcp server",
       detail:
-        "not installed — agents cannot connect (pnpm add -D @using-kanban/mcp)",
+        "not installed — agents cannot connect (pnpm add -D @wayblink/using-kanban-mcp)",
     });
   }
 
   // 5. default web ui
   try {
-    resolveFromHere("@using-kanban/web/dist/index.html");
+    resolveFromHere("@wayblink/using-kanban-web/dist/index.html");
     checks.push({
       ok: true,
       label: "web ui",
@@ -93,7 +93,7 @@ export async function runDoctor(
       ok: false,
       label: "web ui",
       detail:
-        "not installed — ukb web runs API-only (pnpm add -D @using-kanban/web)",
+        "not installed — ukb web runs API-only (pnpm add -D @wayblink/using-kanban-web)",
     });
   }
 

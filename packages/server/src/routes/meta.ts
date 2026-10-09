@@ -1,4 +1,4 @@
-import { CARD_STATES } from "@using-kanban/core";
+import { CARD_STATES } from "@wayblink/using-kanban-core";
 import { sendJson } from "../http.js";
 import { openApiSpec } from "../openapi.js";
 import type { RequestContext } from "../router.js";

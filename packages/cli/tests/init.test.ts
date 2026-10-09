@@ -190,7 +190,7 @@ describe("ukb init", () => {
     const text = out.join("\n");
     expect(text).toContain('No dedicated installer for "pi"');
     expect(text).toContain('"mcpServers"');
-    expect(text).toContain('"@using-kanban/mcp"');
+    expect(text).toContain('"@wayblink/using-kanban-mcp"');
     // The docs snippet still lands, because most harnesses read it.
     expect(readFileSync(join(project, "AGENTS.md"), "utf8")).toContain(
       "using-kanban:start",

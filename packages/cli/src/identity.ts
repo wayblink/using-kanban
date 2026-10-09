@@ -1,4 +1,4 @@
-import type { Actor } from "@using-kanban/core";
+import type { Actor } from "@wayblink/using-kanban-core";
 import { flagString } from "./argv.js";
 
 /** Flags win, then env, then the OS user. */

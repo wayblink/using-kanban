@@ -43,9 +43,16 @@ function browserMcpEntry(): Record<string, unknown> {
   };
 }
 
-/** `npx -y @using-kanban/mcp --agent <name> --dir <project>` */
+/** `npx -y @wayblink/using-kanban-mcp --agent <name> --dir <project>` */
 function mcpArgs(agent: string, projectDir: string): string[] {
-  return ["-y", "@using-kanban/mcp", "--agent", agent, "--dir", projectDir];
+  return [
+    "-y",
+    "@wayblink/using-kanban-mcp",
+    "--agent",
+    agent,
+    "--dir",
+    projectDir,
+  ];
 }
 
 const GENERIC_DOCS_SNIPPET = `${DOCS_START}

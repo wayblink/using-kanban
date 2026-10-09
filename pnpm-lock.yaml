@@ -37,16 +37,16 @@ importers:
 
   packages/cli:
     dependencies:
-      "@using-kanban/core":
+      "@wayblink/using-kanban-core":
         specifier: workspace:*
         version: link:../core
-      "@using-kanban/mcp":
+      "@wayblink/using-kanban-mcp":
         specifier: workspace:*
         version: link:../mcp
-      "@using-kanban/server":
+      "@wayblink/using-kanban-server":
         specifier: workspace:*
         version: link:../server
-      "@using-kanban/web":
+      "@wayblink/using-kanban-web":
         specifier: workspace:*
         version: link:../web
     devDependencies:
@@ -93,7 +93,7 @@ importers:
       "@modelcontextprotocol/sdk":
         specifier: ^1.18.0
         version: 1.32.1(zod@3.25.76)
-      "@using-kanban/core":
+      "@wayblink/using-kanban-core":
         specifier: workspace:*
         version: link:../core
       zod:
@@ -115,7 +115,7 @@ importers:
 
   packages/server:
     dependencies:
-      "@using-kanban/core":
+      "@wayblink/using-kanban-core":
         specifier: workspace:*
         version: link:../core
       zod:
@@ -137,7 +137,7 @@ importers:
 
   packages/web:
     devDependencies:
-      "@using-kanban/server":
+      "@wayblink/using-kanban-server":
         specifier: workspace:*
         version: link:../server
       vitest:

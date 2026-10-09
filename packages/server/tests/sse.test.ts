@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { openKanban } from "@using-kanban/core";
+import { openKanban } from "@wayblink/using-kanban-core";
 import { startServer, type RunningServer } from "../src/server.js";
 
 const TOKEN = "test-token";

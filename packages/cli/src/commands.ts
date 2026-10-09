@@ -9,7 +9,7 @@ import {
   type Actor,
   type CardState,
   type Kanban,
-} from "@using-kanban/core";
+} from "@wayblink/using-kanban-core";
 import {
   flagBoolean,
   flagNumbers,
@@ -275,7 +275,7 @@ async function runWeb(
   dir: string,
   storage: "sqlite" | "jsonl" | "memory",
 ): Promise<number> {
-  const { startServer } = await import("@using-kanban/server");
+  const { startServer } = await import("@wayblink/using-kanban-server");
   const uiDir = flagString(flags, "ui") ?? (await resolveDefaultUiDir());
 
   const running = await startServer({
@@ -295,7 +295,7 @@ async function runWeb(
   io.stdout(
     uiDir
       ? `  ui     ${uiDir}`
-      : "  ui     none (install @using-kanban/web or pass --ui <dir>)",
+      : "  ui     none (install @wayblink/using-kanban-web or pass --ui <dir>)",
   );
   io.stdout("  Ctrl+C to stop");
   io.stdout("");
@@ -334,7 +334,9 @@ async function resolveDefaultUiDir(): Promise<string | undefined> {
     if (!url) return undefined;
     // require.resolve returns a filesystem path, not a URL.
     const require = createRequire(url);
-    return dirname(require.resolve("@using-kanban/web/dist/index.html"));
+    return dirname(
+      require.resolve("@wayblink/using-kanban-web/dist/index.html"),
+    );
   } catch {
     return undefined;
   }

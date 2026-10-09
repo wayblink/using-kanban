@@ -1,5 +1,9 @@
 import type { IncomingMessage } from "node:http";
-import { ActorSchema, type Actor, type EventSource } from "@using-kanban/core";
+import {
+  ActorSchema,
+  type Actor,
+  type EventSource,
+} from "@wayblink/using-kanban-core";
 import { HttpError } from "./http.js";
 import { isLoopbackHost, type ResolvedServerOptions } from "./options.js";
 

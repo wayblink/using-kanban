@@ -1,0 +1,6 @@
+# never ship a board database or editor leftovers
+.ukb/
+*.db
+*.db-wal
+*.db-shm
+.DS_Store

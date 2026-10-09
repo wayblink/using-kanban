@@ -12,13 +12,13 @@ opencode, Pi, …) share one board. No team concept, no message bus, no daemon.
 
 ## Status
 
-| Package                | Status | What it is                                                           |
-| ---------------------- | ------ | -------------------------------------------------------------------- |
-| `@using-kanban/core`   | ✅     | Event-sourced engine: event log, projection, transition guards       |
-| `@using-kanban/server` | ✅     | REST + SSE API, token auth, OpenAPI, static UI hosting, `ukb-server` |
-| `@using-kanban/mcp`    | ✅     | MCP stdio server, 14 tools — the multi-framework front door          |
-| `@using-kanban/web`    | ✅     | Default Web UI: drag & drop, live over SSE, one self-contained file  |
-| `@using-kanban/cli`    | ✅     | `ukb` binary + `ukb init --for <framework>` installers               |
+| Package                         | Status | What it is                                                           |
+| ------------------------------- | ------ | -------------------------------------------------------------------- |
+| `@wayblink/using-kanban-core`   | ✅     | Event-sourced engine: event log, projection, transition guards       |
+| `@wayblink/using-kanban-server` | ✅     | REST + SSE API, token auth, OpenAPI, static UI hosting, `ukb-server` |
+| `@wayblink/using-kanban-mcp`    | ✅     | MCP stdio server, 14 tools — the multi-framework front door          |
+| `@wayblink/using-kanban-web`    | ✅     | Default Web UI: drag & drop, live over SSE, one self-contained file  |
+| `@wayblink/using-kanban-cli`    | ✅     | `ukb` binary + `ukb init --for <framework>` installers               |
 
 ## Why event-sourced
 
@@ -58,7 +58,7 @@ external API consumer, and idles out on its own.
 ## Quick start
 
 ```ts
-import { openKanban } from "@using-kanban/core";
+import { openKanban } from "@wayblink/using-kanban-core";
 
 const kanban = openKanban({ dir: process.cwd() }); // <dir>/.ukb/board.db
 
@@ -97,7 +97,7 @@ kanban.history(card.id); // full event trail
   `claim_conflict`, `forbidden`, `revision_conflict` — front doors map these to
   MCP tool errors and HTTP statuses
 
-## HTTP API (`@using-kanban/server`)
+## HTTP API (`@wayblink/using-kanban-server`)
 
 ```
 GET    /api/board                     columns + cards
@@ -145,7 +145,7 @@ The handler is a plain `(req, res) => void` function — drop it into any host:
 
 ```ts
 import { createServer } from "node:http";
-import { createKanbanHandler } from "@using-kanban/server";
+import { createKanbanHandler } from "@wayblink/using-kanban-server";
 
 const handler = createKanbanHandler({
   dir: ".",
@@ -159,7 +159,7 @@ createServer(handler).listen(8080);
 `GET /api/events` is an SSE stream of the shared log, so a custom UI (or another
 product) gets live updates — including changes made by the CLI or an MCP server.
 
-## MCP (`@using-kanban/mcp`)
+## MCP (`@wayblink/using-kanban-mcp`)
 
 One stdio server, `ukb-mcp`, exposing the board as tools to any MCP-capable
 agent. It talks to the core in-process — no daemon, no HTTP hop.
@@ -197,7 +197,7 @@ attributable per framework:
   "mcpServers": {
     "using-kanban": {
       "command": "npx",
-      "args": ["-y", "@using-kanban/mcp", "--agent", "claude-code"],
+      "args": ["-y", "@wayblink/using-kanban-mcp", "--agent", "claude-code"],
     },
   },
 }
@@ -207,7 +207,7 @@ attributable per framework:
 # Codex — ~/.codex/config.toml
 [mcp_servers.using-kanban]
 command = "npx"
-args = ["-y", "@using-kanban/mcp", "--agent", "codex"]
+args = ["-y", "@wayblink/using-kanban-mcp", "--agent", "codex"]
 ```
 
 ```jsonc
@@ -216,7 +216,13 @@ args = ["-y", "@using-kanban/mcp", "--agent", "codex"]
   "mcp": {
     "using-kanban": {
       "type": "local",
-      "command": ["npx", "-y", "@using-kanban/mcp", "--agent", "opencode"],
+      "command": [
+        "npx",
+        "-y",
+        "@wayblink/using-kanban-mcp",
+        "--agent",
+        "opencode",
+      ],
     },
   },
 }
@@ -233,7 +239,7 @@ to act — _claim todo cards before starting work, move to review when ready_ �
 even an agent that never sees your docs behaves correctly. That inheritance from
 agkanban is deliberate.
 
-## Web UI (`@using-kanban/web`)
+## Web UI (`@wayblink/using-kanban-web`)
 
 The default UI is dependency-free — no framework, no build step, no
 `node_modules` in the browser. `ukb-server --ui ./packages/web/src` serves it,
@@ -280,8 +286,8 @@ handler in your product and point your own frontend at it.
 Two harnesses, both runnable with zero setup:
 
 ```bash
-pnpm --filter @using-kanban/web browser-check   # zero-dependency CDP driver
-pnpm --filter @using-kanban/web drag-check      # Playwright: real drag & drop
+pnpm --filter @wayblink/using-kanban-web browser-check   # zero-dependency CDP driver
+pnpm --filter @wayblink/using-kanban-web drag-check      # Playwright: real drag & drop
 ```
 
 `browser-check` drives headless Chrome over the DevTools Protocol using Node's
@@ -294,7 +300,7 @@ modal, and fails on any console error.
 drags a card onto **Doing** and asserts the card was _claimed_ and attributed to
 the identity shown in the top bar, then drags it back and asserts it reopened.
 
-## CLI (`@using-kanban/cli`)
+## CLI (`@wayblink/using-kanban-cli`)
 
 The `ukb` binary talks to the core in-process — same board, same events, no
 daemon and no server needed:

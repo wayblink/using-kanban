@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm -r build
+
+      - name: Typecheck
+        run: pnpm -r typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Unit tests
+        run: pnpm test
+
+      # Playwright's chromium, for the drag-and-drop check.
+      - name: Install browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Browser checks (layout, docs, i18n, drag & drop)
+        run: |
+          pnpm --filter @wayblink/using-kanban-web browser-check
+          pnpm --filter @wayblink/using-kanban-web drag-check

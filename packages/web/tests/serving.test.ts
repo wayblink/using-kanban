@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { afterAll, describe, expect, it } from "vitest";
-import { startServer, type RunningServer } from "@using-kanban/server";
+import { startServer, type RunningServer } from "@wayblink/using-kanban-server";
 
 const tempDirs: string[] = [];
 const running: RunningServer[] = [];
@@ -85,7 +85,7 @@ describe("serving the default UI", () => {
     ]) {
       const response = await fetch(`${base}${path}`);
       const text = await response.text();
-      expect(text).not.toContain('"name": "@using-kanban/web"');
+      expect(text).not.toContain('"name": "@wayblink/using-kanban-web"');
       expect(text).not.toContain("root:x:");
       expect(text.startsWith("<!doctype html>")).toBe(true);
     }

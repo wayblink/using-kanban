@@ -1,7 +1,16 @@
 {
-  "name": "@using-kanban/cli",
+  "name": "@wayblink/using-kanban-cli",
   "version": "0.1.0",
   "description": "ukb \u2014 command line for using-kanban, plus init --for installers for agent frameworks",
+  "author": "wayblink",
+  "homepage": "https://github.com/wayblink/using-kanban#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wayblink/using-kanban.git"
+  },
+  "bugs": {
+    "url": "https://github.com/wayblink/using-kanban/issues"
+  },
   "license": "MIT",
   "type": "module",
   "keywords": [
@@ -37,10 +46,10 @@
     "prepublishOnly": "pnpm build"
   },
   "dependencies": {
-    "@using-kanban/core": "workspace:*",
-    "@using-kanban/server": "workspace:*",
-    "@using-kanban/web": "workspace:*",
-    "@using-kanban/mcp": "workspace:*"
+    "@wayblink/using-kanban-core": "workspace:*",
+    "@wayblink/using-kanban-server": "workspace:*",
+    "@wayblink/using-kanban-web": "workspace:*",
+    "@wayblink/using-kanban-mcp": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",

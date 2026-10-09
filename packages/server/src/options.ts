@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { hostname, userInfo } from "node:os";
 import { z } from "zod";
-import { ActorSchema, type StorageKind } from "@using-kanban/core";
+import { ActorSchema, type StorageKind } from "@wayblink/using-kanban-core";
 
 export const DEFAULT_HOST = "127.0.0.1";
 

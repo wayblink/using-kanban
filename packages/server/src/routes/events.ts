@@ -1,4 +1,4 @@
-import type { Event } from "@using-kanban/core";
+import type { Event } from "@wayblink/using-kanban-core";
 import { HttpError } from "../http.js";
 import type { RequestContext } from "../router.js";
 

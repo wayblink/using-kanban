@@ -1,4 +1,4 @@
-import type { Board, Card, Event } from "@using-kanban/core";
+import type { Board, Card, Event } from "@wayblink/using-kanban-core";
 
 /**
  * Text rendering for the terminal: compact, greppable, one fact per line.

@@ -1,5 +1,5 @@
-import type { CardState } from "@using-kanban/core";
-import { CARD_STATES } from "@using-kanban/core";
+import type { CardState } from "@wayblink/using-kanban-core";
+import { CARD_STATES } from "@wayblink/using-kanban-core";
 import {
   HttpError,
   parseIfMatch,

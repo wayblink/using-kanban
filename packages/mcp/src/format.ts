@@ -1,4 +1,4 @@
-import type { Board, Card, Event } from "@using-kanban/core";
+import type { Board, Card, Event } from "@wayblink/using-kanban-core";
 
 /**
  * Compact, greppable text renderings. Agents read these directly, so the

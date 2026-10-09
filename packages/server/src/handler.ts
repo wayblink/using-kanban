@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { openKanban, type Kanban } from "@using-kanban/core";
+import { openKanban, type Kanban } from "@wayblink/using-kanban-core";
 import { authorizeRequest, resolveActor, resolveSource } from "./auth.js";
 import { EventBroker } from "./broker.js";
 import {

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { KanbanError } from "@using-kanban/core";
+import { KanbanError } from "@wayblink/using-kanban-core";
 import { runCommand } from "./commands.js";
 import { UsageError } from "./argv.js";
 

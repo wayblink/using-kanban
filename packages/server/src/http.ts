@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { KanbanError, type KanbanErrorCode } from "@using-kanban/core";
+import { KanbanError, type KanbanErrorCode } from "@wayblink/using-kanban-core";
 
 /** An HTTP-level failure (bad JSON, bad actor header, …). */
 export class HttpError extends Error {

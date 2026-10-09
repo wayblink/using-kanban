@@ -1,7 +1,16 @@
 {
-  "name": "@using-kanban/web",
+  "name": "@wayblink/using-kanban-web",
   "version": "0.1.0",
   "description": "Default Web UI for using-kanban \u2014 zero-build, zero-dependency, drag & drop, live over SSE",
+  "author": "wayblink",
+  "homepage": "https://github.com/wayblink/using-kanban#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wayblink/using-kanban.git"
+  },
+  "bugs": {
+    "url": "https://github.com/wayblink/using-kanban/issues"
+  },
   "license": "MIT",
   "type": "module",
   "keywords": [
@@ -33,7 +42,7 @@
     "drag-check": "node scripts/drag-check.mjs"
   },
   "devDependencies": {
-    "@using-kanban/server": "workspace:*",
+    "@wayblink/using-kanban-server": "workspace:*",
     "vitest": "^3.2.4"
   }
 }

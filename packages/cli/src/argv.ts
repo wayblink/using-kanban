@@ -1,4 +1,4 @@
-import type { StorageKind } from "@using-kanban/core";
+import type { StorageKind } from "@wayblink/using-kanban-core";
 
 export interface ParsedArgv {
   /** The subcommand, or `null` when none was given (→ `mine`). */

@@ -1,7 +1,16 @@
 {
-  "name": "@using-kanban/core",
+  "name": "@wayblink/using-kanban-core",
   "version": "0.1.0",
   "description": "Event-sourced kanban engine: append-only event log, board projection, and transition guards",
+  "author": "wayblink",
+  "homepage": "https://github.com/wayblink/using-kanban#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wayblink/using-kanban.git"
+  },
+  "bugs": {
+    "url": "https://github.com/wayblink/using-kanban/issues"
+  },
   "license": "MIT",
   "type": "module",
   "keywords": [

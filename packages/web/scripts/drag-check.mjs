@@ -5,13 +5,13 @@
  * The zero-dependency browser-check.mjs covers layout and panels; HTML5
  * drag-and-drop needs real drag events, which is what this adds.
  *
- *   pnpm --filter @using-kanban/web drag-check
+ *   pnpm --filter @wayblink/using-kanban-web drag-check
  */
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
-import { startServer } from "@using-kanban/server";
+import { startServer } from "@wayblink/using-kanban-server";
 
 const dir = mkdtempSync(join(tmpdir(), "ukb-drag-board-"));
 const server = await startServer({

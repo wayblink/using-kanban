@@ -1,4 +1,4 @@
-import type { Event, Kanban } from "@using-kanban/core";
+import type { Event, Kanban } from "@wayblink/using-kanban-core";
 
 /**
  * Tails the event log and fans events out to connected SSE clients.

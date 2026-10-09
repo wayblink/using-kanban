@@ -5,7 +5,7 @@ import {
   openKanban,
   type Actor,
   type Card,
-} from "@using-kanban/core";
+} from "@wayblink/using-kanban-core";
 import { z } from "zod";
 import {
   formatBoard,

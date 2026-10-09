@@ -1,7 +1,16 @@
 {
-  "name": "@using-kanban/mcp",
+  "name": "@wayblink/using-kanban-mcp",
   "version": "0.1.0",
   "description": "MCP stdio server exposing the using-kanban board to any MCP-capable agent",
+  "author": "wayblink",
+  "homepage": "https://github.com/wayblink/using-kanban#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wayblink/using-kanban.git"
+  },
+  "bugs": {
+    "url": "https://github.com/wayblink/using-kanban/issues"
+  },
   "license": "MIT",
   "type": "module",
   "keywords": [
@@ -38,7 +47,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.18.0",
-    "@using-kanban/core": "workspace:*",
+    "@wayblink/using-kanban-core": "workspace:*",
     "zod": "^3.25.0"
   },
   "devDependencies": {
