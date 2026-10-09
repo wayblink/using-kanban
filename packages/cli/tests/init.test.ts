@@ -46,6 +46,7 @@ async function init(
     browser?: boolean;
     files?: Record<string, string>;
     homeFiles?: Record<string, string>;
+    local?: boolean;
   } = {},
 ): Promise<{ project: string; home: string; out: string[] }> {
   const project = tempDir();
@@ -60,6 +61,7 @@ async function init(
     framework,
     ...(options.dryRun ? ["--dry-run"] : []),
     ...(options.browser ? ["--browser"] : []),
+    ...(options.local ? ["--local"] : []),
   ];
   const code = await runCommand(argv, io);
   expect(code).toBe(0);
@@ -219,6 +221,69 @@ describe("ukb init", () => {
       expect(spec.notes.length).toBeGreaterThan(0);
       expect(key).toBe(spec.agent);
     }
+  });
+});
+
+describe("ukb init --local", () => {
+  it("points at the sibling package instead of the published one", async () => {
+    const { project } = await init("claude-code", { local: true });
+    const config = JSON.parse(readFileSync(join(project, ".mcp.json"), "utf8"));
+    const entry = config.mcpServers["using-kanban"];
+
+    // an absolute path into this checkout, run by the current node binary
+    expect(entry.command).toBe(process.execPath);
+    expect(entry.args[0]).toMatch(/packages\/mcp\/dist\/bin\.js$/);
+    expect(existsSync(entry.args[0])).toBe(true);
+    expect(entry.args).toContain("--dir");
+    expect(entry.args).toContain(project);
+    // crucially, no npx and no unpublished package name
+    expect(entry.command).not.toBe("npx");
+    expect(entry.args.join(" ")).not.toContain("@wayblink/using-kanban-mcp");
+  });
+
+  it("uses npx and the published package without --local", async () => {
+    const { project } = await init("claude-code");
+    const config = JSON.parse(readFileSync(join(project, ".mcp.json"), "utf8"));
+    const entry = config.mcpServers["using-kanban"];
+
+    expect(entry.command).toBe("npx");
+    expect(entry.args).toEqual([
+      "-y",
+      "@wayblink/using-kanban-mcp",
+      "--agent",
+      "claude-code",
+      "--dir",
+      project,
+    ]);
+  });
+
+  it("stays idempotent with --local", async () => {
+    const { project } = await init("claude-code", { local: true });
+    const first = readFileSync(join(project, ".mcp.json"), "utf8");
+    const io = makeIo(project, tempDir());
+    expect(
+      await runCommand(["init", "--for", "claude-code", "--local"], io),
+    ).toBe(0);
+    expect(readFileSync(join(project, ".mcp.json"), "utf8")).toBe(first);
+  });
+
+  it("also applies to opencode's array command shape", async () => {
+    const { project } = await init("opencode", { local: true });
+    const config = JSON.parse(
+      readFileSync(join(project, "opencode.json"), "utf8"),
+    );
+    const entry = config.mcp["using-kanban"];
+
+    expect(entry.type).toBe("local");
+    expect(entry.command[0]).toBe(process.execPath);
+    expect(entry.command[1]).toMatch(/packages\/mcp\/dist\/bin\.js$/);
+    expect(entry.command).toContain("--dir");
+    expect(entry.command.join(" ")).not.toContain("@wayblink/using-kanban-mcp");
+  });
+
+  it("says so in the printed header", async () => {
+    const { out } = await init("claude-code", { local: true });
+    expect(out.join("\n")).toContain("using this checkout");
   });
 });
 

@@ -336,6 +336,17 @@ ukb init --for pi                    # prints the config to paste, writes AGENTS
 ukb init --for claude-code --browser # …plus the Playwright MCP server
 ```
 
+ukb init --for claude-code --local # point at this checkout, not the npm package
+
+````
+
+**Use `--local` before the packages are on npm.** The default config runs
+`npx -y @wayblink/using-kanban-mcp`, which only resolves once published.
+`--local` instead writes an absolute path to `packages/mcp/dist/bin.js` in this
+repo, run by the same `node` binary — so the config works from a source checkout
+and never depends on a registry. Everything else (the docs snippet, the browser
+server, idempotency) is identical.
+
 `--browser` adds a second MCP server (`@playwright/mcp`) to the same config, so
 the agents you onboard can also drive a browser — handy for letting them verify
 their own work against the running Web UI.
@@ -358,7 +369,7 @@ pnpm typecheck   # tsc --noEmit
 pnpm lint        # eslint
 pnpm format      # prettier
 pnpm build       # tsup
-```
+````
 
 ## License
 

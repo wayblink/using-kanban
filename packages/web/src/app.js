@@ -435,7 +435,16 @@ const DOCS_EN = [
           "ukb init --for claude-code           # writes .mcp.json + CLAUDE.md\\n" +
           "ukb init --for codex                 # marker block in ~/.codex/config.toml + AGENTS.md\\n" +
           "ukb init --for opencode              # merges opencode.json + AGENTS.md\\n" +
-          "ukb init --for claude-code --browser # …plus the Playwright MCP server",
+          "ukb init --for claude-code --browser # …plus the Playwright MCP server\n" +
+          "ukb init --for claude-code --local  # point at this checkout, not the npm package",
+      },
+      {
+        t: "p",
+        text:
+          "Before the packages are on npm, add --local. The default config runs " +
+          "npx -y @wayblink/using-kanban-mcp, which only resolves once published; " +
+          "--local instead writes an absolute path to packages/mcp/dist/bin.js in " +
+          "this repo, run by the same node binary. Everything else is identical.",
       },
       {
         t: "p",
@@ -753,7 +762,15 @@ const DOCS_ZH = [
           "ukb init --for claude-code           # 写入 .mcp.json 与 CLAUDE.md\n" +
           "ukb init --for codex                 # 在 ~/.codex/config.toml 中写入标记块，并生成 AGENTS.md\n" +
           "ukb init --for opencode              # 合并 opencode.json，并生成 AGENTS.md\n" +
-          "ukb init --for claude-code --browser # …并额外加入 Playwright MCP 服务器",
+          "ukb init --for claude-code --browser # …并额外加入 Playwright MCP 服务器\n" +
+          "ukb init --for claude-code --local  # 指向当前代码库，而不是 npm 上的包",
+      },
+      {
+        t: "p",
+        text:
+          "在包发布到 npm 之前，请加上 --local。默认配置运行的是 " +
+          "npx -y @wayblink/using-kanban-mcp，只有发布后才能解析；加上 --local 则会写入本仓库中 " +
+          "packages/mcp/dist/bin.js 的绝对路径，并由同一个 node 可执行文件启动。其余部分完全一致。",
       },
       {
         t: "p",

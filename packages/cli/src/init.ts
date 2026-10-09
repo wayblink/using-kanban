@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { flagBoolean, flagString } from "./argv.js";
 import type { Io } from "./commands.js";
 
@@ -21,7 +22,7 @@ interface FrameworkSpec {
   /** Human notes printed after a successful run. */
   notes: string[];
   /** Each harness has its own MCP config shape. */
-  entry: (projectDir: string) => Record<string, unknown>;
+  entry: (projectDir: string, local: boolean) => Record<string, unknown>;
   write: (context: WriteContext) => void;
 }
 
@@ -33,6 +34,8 @@ interface WriteContext {
   browserEntry?: Record<string, unknown> | undefined;
   docsPath: string;
   dryRun: boolean;
+  /** `--local`: point at the sibling package instead of the published one. */
+  local: boolean;
 }
 
 /** The optional Playwright MCP server, so agents can drive a browser too. */
@@ -43,16 +46,75 @@ function browserMcpEntry(): Record<string, unknown> {
   };
 }
 
-/** `npx -y @wayblink/using-kanban-mcp --agent <name> --dir <project>` */
-function mcpArgs(agent: string, projectDir: string): string[] {
-  return [
-    "-y",
-    "@wayblink/using-kanban-mcp",
-    "--agent",
-    agent,
-    "--dir",
-    projectDir,
-  ];
+/**
+ * The MCP server command for the generated config.
+ *
+ * Default: `npx -y @wayblink/using-kanban-mcp`, which is what you want once
+ * the packages are published. `--local` instead points at the sibling package
+ * in this checkout, so the config works before publishing — and survives the
+ * package never being published at all.
+ */
+function mcpEntry(
+  agent: string,
+  projectDir: string,
+  local: boolean,
+): { command: string; args: string[] } {
+  if (local) {
+    const bin = resolveLocalMcpBin();
+    if (!bin) {
+      throw new Error(
+        "ukb init --local could not find packages/mcp/dist/bin.js in this checkout. " +
+          "Run `pnpm -r build` first, or drop --local to use the published package.",
+      );
+    }
+    // process.execPath rather than "node": the agent harness may not have node
+    // on its PATH, but it always has this one.
+    return {
+      command: process.execPath,
+      args: [bin, "--agent", agent, "--dir", projectDir],
+    };
+  }
+  return {
+    command: "npx",
+    args: [
+      "-y",
+      "@wayblink/using-kanban-mcp",
+      "--agent",
+      agent,
+      "--dir",
+      projectDir,
+    ],
+  };
+}
+
+/**
+ * Locate `packages/mcp/dist/bin.js` by walking up from this package, so it
+ * works from a source checkout but not from an installed copy.
+ */
+function resolveLocalMcpBin(): string | undefined {
+  const url = hereUrl();
+  if (!url) return undefined;
+  let dir = dirname(fileURLToPath(url));
+  for (let depth = 0; depth < 6; depth += 1) {
+    const candidate = join(dir, "packages", "mcp", "dist", "bin.js");
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return undefined;
+}
+
+/** `import.meta.url` is undefined in the esbuild bundle — fall back to argv[1]. */
+function hereUrl(): string | undefined {
+  if (
+    typeof import.meta.url === "string" &&
+    import.meta.url.startsWith("file:")
+  ) {
+    return import.meta.url;
+  }
+  const entry = process.argv[1];
+  return entry ? fileURLToPath(entry) : undefined;
 }
 
 const GENERIC_DOCS_SNIPPET = `${DOCS_START}
@@ -75,10 +137,7 @@ const FRAMEWORKS: Record<string, FrameworkSpec> = {
     agent: "claude-code",
     label: "Claude Code",
     files: [".mcp.json", "CLAUDE.md"],
-    entry: (projectDir) => ({
-      command: "npx",
-      args: mcpArgs("claude-code", projectDir),
-    }),
+    entry: (projectDir, local) => mcpEntry("claude-code", projectDir, local),
     notes: [
       "Restart Claude Code (or reload the project) so it picks up .mcp.json.",
       "Commit .mcp.json if you want the whole team to share the board.",
@@ -95,10 +154,7 @@ const FRAMEWORKS: Record<string, FrameworkSpec> = {
     agent: "codex",
     label: "Codex",
     files: ["~/.codex/config.toml", "AGENTS.md"],
-    entry: (projectDir) => ({
-      command: "npx",
-      args: mcpArgs("codex", projectDir),
-    }),
+    entry: (projectDir, local) => mcpEntry("codex", projectDir, local),
     notes: [
       "The config.toml block is marker-delimited and safe to re-run.",
       "AGENTS.md is read by Codex on every run in this project.",
@@ -115,10 +171,10 @@ const FRAMEWORKS: Record<string, FrameworkSpec> = {
     agent: "opencode",
     label: "opencode",
     files: ["opencode.json", "AGENTS.md"],
-    entry: (projectDir) => ({
-      type: "local",
-      command: ["npx", ...mcpArgs("opencode", projectDir)],
-    }),
+    entry: (projectDir, local) => {
+      const { command, args } = mcpEntry("opencode", projectDir, local);
+      return { type: "local", command: [command, ...args] };
+    },
     notes: ["opencode reads opencode.json from the project root."],
     write: ({ projectDir, entry, browserEntry, docsPath, dryRun }) => {
       const config = join(projectDir, "opencode.json");
@@ -165,6 +221,7 @@ export async function runInit(
   }
 
   const dryRun = flagBoolean(flags, "dry-run");
+  const local = flagBoolean(flags, "local");
   const browserEntry = flagBoolean(flags, "browser")
     ? browserMcpEntry()
     : undefined;
@@ -173,13 +230,15 @@ export async function runInit(
   const agentName = spec?.agent ?? flagString(flags, "agent") ?? "agent";
 
   const entry = spec
-    ? spec.entry(projectDir)
-    : { command: "npx", args: mcpArgs(agentName, projectDir) };
+    ? spec.entry(projectDir, local)
+    : mcpEntry(agentName, projectDir, local);
 
   io.stdout(`ukb init — ${spec ? spec.label : requested}`);
   io.stdout(`  project  ${projectDir}`);
   io.stdout(`  agent    ${agentName}`);
   if (dryRun) io.stdout("  dry run  nothing will be written");
+  if (local)
+    io.stdout("  local    using this checkout, not the published package");
   io.stdout("");
 
   if (!spec) {
@@ -210,6 +269,7 @@ export async function runInit(
       key === "claude-code" ? "CLAUDE.md" : "AGENTS.md",
     ),
     dryRun,
+    local,
   });
 
   for (const file of spec.files) {
