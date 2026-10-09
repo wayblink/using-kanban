@@ -340,6 +340,68 @@ async function main() {
       `display: ${closed}`,
     ]);
 
+    /* ---------------------------- languages ------------------------------ */
+
+    const clickLang = async (lang) => {
+      const box = await cdp.evaluate(`(() => {
+        const b = document.querySelector('.lang-option[data-lang="${lang}"]');
+        const r = b.getBoundingClientRect();
+        return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+      })()`);
+      await cdp.clickPoint(box.x, box.y);
+      await new Promise((resolve) => setTimeout(resolve, 900));
+    };
+
+    // start on the board so column and drawer labels are in play
+    await cdp.send("Page.navigate", { url: `${url}#/board` });
+    await new Promise((resolve) => setTimeout(resolve, 700));
+
+    const langState = async () =>
+      JSON.parse(
+        await cdp.evaluate(`JSON.stringify({
+          lang: document.documentElement.lang,
+          active: document.querySelector('.lang-option.active')?.dataset.route ?? document.querySelector('.lang-option.active')?.dataset.lang,
+          columns: [...document.querySelectorAll('.column-header span:nth-child(2)')].map((e) => e.textContent),
+          actingAs: document.querySelector('.identity label').textContent,
+          newCard: document.getElementById('new-card').textContent,
+        })`),
+      );
+
+    await clickLang("en");
+    const en = await langState();
+    report.push([
+      "English board labels",
+      en.columns.join(",") === "Todo,Doing,Review,Done" &&
+        en.active === "en" &&
+        en.lang === "en",
+      `columns=${en.columns.join("/")} · ${en.actingAs} · ${en.newCard}`,
+    ]);
+
+    await clickLang("zh");
+    const zh = await langState();
+    report.push([
+      "Chinese board labels",
+      zh.columns.join(",") === "待办,进行中,审查中,已完成" &&
+        zh.active === "zh" &&
+        zh.lang === "zh-CN",
+      `columns=${zh.columns.join("/")} · ${zh.actingAs} · ${zh.newCard}`,
+    ]);
+
+    // the choice must survive a reload
+    await cdp.send("Page.navigate", { url: `${url}#/board` });
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    const persisted = await langState();
+    report.push([
+      "language persists across reloads",
+      persisted.active === "zh" && persisted.lang === "zh-CN",
+      `active=${persisted.active} · lang=${persisted.lang}`,
+    ]);
+
+    // back to English for the remaining board assertions
+    await clickLang("en");
+    await cdp.send("Page.navigate", { url });
+    await new Promise((resolve) => setTimeout(resolve, 700));
+
     /* ------------------------------ docs page ----------------------------- */
 
     await cdp.send("Page.navigate", { url });

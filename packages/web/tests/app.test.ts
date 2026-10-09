@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   COLUMNS,
+  DOCS,
   DOCS_SECTIONS,
+  I18N,
+  LANGUAGES,
   actionForColumn,
   actorOptions,
   blockedCardIds,
@@ -298,6 +301,123 @@ describe("documentation content", () => {
       "unauthorized",
     ]) {
       expect(troubleshooting).toContain(code);
+    }
+  });
+});
+
+describe("internationalisation", () => {
+  it("exposes the two supported languages", () => {
+    expect(LANGUAGES.map((language) => language.code).sort()).toEqual([
+      "en",
+      "zh",
+    ]);
+  });
+
+  it("has the same keys in both languages", () => {
+    const en = Object.keys(I18N.en).sort();
+    const zh = Object.keys(I18N.zh).sort();
+    expect(zh).toEqual(en);
+  });
+
+  it("has no empty or untranslated strings", () => {
+    for (const [code, table] of Object.entries(I18N)) {
+      for (const [key, value] of Object.entries(table)) {
+        expect(value.trim().length, `${code}.${key} is empty`).toBeGreaterThan(
+          0,
+        );
+      }
+    }
+    // Chinese must actually be Chinese, not a copy of English — except for
+    // values that are language-neutral symbols.
+    const neutral = new Set(["drawer.none"]);
+    const identical = Object.keys(I18N.en).filter(
+      (key) => !neutral.has(key) && I18N.zh[key] === I18N.en[key],
+    );
+    expect(identical).toEqual([]);
+  });
+
+  it("keeps interpolation placeholders in both languages", () => {
+    for (const key of Object.keys(I18N.en)) {
+      const en = (I18N.en[key].match(/\{(\w+)\}/g) ?? []).sort();
+      const zh = (I18N.zh[key].match(/\{(\w+)\}/g) ?? []).sort();
+      expect(zh, `placeholders differ for ${key}`).toEqual(en);
+    }
+  });
+
+  it("has every board state and error code translated", () => {
+    for (const column of COLUMNS) {
+      expect(I18N.en[`column.${column.id}`]).toBeTruthy();
+      expect(I18N.zh[`column.${column.id}`]).toBeTruthy();
+    }
+    for (const code of [
+      "claim_conflict",
+      "forbidden",
+      "card_not_found",
+      "revision_conflict",
+      "invalid_state",
+      "unauthorized",
+      "invalid_input",
+      "internal_error",
+    ]) {
+      expect(I18N.en[`error.${code}`], `en error.${code}`).toBeTruthy();
+      expect(I18N.zh[`error.${code}`], `zh error.${code}`).toBeTruthy();
+    }
+  });
+
+  it("translates every relative-time bucket", () => {
+    for (const bucket of [
+      "justNow",
+      "minutes",
+      "hours",
+      "days",
+      "months",
+      "years",
+    ]) {
+      expect(I18N.en[`time.${bucket}`]).toBeTruthy();
+      expect(I18N.zh[`time.${bucket}`]).toBeTruthy();
+    }
+  });
+});
+
+describe("documentation in both languages", () => {
+  const sectionIds = (sections) => sections.map((section) => section.id);
+
+  it("has the same sections in both languages", () => {
+    const en = sectionIds(DOCS_SECTIONS);
+    const zh = sectionIds(DOCS.zh);
+    expect(zh).toEqual(en);
+    expect(en.length).toBeGreaterThanOrEqual(8);
+  });
+
+  it("translates titles and leads", () => {
+    for (const section of DOCS_SECTIONS) {
+      const zh = DOCS.zh.find((entry) => entry.id === section.id);
+      expect(zh, `missing zh section ${section.id}`).toBeDefined();
+      expect(zh?.title).not.toBe(section.title);
+      expect(zh?.lead).not.toBe(section.lead);
+      expect(zh?.blocks.length).toBe(section.blocks.length);
+    }
+  });
+
+  it("keeps table shapes identical across languages", () => {
+    for (const section of DOCS_SECTIONS) {
+      const zh = DOCS.zh.find((entry) => entry.id === section.id);
+      if (!zh) continue;
+      section.blocks.forEach((block, index) => {
+        const zhBlock = zh.blocks[index];
+        expect(zhBlock?.t).toBe(block.t);
+        if (block.t === "table") {
+          // headers are translated, but the shape must match exactly
+          expect(zhBlock.head.length).toBe(block.head.length);
+          expect(zhBlock.rows.length).toBe(block.rows.length);
+          for (const [rowIndex, row] of block.rows.entries()) {
+            expect(
+              zhBlock.rows[rowIndex]?.length,
+              `row ${rowIndex} width`,
+            ).toBe(row.length);
+          }
+        }
+      });
     }
   });
 });

@@ -123,10 +123,152 @@ export function actorOptions(cards, role) {
 }
 
 /* ------------------------------------------------------------------ *
+ * Internationalisation
+ * ------------------------------------------------------------------ */
+
+export const LANGUAGES = [
+  { code: "en", label: "EN" },
+  { code: "zh", label: "中文" },
+];
+
+export const I18N = {
+  en: {
+    "nav.docs": "Docs",
+    "nav.board": "Board",
+    "controls.actingAs": "acting as",
+    "actor.human": "human",
+    "actor.agent": "agent",
+    "controls.filterPlaceholder": "Filter title / body…",
+    "controls.anyAssignee": "any assignee",
+    "controls.anyReviewer": "any reviewer",
+    "controls.newCard": "+ New card",
+    "live.connecting": "connecting…",
+    "live.live": "live",
+    "live.offline": "reconnecting…",
+    "column.todo": "Todo",
+    "column.doing": "Doing",
+    "column.review": "Review",
+    "column.done": "Done",
+    "column.empty": "nothing here",
+    "card.reviewer": "reviewer:",
+    "card.blockedBy": "blocked-by:",
+    "time.justNow": "just now",
+    "time.minutes": "{n}m ago",
+    "time.hours": "{n}h ago",
+    "time.days": "{n}d ago",
+    "time.months": "{n}mo ago",
+    "time.years": "{n}y ago",
+    "drawer.assignee": "Assignee",
+    "drawer.reviewer": "Reviewer",
+    "drawer.blockedBy": "Blocked by",
+    "drawer.body": "Body",
+    "drawer.history": "History",
+    "drawer.title": "Title",
+    "drawer.claim": "Claim",
+    "drawer.requestReview": "Request review",
+    "drawer.done": "Done",
+    "drawer.reopen": "Reopen",
+    "drawer.delete": "Delete card",
+    "drawer.blockOn": "block on card #",
+    "drawer.block": "Block",
+    "drawer.createdBy": "created by",
+    "drawer.revision": "revision",
+    "drawer.updated": "updated",
+    "drawer.none": "—",
+    "drawer.close": "close",
+    "drawer.unblock": "unblock {id}",
+    "drawer.confirmDelete": "Delete card #{id}? This cannot be undone.",
+    "modal.newCard": "New card",
+    "modal.body": "Body — target files, acceptance criteria",
+    "modal.cancel": "Cancel",
+    "modal.create": "Create card",
+    "modal.needsTitle": "a card needs a title",
+    "modal.enterId": "enter a card id to block on",
+    "error.claim_conflict": "claim conflict",
+    "error.forbidden": "not allowed",
+    "error.card_not_found": "card not found",
+    "error.revision_conflict": "revision conflict",
+    "error.invalid_state": "invalid state",
+    "error.unauthorized": "unauthorized",
+    "error.invalid_input": "invalid input",
+    "error.invalid_json": "invalid JSON",
+    "error.invalid_actor": "invalid actor",
+    "error.payload_too_large": "payload too large",
+    "error.internal_error": "internal error",
+    "error.network": "request failed",
+  },
+  zh: {
+    "nav.docs": "文档",
+    "nav.board": "看板",
+    "controls.actingAs": "当前身份",
+    "actor.human": "人类",
+    "actor.agent": "智能体",
+    "controls.filterPlaceholder": "筛选标题 / 内容…",
+    "controls.anyAssignee": "所有负责人",
+    "controls.anyReviewer": "所有审查者",
+    "controls.newCard": "+ 新建卡片",
+    "live.connecting": "连接中…",
+    "live.live": "实时",
+    "live.offline": "重连中…",
+    "column.todo": "待办",
+    "column.doing": "进行中",
+    "column.review": "审查中",
+    "column.done": "已完成",
+    "column.empty": "暂无卡片",
+    "card.reviewer": "审查：",
+    "card.blockedBy": "阻塞：",
+    "time.justNow": "刚刚",
+    "time.minutes": "{n} 分钟前",
+    "time.hours": "{n} 小时前",
+    "time.days": "{n} 天前",
+    "time.months": "{n} 个月前",
+    "time.years": "{n} 年前",
+    "drawer.assignee": "负责人",
+    "drawer.reviewer": "审查者",
+    "drawer.blockedBy": "阻塞于",
+    "drawer.body": "描述",
+    "drawer.history": "历史记录",
+    "drawer.title": "标题",
+    "drawer.claim": "认领",
+    "drawer.requestReview": "提交审查",
+    "drawer.done": "完成",
+    "drawer.reopen": "重新打开",
+    "drawer.delete": "删除卡片",
+    "drawer.blockOn": "阻塞于卡片 #",
+    "drawer.block": "阻塞",
+    "drawer.createdBy": "创建者",
+    "drawer.revision": "版本",
+    "drawer.updated": "更新于",
+    "drawer.none": "—",
+    "drawer.close": "关闭",
+    "drawer.unblock": "解除阻塞 {id}",
+    "drawer.confirmDelete": "删除卡片 #{id}？此操作无法撤销。",
+    "modal.newCard": "新建卡片",
+    "modal.body": "描述 — 目标文件、验收标准",
+    "modal.cancel": "取消",
+    "modal.create": "创建卡片",
+    "modal.needsTitle": "卡片需要标题",
+    "modal.enterId": "请输入要阻塞的卡片编号",
+    "error.claim_conflict": "认领冲突",
+    "error.forbidden": "无权操作",
+    "error.card_not_found": "卡片不存在",
+    "error.revision_conflict": "版本冲突",
+    "error.invalid_state": "状态无效",
+    "error.unauthorized": "未授权",
+    "error.invalid_input": "输入无效",
+    "error.invalid_json": "JSON 格式错误",
+    "error.invalid_actor": "身份无效",
+    "error.payload_too_large": "内容过大",
+    "error.internal_error": "内部错误",
+    "error.network": "请求失败",
+  },
+};
+
+/* ------------------------------------------------------------------ *
  * Documentation — the product home page
  * ------------------------------------------------------------------ */
 
-const DOCS = [
+const DOCS_EN = [
   {
     id: "overview",
     title: "What is using-kanban?",
@@ -461,8 +603,315 @@ const DOCS = [
   },
 ];
 
+const DOCS_ZH = [
+  {
+    id: "overview",
+    title: "什么是 using-kanban？",
+    lead: "一个面向 AI 智能体与人类的无头看板。",
+    blocks: [
+      {
+        t: "p",
+        text: "每个项目一块看板，存放在代码旁的 `.ukb/` 目录中。智能体与人类共用它：智能体通过 MCP 工具或命令行认领工作，人类通过这个界面观察与调度。",
+      },
+      {
+        t: "p",
+        text: "API 即产品。命令行、MCP 服务器和这个 Web 界面都只是同一套事件溯源内核的薄消费者——因此你可以构建自己的前端，或把看板嵌入到其他产品中。",
+      },
+      { t: "h", text: "为什么这样设计" },
+      {
+        t: "ul",
+        items: [
+          [
+            "事件溯源",
+            "每次变更都是一条追加的事件；看板是通过重放事件得到的投影，随时可以重建。历史、撤销与实时更新都由此自然获得。",
+          ],
+          [
+            "无守护进程",
+            "命令行与 MCP 服务器直接打开存储。只有当你需要这个界面时，HTTP 服务器才会运行。",
+          ],
+          [
+            "无消息总线",
+            "状态只存在一处。智能体在每轮开始时拉取自己的卡片；浏览器则通过 SSE 接收推送更新。",
+          ],
+          [
+            "可替换存储",
+            "默认使用 SQLite（WAL），也可以是单个 JSONL 文件——或用于测试的内存存储。",
+          ],
+        ],
+      },
+    ],
+  },
+  {
+    id: "workflow",
+    title: "工作流",
+    lead: "四列看板，一条规则：先认领，再动手。",
+    blocks: [
+      {
+        t: "table",
+        head: ["状态", "含义", "如何进入"],
+        rows: [
+          ["todo", "等待被认领", "创建时即在此列"],
+          ["doing", "有人正在处理", "认领"],
+          ["review", "工作已就绪，等待审查", "提交审查"],
+          ["done", "已批准并完成", "完成"],
+        ],
+      },
+      { t: "h", text: "唯一的一条规则" },
+      {
+        t: "p",
+        text: "开始工作前务必先认领卡片。认领会把它移到「进行中」并将你标记为负责人，这样没人会重复劳动——如果别人抢先一步，你会收到 claim_conflict 错误，而不是悄悄覆盖他们的工作。",
+      },
+      { t: "h", text: "写下智能体能执行的卡片" },
+      {
+        t: "p",
+        text: "通知只携带标题。请把目标文件和验收标准写进描述里——那才是负责人在开始前阅读的内容。",
+      },
+      {
+        t: "code",
+        text: 'ukb add "实现 /api/cards" \\\n  --body "目标：packages/server/src/routes/cards.ts\n验收：vitest 全部通过" \\\n  --assignee claude-code --reviewer jyxc',
+      },
+    ],
+  },
+  {
+    id: "web-ui",
+    title: "使用这个界面",
+    lead: "把卡片拖到某一列，就会执行对应的语义动作。",
+    blocks: [
+      {
+        t: "table",
+        head: ["拖到…", "…就会执行"],
+        rows: [
+          ["进行中", "认领——移到进行中，并把卡片分配给你"],
+          ["审查中", "提交审查——交给卡片上指定的审查者"],
+          ["已完成", "完成——标记为已完成（幂等）"],
+          ["待办", "重新打开——打回重做"],
+        ],
+      },
+      {
+        t: "p",
+        text: "如果认领失败——已经有别人在处理这张卡片——你会看到服务端返回的原因提示，看板也会回退到服务端状态。任何操作都不会被悄悄覆盖。",
+      },
+      { t: "h", text: "身份" },
+      {
+        t: "p",
+        text: "顶栏显示的是这个浏览器以谁的身份操作。人类与智能体共用同一套命名空间，因此你可以是审查 claude-code（智能体）所实现卡片的人类用户 jyxc。每张卡片的历史记录都会标注是谁做的。",
+      },
+      { t: "h", text: "其他功能" },
+      {
+        t: "ul",
+        items: [
+          [
+            "卡片抽屉",
+            "点击任意卡片可编辑标题/描述/负责人/审查者、执行状态流转、管理阻塞关系、查看事件历史，或删除卡片（仅创建者）。",
+          ],
+          ["筛选", "按文本、负责人、审查者筛选。"],
+          [
+            "实时",
+            "看板通过 SSE 更新——智能体、命令行或其他浏览器标签页移动的卡片都会自动出现，无需刷新。",
+          ],
+          ["键盘", "聚焦卡片后按回车打开，按 Esc 关闭面板。"],
+        ],
+      },
+    ],
+  },
+  {
+    id: "cli",
+    title: "ukb 命令行",
+    lead: "同一块看板，无需服务器，无需守护进程。",
+    blocks: [
+      {
+        t: "code",
+        text:
+          "ukb                              # 我的待办卡片——这是行动的号召，不只是列表\n" +
+          "ukb board                        # 整块看板\n" +
+          "ukb show 3                       # 详情与事件历史\n" +
+          'ukb add "修复不稳定的测试" --body "验收：CI 连续 10 次通过" --assignee codex --reviewer jyxc\n' +
+          "ukb claim 3                      # 待办 → 进行中，分配给你\n" +
+          "ukb review 3                     # → 审查中\n" +
+          "ukb done 3                       # → 已完成\n" +
+          "ukb reopen 3                     # → 待办\n" +
+          "ukb move 3 doing\n" +
+          'ukb edit 3 --body "…"            # 传空字符串可清空字段\n' +
+          "ukb block 4 --by 3               # 依赖关系\n" +
+          "ukb web                          # 启动 API 与这个界面\n" +
+          "ukb doctor                       # 检查项目是否已配置好",
+      },
+      {
+        t: "p",
+        text: "智能体请传入 --agent <名称> --agent-type agent 以便归属卡片；也支持 UKB_AGENT 与 UKB_DIR 等环境变量。失败时会以稳定的错误码非零退出，例如 claim_conflict: card 3 is already being worked by codex。",
+      },
+    ],
+  },
+  {
+    id: "mcp",
+    title: "接入智能体",
+    lead: "每种框架一条命令。",
+    blocks: [
+      {
+        t: "code",
+        text:
+          "ukb init --for claude-code           # 写入 .mcp.json 与 CLAUDE.md\n" +
+          "ukb init --for codex                 # 在 ~/.codex/config.toml 中写入标记块，并生成 AGENTS.md\n" +
+          "ukb init --for opencode              # 合并 opencode.json，并生成 AGENTS.md\n" +
+          "ukb init --for claude-code --browser # …并额外加入 Playwright MCP 服务器",
+      },
+      {
+        t: "p",
+        text: "AGENTS.md / CLAUDE.md 中的片段负责传授工作流——先认领再动手、就绪后提交审查——因此即使是从不阅读这些文档的智能体也能正确行事。",
+      },
+      { t: "h", text: "智能体获得的工具" },
+      {
+        t: "table",
+        head: ["工具", "用途"],
+        rows: [
+          ["kanban_my_cards", "我的待办卡片——行动的号召"],
+          ["kanban_review_queue", "等待我审查的卡片"],
+          ["kanban_board / kanban_show", "整块看板 / 单张卡片及其历史"],
+          [
+            "kanban_add / kanban_edit / kanban_delete",
+            "创建、编辑（创建者或负责人）、删除（仅创建者）",
+          ],
+          [
+            "kanban_claim / kanban_review / kanban_done / kanban_reopen / kanban_move",
+            "状态流转",
+          ],
+          ["kanban_block / kanban_unblock", "依赖关系"],
+        ],
+      },
+    ],
+  },
+  {
+    id: "api",
+    title: "构建你自己的界面",
+    lead: "HTTP API 才是契约——这个页面只是它的一个消费者。",
+    blocks: [
+      {
+        t: "table",
+        head: ["方法", "路径", "用途"],
+        rows: [
+          ["GET", "/api/board", "各列与卡片"],
+          ["GET", "/api/cards?state=open&assignee=me&q=文本", "筛选卡片"],
+          ["GET", "/api/cards/:id", "卡片与事件历史"],
+          ["POST", "/api/cards", "创建卡片（待办）"],
+          ["PATCH", "/api/cards/:id", "编辑字段"],
+          [
+            "POST",
+            "/api/cards/:id/{claim,review,done,reopen,move}",
+            "状态流转",
+          ],
+          ["POST", "/api/cards/:id/{block,unblock}", "依赖关系"],
+          ["DELETE", "/api/cards/:id", "删除（仅创建者）"],
+          ["GET", "/api/events", "共享日志的 SSE 流"],
+          ["GET", "/openapi.json", "完整规范"],
+        ],
+      },
+      { t: "h", text: "认证" },
+      {
+        t: "p",
+        text: "默认只绑定 127.0.0.1 并使用随机生成的令牌。变更操作始终需要它——Authorization: Bearer <token>，或 ?token=<token>（浏览器的 EventSource 就是这样传递的）。回环接口上的读取是开放的，绑定到其他地址后则需要令牌。用 ukb-server --host 0.0.0.0 --token <yours> 启动即可嵌入使用。",
+      },
+      { t: "h", text: "身份与并发" },
+      {
+        t: "ul",
+        items: [
+          [
+            "操作者",
+            "发送 X-Actor-Name 与 X-Actor-Type: human|agent；X-Source 用于标注事件来源。",
+          ],
+          [
+            "乐观并发",
+            "发送 If-Match: <revision>（或请求体中的 expectedRevision）。版本过期会得到 409 revision_conflict，而不是覆盖并发的修改。",
+          ],
+          [
+            "实时更新",
+            "用 ?since=<id> 订阅 /api/events 可先补拉再持续推送。命令行与 MCP 服务器产生的变更也会出现在这里。",
+          ],
+        ],
+      },
+    ],
+  },
+  {
+    id: "concepts",
+    title: "概念",
+    lead: "值得了解的五件事。",
+    blocks: [
+      {
+        t: "ul",
+        items: [
+          [
+            "操作者",
+            "{ type: human | agent, name }。同一套命名空间，因此人类可以审查智能体的卡片，反之亦然。",
+          ],
+          [
+            "依赖",
+            "一张卡片可以等待其他卡片（block 4 --by 3）。环路与自阻塞会被拒绝。存在未完成阻塞项的卡片会被标记，而不是隐藏。",
+          ],
+          [
+            "版本号",
+            "每次变更都会递增卡片的 revision。这正是命令行、MCP 与浏览器之间并发编辑安全的保证。",
+          ],
+          [
+            "权限是协作式的",
+            "删除仅限创建者，编辑限创建者或负责人——基于你发送的操作者名称，而非加密机制。对本地看板而言这已经足够。",
+          ],
+          [
+            "存储",
+            "默认 sqlite（WAL，多进程安全）；jsonl 提供零依赖、便于纳入 git 的看板；memory 用于测试。用 --storage 或 UKB_STORAGE 切换。",
+          ],
+        ],
+      },
+    ],
+  },
+  {
+    id: "troubleshooting",
+    title: "故障排查",
+    lead: "错误的含义以及如何处理。",
+    blocks: [
+      {
+        t: "table",
+        head: ["错误", "含义", "处理方式"],
+        rows: [
+          [
+            "claim_conflict",
+            "已有别人在处理该卡片",
+            "换一张卡片，或请对方重新打开",
+          ],
+          ["forbidden", "你既不是创建者也不是负责人", "由创建者或负责人来修改"],
+          [
+            "card_not_found",
+            "该编号在看板上不存在",
+            "用 ukb board 查看真实的编号",
+          ],
+          [
+            "revision_conflict",
+            "卡片自你读取后已发生变化",
+            "重新读取（ukb show 或 GET /api/cards/:id）后重试",
+          ],
+          [
+            "invalid_state",
+            "该流转不合理（例如认领已完成的卡片）",
+            "先确认卡片当前状态",
+          ],
+          [
+            "unauthorized",
+            "未携带令牌的变更操作",
+            "传入 ukb web 输出的 URL 中的令牌",
+          ],
+        ],
+      },
+      {
+        t: "p",
+        text: "智能体：请在要操作看板的项目目录下运行 ukb（或 kanban_my_cards）——存储位于当前目录的 .ukb/。如果无法解析身份，请传入 --agent <名称>。",
+      },
+    ],
+  },
+];
+
 /** The documentation content, exported for tests. */
-export const DOCS_SECTIONS = DOCS;
+/** Documentation content, per language. */
+export const DOCS = { en: DOCS_EN, zh: DOCS_ZH };
+
+export const DOCS_SECTIONS = DOCS_EN;
 
 /* ------------------------------------------------------------------ *
  * Browser app
@@ -475,6 +924,7 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
 function startApp() {
   const TOKEN = new URLSearchParams(window.location.search).get("token") ?? "";
   const STORAGE_KEY = "using-kanban.actor";
+  const LANG_KEY = "using-kanban.lang";
 
   const els = {
     board: document.getElementById("board"),
@@ -502,10 +952,51 @@ function startApp() {
     openCardId: null,
     dragCardId: null,
     route: currentRoute(),
+    lang: loadLanguage(),
   };
 
   /** Guards against re-rendering the docs when only the section hash changes. */
   let docsRendered = false;
+
+  /** Translate a key, with optional `{n}` / `{id}` interpolation. */
+  function t(key, params) {
+    const table = I18N[state.lang] ?? I18N.en;
+    const template = table[key] ?? I18N.en[key] ?? key;
+    if (!params) return template;
+    return template.replace(/\{(\w+)\}/g, (match, name) =>
+      Object.prototype.hasOwnProperty.call(params, name)
+        ? String(params[name])
+        : match,
+    );
+  }
+
+  function applyLanguage() {
+    document.documentElement.lang = state.lang === "zh" ? "zh-CN" : "en";
+
+    // static markup that is not re-rendered per route
+    document.querySelector(".identity label").textContent =
+      t("controls.actingAs");
+    els.filterQ.placeholder = t("controls.filterPlaceholder");
+    els.newCard.textContent = t("controls.newCard");
+    els.actorType.options[0].textContent = t("actor.human");
+    els.actorType.options[1].textContent = t("actor.agent");
+    for (const link of document.querySelectorAll(".nav-link")) {
+      link.textContent = t(`nav.${link.dataset.route}`);
+    }
+    for (const button of document.querySelectorAll(".lang-option")) {
+      const active = button.dataset.lang === state.lang;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", active ? "true" : "false");
+    }
+    // the drawer is built from translated labels, so rebuild it if it is open
+    const openCardId = state.openCardId;
+    if (openCardId !== null) {
+      state.openCardId = null;
+      void openDrawer(openCardId);
+    }
+    render();
+    if (state.route === "docs") void renderDocs();
+  }
 
   /** `#/board` or `#/docs` — the docs page is the home page. */
   function currentRoute() {
@@ -620,20 +1111,41 @@ function startApp() {
         options.body === undefined ? undefined : JSON.stringify(options.body),
     });
     if (!response.ok) {
+      let code = "internal_error";
       let message = `${response.status} ${response.statusText}`;
       try {
         const payload = await response.json();
-        if (payload?.error?.message) message = payload.error.message;
-        if (payload?.error?.code) message = `${payload.error.code}: ${message}`;
+        if (typeof payload?.error?.message === "string")
+          message = payload.error.message;
+        if (typeof payload?.error?.code === "string") code = payload.error.code;
       } catch {
         // keep the status message
       }
-      throw new Error(message);
+      // The server speaks English; localise the code so the user sees a known
+      // label, and keep the server's detail for the specifics.
+      const label = t(`error.${code}`);
+      throw new Error(label === code ? message : `${label}: ${message}`);
     }
     return response.status === 204 ? null : response.json();
   }
 
   /* ----------------------------- identity ---------------------------- */
+
+  function loadLanguage() {
+    const stored = window.localStorage.getItem(LANG_KEY);
+    if (stored === "zh" || stored === "en") return stored;
+    // default to the browser's language when it is Chinese
+    return (navigator.language ?? "").toLowerCase().startsWith("zh")
+      ? "zh"
+      : "en";
+  }
+
+  function setLanguage(lang) {
+    if (lang !== "zh" && lang !== "en") return;
+    state.lang = lang;
+    window.localStorage.setItem(LANG_KEY, lang);
+    applyLanguage();
+  }
 
   function loadIdentity() {
     const fallback = { name: "me", type: "human" };
@@ -692,10 +1204,10 @@ function startApp() {
     els.live.dataset.state = next;
     els.live.textContent =
       next === "live"
-        ? "live"
+        ? t("live.live")
         : next === "offline"
-          ? "reconnecting…"
-          : "connecting…";
+          ? t("live.offline")
+          : t("live.connecting");
   }
 
   /* ----------------------------- rendering --------------------------- */
@@ -723,7 +1235,7 @@ function startApp() {
       const dot = document.createElement("span");
       dot.className = "dot";
       const label = document.createElement("span");
-      label.textContent = column.label;
+      label.textContent = t(`column.${column.id}`);
       const count = document.createElement("span");
       count.className = "count";
       count.textContent = String(
@@ -739,7 +1251,7 @@ function startApp() {
       if (cards.length === 0) {
         const empty = document.createElement("div");
         empty.className = "empty";
-        empty.textContent = "nothing here";
+        empty.textContent = t("column.empty");
         list.append(empty);
       }
       for (const card of cards) {
@@ -774,9 +1286,13 @@ function startApp() {
       );
     }
     if (card.reviewer)
-      meta.append(badge(`review: ${card.reviewer}`, "reviewer"));
-    if (blocked) meta.append(badge("blocked", "blocked"));
-    meta.append(badge(formatRelativeTime(card.updatedAt), ""));
+      meta.append(badge(`${t("card.reviewer")}${card.reviewer}`, "reviewer"));
+    if (blocked) {
+      meta.append(
+        badge(`${t("card.blockedBy")}${card.blockedBy.join(",")}`, "blocked"),
+      );
+    }
+    meta.append(badge(formatRelativeTime(card.updatedAt, Date.now(), t), ""));
 
     element.append(title, meta);
 
@@ -923,12 +1439,12 @@ function startApp() {
     heading.textContent = `#${card.id} ${card.title}`;
     const pill = document.createElement("span");
     pill.className = "state-pill";
-    pill.textContent = card.state;
+    pill.textContent = t(`column.${card.state}`);
     const close = document.createElement("button");
     close.className = "icon-button";
     close.type = "button";
     close.textContent = "✕";
-    close.setAttribute("aria-label", "close");
+    close.setAttribute("aria-label", t("drawer.close"));
     close.addEventListener("click", closeDrawer);
     header.append(heading, pill, close);
 
@@ -938,13 +1454,13 @@ function startApp() {
     // editable fields
     body.append(
       field(
-        "Title",
+        t("drawer.title"),
         textInput(card.title, async (value) => {
           await saveCard(id, { title: value });
         }),
       ),
       field(
-        "Body",
+        t("drawer.body"),
         textArea(card.body ?? "", async (value) => {
           await saveCard(id, { body: value });
         }),
@@ -955,13 +1471,13 @@ function startApp() {
     assignee.className = "row";
     assignee.append(
       field(
-        "Assignee",
+        t("drawer.assignee"),
         textInput(card.assignee ?? "", async (value) => {
           await saveCard(id, { assignee: value });
         }),
       ),
       field(
-        "Reviewer",
+        t("drawer.reviewer"),
         textInput(card.reviewer ?? "", async (value) => {
           await saveCard(id, { reviewer: value });
         }),
@@ -972,19 +1488,19 @@ function startApp() {
     // actions
     const actions = document.createElement("div");
     actions.className = "actions";
-    for (const [label, action, enabled] of [
-      ["Claim", "claim", card.state === "todo"],
+    for (const [labelKey, action, enabled] of [
+      ["drawer.claim", "claim", card.state === "todo"],
       [
-        "Request review",
+        "drawer.requestReview",
         "review",
         card.state !== "done" && card.state !== "review",
       ],
-      ["Done", "done", card.state !== "done"],
-      ["Reopen", "reopen", card.state !== "todo"],
+      ["drawer.done", "done", card.state !== "done"],
+      ["drawer.reopen", "reopen", card.state !== "todo"],
     ]) {
       const button = document.createElement("button");
       button.type = "button";
-      button.textContent = label;
+      button.textContent = t(labelKey);
       button.disabled = !enabled;
       button.addEventListener("click", () => void transition(id, action));
       actions.append(button);
@@ -992,14 +1508,14 @@ function startApp() {
     body.append(actions);
 
     // blockers
-    const blockersField = field("Blocked by");
+    const blockersField = field(t("drawer.blockedBy"));
     const blockers = document.createElement("div");
     blockers.className = "blockers";
     const blockersOf = (candidate) => candidate.blockedBy ?? [];
     if (blockersOf(card).length === 0) {
       const none = document.createElement("span");
       none.className = "badge";
-      none.textContent = "—";
+      none.textContent = t("drawer.none");
       blockers.append(none);
     }
     for (const blockerId of blockersOf(card)) {
@@ -1011,7 +1527,7 @@ function startApp() {
       remove.className = "icon-button";
       remove.type = "button";
       remove.textContent = "✕";
-      remove.setAttribute("aria-label", `unblock ${blockerId}`);
+      remove.setAttribute("aria-label", t("drawer.unblock", { id: blockerId }));
       remove.addEventListener("click", async () => {
         try {
           await api(`/api/cards/${id}/unblock`, {
@@ -1028,15 +1544,15 @@ function startApp() {
     }
     const blockInput = document.createElement("input");
     blockInput.type = "number";
-    blockInput.placeholder = "block on card #";
+    blockInput.placeholder = t("drawer.blockOn");
     blockInput.min = "1";
     const blockButton = document.createElement("button");
     blockButton.type = "button";
-    blockButton.textContent = "Block";
+    blockButton.textContent = t("drawer.block");
     blockButton.addEventListener("click", async () => {
       const blockedBy = Number(blockInput.value);
       if (!Number.isInteger(blockedBy) || blockedBy <= 0) {
-        toast("enter a card id to block on", "error");
+        toast(t("modal.enterId"), "error");
         return;
       }
       try {
@@ -1055,7 +1571,7 @@ function startApp() {
     body.append(blockersField);
 
     // history
-    const historyField = field("History");
+    const historyField = field(t("drawer.history"));
     const list = document.createElement("ul");
     list.className = "history";
     try {
@@ -1066,7 +1582,7 @@ function startApp() {
         who.className = "who";
         who.textContent = `${event.actor.type}/${event.actor.name}`;
         const what = document.createElement("span");
-        what.textContent = `${describeEvent(event)} · ${formatRelativeTime(event.ts)}`;
+        what.textContent = `${describeEvent(event)} · ${formatRelativeTime(event.ts, Date.now(), t)}`;
         item.append(who, what);
         list.append(item);
       }
@@ -1082,9 +1598,9 @@ function startApp() {
     const del = document.createElement("button");
     del.type = "button";
     del.className = "danger";
-    del.textContent = "Delete card";
+    del.textContent = t("drawer.delete");
     del.addEventListener("click", async () => {
-      if (!window.confirm(`Delete card #${id}? This cannot be undone.`)) return;
+      if (!window.confirm(t("drawer.confirmDelete", { id }))) return;
       try {
         await api(`/api/cards/${id}`, { method: "DELETE" });
         toast(`deleted #${id}`);
@@ -1115,7 +1631,7 @@ function startApp() {
   function openModal() {
     els.modal.textContent = "";
     const heading = document.createElement("h2");
-    heading.textContent = "New card";
+    heading.textContent = t("modal.newCard");
 
     const title = textInput("", () => {});
     const bodyInput = textArea("", () => {});
@@ -1124,13 +1640,16 @@ function startApp() {
 
     const row = document.createElement("div");
     row.className = "row";
-    row.append(field("Assignee", assignee), field("Reviewer", reviewer));
+    row.append(
+      field(t("drawer.assignee"), assignee),
+      field(t("drawer.reviewer"), reviewer),
+    );
 
     const form = document.createElement("div");
     form.className = "drawer-body";
     form.append(
-      field("Title", title),
-      field("Body — target files, acceptance criteria", bodyInput),
+      field(t("drawer.title"), title),
+      field(t("modal.body"), bodyInput),
       row,
     );
 
@@ -1138,15 +1657,15 @@ function startApp() {
     actions.className = "modal-actions";
     const cancel = document.createElement("button");
     cancel.type = "button";
-    cancel.textContent = "Cancel";
+    cancel.textContent = t("modal.cancel");
     cancel.addEventListener("click", closeModal);
     const create = document.createElement("button");
     create.type = "button";
     create.className = "primary";
-    create.textContent = "Create card";
+    create.textContent = t("modal.create");
     create.addEventListener("click", async () => {
       if (!title.value.trim()) {
-        toast("a card needs a title", "error");
+        toast(t("modal.needsTitle"), "error");
         return;
       }
       try {
@@ -1210,7 +1729,7 @@ function startApp() {
     const toc = document.createElement("nav");
     toc.className = "docs-toc";
     toc.setAttribute("aria-label", "documentation sections");
-    for (const section of DOCS) {
+    for (const section of DOCS[state.lang] ?? DOCS.en) {
       const link = document.createElement("a");
       link.href = `#/docs/${section.id}`;
       link.textContent = section.title;
@@ -1220,7 +1739,7 @@ function startApp() {
 
     const article = document.createElement("article");
     article.className = "docs-body";
-    for (const section of DOCS) {
+    for (const section of DOCS[state.lang] ?? DOCS.en) {
       article.append(renderDocsSection(section));
     }
 
@@ -1346,6 +1865,9 @@ function startApp() {
   /* ------------------------------- wiring ---------------------------- */
 
   els.newCard.addEventListener("click", openModal);
+  for (const button of document.querySelectorAll(".lang-option")) {
+    button.addEventListener("click", () => setLanguage(button.dataset.lang));
+  }
   els.drawerBackdrop.addEventListener("click", closeDrawer);
   els.modalBackdrop.addEventListener("click", closeModal);
   els.actorName.addEventListener("change", saveIdentity);
@@ -1382,6 +1904,7 @@ function startApp() {
   });
 
   loadIdentity();
+  applyLanguage();
   applyRoute();
   connectLive();
 }
