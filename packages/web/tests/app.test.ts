@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   COLUMNS,
+  DOCS_SECTIONS,
   actionForColumn,
   actorOptions,
   blockedCardIds,
@@ -211,5 +212,92 @@ describe("actorOptions", () => {
     ];
     expect(actorOptions(cards, "assignee")).toEqual(["claude-code", "codex"]);
     expect(actorOptions(cards, "reviewer")).toEqual(["jyxc"]);
+  });
+});
+
+describe("documentation content", () => {
+  it("has unique section ids and non-empty content", () => {
+    const ids = DOCS_SECTIONS.map((section) => section.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const section of DOCS_SECTIONS) {
+      expect(section.title.length).toBeGreaterThan(0);
+      expect(section.lead.length).toBeGreaterThan(0);
+      expect(section.blocks.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("covers the whole product", () => {
+    const titles = DOCS_SECTIONS.map((section) => section.title);
+    for (const expected of [
+      "What is using-kanban?",
+      "The workflow",
+      "Using this UI",
+      "The ukb CLI",
+      "Connecting an agent",
+      "Build your own UI",
+      "Concepts",
+      "Troubleshooting",
+    ]) {
+      expect(titles).toContain(expected);
+    }
+  });
+
+  it("teaches the one rule — claim before working", () => {
+    const workflow = DOCS_SECTIONS.find((section) => section.id === "workflow");
+    const text = JSON.stringify(workflow);
+    expect(text).toContain("claim");
+    expect(text.toLowerCase()).toContain("before starting work");
+  });
+
+  it("documents every transition verb and the drag semantics", () => {
+    const ui = JSON.stringify(
+      DOCS_SECTIONS.find((section) => section.id === "web-ui"),
+    );
+    for (const verb of ["claim", "review", "done", "reopen"]) {
+      expect(ui).toContain(verb);
+    }
+    // and the workflow states must match the board's columns
+    const workflow = JSON.stringify(
+      DOCS_SECTIONS.find((section) => section.id === "workflow"),
+    );
+    for (const column of COLUMNS) {
+      expect(workflow).toContain(column.id);
+    }
+  });
+
+  it("uses only block types the renderer understands", () => {
+    const known = new Set(["p", "h", "code", "ul", "table"]);
+    for (const section of DOCS_SECTIONS) {
+      for (const block of section.blocks) {
+        expect(known.has(block.t)).toBe(true);
+        if (block.t === "table") {
+          expect(block.head.length).toBeGreaterThan(0);
+          for (const row of block.rows) {
+            expect(row).toHaveLength(block.head.length);
+          }
+        }
+        if (block.t === "ul") {
+          for (const item of block.items) {
+            expect(item).toHaveLength(2);
+          }
+        }
+      }
+    }
+  });
+
+  it("explains every error code the API can return", () => {
+    const troubleshooting = JSON.stringify(
+      DOCS_SECTIONS.find((section) => section.id === "troubleshooting"),
+    );
+    for (const code of [
+      "claim_conflict",
+      "forbidden",
+      "card_not_found",
+      "revision_conflict",
+      "invalid_state",
+      "unauthorized",
+    ]) {
+      expect(troubleshooting).toContain(code);
+    }
   });
 });

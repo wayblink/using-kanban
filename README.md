@@ -258,6 +258,11 @@ ukb-server --dir . --ui ./packages/web/dist
   remove blockers, read the event history, delete (creator only).
 - **Filters** by text, assignee, and reviewer; **new card** modal with body
   field for target files and acceptance criteria.
+- **Built-in docs at `/`** — the home page explains the workflow, the CLI, the
+  MCP tools, and the HTTP API, with a live board count and an _Open the board_
+  button. The board lives at `#/board`; the docs at `#/docs`. It is the first
+  thing a new user (or a new agent) sees, and it is just another consumer of
+  the API — so it doubles as a living example of building your own UI.
 - Light and dark via `prefers-color-scheme`; single-column snap layout on
   narrow screens; keyboard-openable cards; `Esc` closes panels.
 

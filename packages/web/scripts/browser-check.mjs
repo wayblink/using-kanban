@@ -91,10 +91,18 @@ class Cdp {
   async clickCenter(selector) {
     const box = await this.evaluate(`(() => {
       const el = document.querySelector(${JSON.stringify(selector)});
-      if (!el) return null;
+      if (!el) {
+        // surface why: page errors, or simply nothing rendered
+        return { missing: true, text: document.body.innerText.slice(0, 300) };
+      }
       const r = el.getBoundingClientRect();
       return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
     })()`);
+    if (box?.missing) {
+      throw new Error(
+        `no element for ${selector} — page says: ${JSON.stringify(box.text)}`,
+      );
+    }
     if (!box) throw new Error(`no element for ${selector}`);
     await this.send("Input.dispatchMouseEvent", {
       type: "mousePressed",
@@ -243,6 +251,10 @@ async function main() {
 
     /* ---------------------------- assertions ---------------------------- */
 
+    // start on the board view for the board assertions below
+    await cdp.send("Page.navigate", { url: `${url}#/board` });
+    await new Promise((resolve) => setTimeout(resolve, 600));
+
     const report = [];
 
     const phantom = await cdp.evaluate(`(() => {
@@ -325,7 +337,97 @@ async function main() {
       `display: ${closed}`,
     ]);
 
-    // the new-card modal
+    /* ------------------------------ docs page ----------------------------- */
+
+    await cdp.send("Page.navigate", { url });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    const docs = await cdp.evaluate(`(() => {
+      const docs = document.querySelector('#docs');
+      const board = document.querySelector('#board');
+      return {
+        docsVisible: getComputedStyle(docs).display !== 'none',
+        boardHidden: getComputedStyle(board).display === 'none',
+        sections: docs.querySelectorAll('.docs-section').length,
+        headings: [...docs.querySelectorAll('.docs-section h2')].map((h) => h.textContent),
+        tables: docs.querySelectorAll('.docs-table').length,
+        codeBlocks: docs.querySelectorAll('.docs-section pre').length,
+        tocLinks: docs.querySelectorAll('.docs-toc a').length,
+        hero: docs.querySelector('.docs-hero h1')?.textContent ?? '',
+        cta: docs.querySelector('.docs-cta')?.getAttribute('href') ?? '',
+        activeNav: document.querySelector('.nav-link.active')?.dataset.route ?? '',
+      };
+    })()`);
+    report.push([
+      "docs is the home page",
+      docs.docsVisible && docs.boardHidden && docs.activeNav === "docs",
+      `hero "${docs.hero}" · nav=${docs.activeNav} · board hidden=${docs.boardHidden}`,
+    ]);
+    report.push([
+      "docs content rendered",
+      docs.sections >= 7 &&
+        docs.tables >= 4 &&
+        docs.codeBlocks >= 2 &&
+        docs.tocLinks === docs.sections,
+      `${docs.sections} sections · ${docs.tables} tables · ${docs.codeBlocks} code blocks · ${docs.tocLinks} toc links`,
+    ]);
+    report.push([
+      "docs cover the whole product",
+      [
+        "The workflow",
+        "Connecting an agent",
+        "Build your own UI",
+        "Troubleshooting",
+      ].every((title) => docs.headings.includes(title)),
+      docs.headings.join(" / "),
+    ]);
+
+    // the hero CTA must reach the board with the token intact
+    await cdp.clickCenter(".docs-cta");
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const afterCta = await cdp.evaluate(`(() => ({
+      route: window.location.hash,
+      token: new URLSearchParams(window.location.search).get('token'),
+      boardVisible: getComputedStyle(document.querySelector('#board')).display !== 'none',
+      docsHidden: getComputedStyle(document.querySelector('#docs')).display === 'none',
+      navActive: document.querySelector('.nav-link.active')?.dataset.route ?? '',
+    }))()`);
+    report.push([
+      "hero CTA opens the board and keeps the token",
+      afterCta.route === "#/board" &&
+        afterCta.boardVisible &&
+        afterCta.docsHidden &&
+        afterCta.token !== null,
+      `hash=${afterCta.route} token=${afterCta.token ? "kept" : "lost"} nav=${afterCta.navActive}`,
+    ]);
+
+    // and a mutation still works after navigating
+    const createdAfterNav = await cdp.evaluate(`(async () => {
+      const token = new URLSearchParams(window.location.search).get('token') ?? '';
+      const response = await fetch('/api/cards' + (token ? '?token=' + encodeURIComponent(token) : ''), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Actor-Name': 'browser-check' },
+        body: JSON.stringify({ title: 'created from the board view' }),
+      });
+      return response.status;
+    })()`);
+    report.push([
+      "mutation works after navigation",
+      createdAfterNav === 201,
+      `status ${createdAfterNav}`,
+    ]);
+
+    // back to docs through the nav
+    await cdp.clickCenter('.nav-link[data-route="docs"]');
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    const backToDocs = await cdp.evaluate(
+      `getComputedStyle(document.querySelector('#docs')).display !== 'none'`,
+    );
+    report.push(["nav returns to docs", backToDocs]);
+
+    // the new-card modal is board-only, so return to the board first
+    await cdp.clickCenter('.nav-link[data-route="board"]');
+    await new Promise((resolve) => setTimeout(resolve, 400));
     await cdp.clickCenter("#new-card");
     await new Promise((resolve) => setTimeout(resolve, 300));
     const modal = await cdp.evaluate(`(() => {

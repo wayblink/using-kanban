@@ -123,6 +123,348 @@ export function actorOptions(cards, role) {
 }
 
 /* ------------------------------------------------------------------ *
+ * Documentation — the product home page
+ * ------------------------------------------------------------------ */
+
+const DOCS = [
+  {
+    id: "overview",
+    title: "What is using-kanban?",
+    lead: "A headless kanban board for AI agents and humans.",
+    blocks: [
+      {
+        t: "p",
+        text:
+          "One board per project, stored in `.ukb/` next to your code. Agents and the human share it: " +
+          "agents pick up work through MCP tools or the CLI, the human watches and steers through this UI.",
+      },
+      {
+        t: "p",
+        text:
+          "The API is the product. The CLI, the MCP server, and this Web UI are all thin consumers of the same " +
+          "event-sourced core — so you can build your own front end, or embed the board in another product.",
+      },
+      { t: "h", text: "Why it is built this way" },
+      {
+        t: "ul",
+        items: [
+          [
+            "Event-sourced",
+            "every change is an appended event; the board is a projection you can rebuild by replaying it. History, undo, and live updates all fall out of that.",
+          ],
+          [
+            "No daemon",
+            "the CLI and MCP server open the store directly. The HTTP server only runs when you want this UI.",
+          ],
+          [
+            "No message bus",
+            "state lives in one place. Agents poll their cards at the start of a turn; the browser gets pushed updates over SSE.",
+          ],
+          [
+            "Swappable storage",
+            "SQLite (WAL) by default, or a single JSONL file — or memory for tests.",
+          ],
+        ],
+      },
+    ],
+  },
+  {
+    id: "workflow",
+    title: "The workflow",
+    lead: "Four columns, one rule: claim before you work.",
+    blocks: [
+      {
+        t: "table",
+        head: ["State", "Meaning", "How you get there"],
+        rows: [
+          ["todo", "ready to be picked up", "created here"],
+          ["doing", "someone is actively working it", "claim"],
+          ["review", "work is ready for its reviewer", "review"],
+          ["done", "approved and finished", "done"],
+        ],
+      },
+      { t: "h", text: "The one rule" },
+      {
+        t: "p",
+        text:
+          "Always claim a card before starting work on it. Claiming moves it to doing and marks you as the owner, " +
+          "so nobody else duplicates the effort — and if someone got there first you get a claim_conflict instead of " +
+          "silently overwriting their work.",
+      },
+      { t: "h", text: "Write cards an agent can act on" },
+      {
+        t: "p",
+        text:
+          "Notifications only carry the title. Put the target files and the acceptance criteria in the body — " +
+          "that is what the assignee reads before starting.",
+      },
+      {
+        t: "code",
+        text: 'ukb add "implement /api/cards" \\\n  --body "target: packages/server/src/routes/cards.ts\\nAC: vitest green" \\\n  --assignee claude-code --reviewer jyxc',
+      },
+    ],
+  },
+  {
+    id: "web-ui",
+    title: "Using this UI",
+    lead: "Drag cards between columns; the drop runs the matching verb.",
+    blocks: [
+      {
+        t: "table",
+        head: ["Drop a card on…", "…and it runs"],
+        rows: [
+          ["Doing", "claim — moves to doing and assigns the card to you"],
+          ["Review", "review — hands it to the reviewer named on the card"],
+          ["Done", "done — marks it finished (idempotent)"],
+          ["Todo", "reopen — sends it back for rework"],
+        ],
+      },
+      {
+        t: "p",
+        text:
+          "If a claim fails — someone else is already working the card — you get the server's reason as a toast and " +
+          "the board snaps back to server state. Nothing is ever silently overwritten.",
+      },
+      { t: "h", text: "Identity" },
+      {
+        t: "p",
+        text:
+          "The top bar is who this browser acts as. Humans and agents share one namespace, so you can be " +
+          "jyxc (human) reviewing a card that claude-code (agent) implemented. Every event in a card's history " +
+          "records who did it.",
+      },
+      { t: "h", text: "Everything else" },
+      {
+        t: "ul",
+        items: [
+          [
+            "Card drawer",
+            "click any card to edit title/body/assignee/reviewer, run transitions, manage blockers, read the event history, or delete it (creator only).",
+          ],
+          ["Filters", "filter by text, assignee, and reviewer."],
+          [
+            "Live",
+            "the board updates over SSE — cards moved by an agent, the CLI, or another browser tab appear without a refresh.",
+          ],
+          ["Keyboard", "Enter opens a focused card, Escape closes panels."],
+        ],
+      },
+    ],
+  },
+  {
+    id: "cli",
+    title: "The ukb CLI",
+    lead: "Same board, no server, no daemon.",
+    blocks: [
+      {
+        t: "code",
+        text:
+          "ukb                              # your open cards — a call to act, not a list\\n" +
+          "ukb board                        # the whole board\\n" +
+          "ukb show 3                       # detail + event history\\n" +
+          'ukb add "fix the flaky test" --body "AC: green on CI" --assignee codex --reviewer jyxc\\n' +
+          "ukb claim 3                      # todo → doing, assigned to you\\n" +
+          "ukb review 3                     # → review\\n" +
+          "ukb done 3                       # → done\\n" +
+          "ukb reopen 3                     # → todo\\n" +
+          "ukb move 3 doing\\n" +
+          'ukb edit 3 --body "…"            # empty string clears a field\\n' +
+          "ukb block 4 --by 3               # dependencies\\n" +
+          "ukb web                          # start the API + this UI\\n" +
+          "ukb doctor                       # is this project wired up?",
+      },
+      {
+        t: "p",
+        text:
+          "Agents pass --agent <name> --agent-type agent so cards are attributable; UKB_AGENT and UKB_DIR work as " +
+          "environment equivalents. Failures exit non-zero with the stable code, e.g. " +
+          "claim_conflict: card 3 is already being worked by codex.",
+      },
+    ],
+  },
+  {
+    id: "mcp",
+    title: "Connecting an agent",
+    lead: "One command per framework.",
+    blocks: [
+      {
+        t: "code",
+        text:
+          "ukb init --for claude-code           # writes .mcp.json + CLAUDE.md\\n" +
+          "ukb init --for codex                 # marker block in ~/.codex/config.toml + AGENTS.md\\n" +
+          "ukb init --for opencode              # merges opencode.json + AGENTS.md\\n" +
+          "ukb init --for claude-code --browser # …plus the Playwright MCP server",
+      },
+      {
+        t: "p",
+        text:
+          "The AGENTS.md / CLAUDE.md snippet is what teaches the workflow — claim before working, review when ready — " +
+          "so even an agent that never reads these docs behaves correctly.",
+      },
+      { t: "h", text: "The tools an agent gets" },
+      {
+        t: "table",
+        head: ["Tool", "Purpose"],
+        rows: [
+          ["kanban_my_cards", "your open cards — the call to act"],
+          ["kanban_review_queue", "cards waiting for your review"],
+          [
+            "kanban_board / kanban_show",
+            "the whole board / one card with history",
+          ],
+          [
+            "kanban_add / kanban_edit / kanban_delete",
+            "create, edit (creator or assignee), delete (creator only)",
+          ],
+          [
+            "kanban_claim / kanban_review / kanban_done / kanban_reopen / kanban_move",
+            "the transitions",
+          ],
+          ["kanban_block / kanban_unblock", "dependencies"],
+        ],
+      },
+    ],
+  },
+  {
+    id: "api",
+    title: "Build your own UI",
+    lead: "The HTTP API is the contract — this page is just one consumer of it.",
+    blocks: [
+      {
+        t: "table",
+        head: ["Method", "Path", "Purpose"],
+        rows: [
+          ["GET", "/api/board", "columns + cards"],
+          ["GET", "/api/cards?state=open&assignee=me&q=text", "filtered cards"],
+          ["GET", "/api/cards/:id", "card + event history"],
+          ["POST", "/api/cards", "create a card (todo)"],
+          ["PATCH", "/api/cards/:id", "edit fields"],
+          [
+            "POST",
+            "/api/cards/:id/{claim,review,done,reopen,move}",
+            "transitions",
+          ],
+          ["POST", "/api/cards/:id/{block,unblock}", "dependencies"],
+          ["DELETE", "/api/cards/:id", "delete (creator only)"],
+          ["GET", "/api/events", "SSE stream of the shared log"],
+          ["GET", "/openapi.json", "the full spec"],
+        ],
+      },
+      { t: "h", text: "Auth" },
+      {
+        t: "p",
+        text:
+          "Bound to 127.0.0.1 with a generated token. Mutations always need it — Authorization: Bearer <token>, or " +
+          "?token=<token> which is how a browser EventSource passes it. Reads are free on loopback and need the token " +
+          "once you bind elsewhere. Start it with ukb-server --host 0.0.0.0 --token <yours> to embed it.",
+      },
+      { t: "h", text: "Identity and concurrency" },
+      {
+        t: "ul",
+        items: [
+          [
+            "Who acted",
+            "send X-Actor-Name and X-Actor-Type: human|agent; X-Source tags where the event came from.",
+          ],
+          [
+            "Optimistic concurrency",
+            "send If-Match: <revision> (or expectedRevision in the body). A stale revision gets 409 revision_conflict instead of clobbering a concurrent edit.",
+          ],
+          [
+            "Live updates",
+            "subscribe to /api/events with ?since=<id> to backfill, then stream. Mutations from the CLI and MCP servers show up there too.",
+          ],
+        ],
+      },
+    ],
+  },
+  {
+    id: "concepts",
+    title: "Concepts",
+    lead: "The five things worth knowing.",
+    blocks: [
+      {
+        t: "ul",
+        items: [
+          [
+            "Actors",
+            "{ type: human | agent, name }. One namespace, so a human can review an agent's card and vice versa.",
+          ],
+          [
+            "Dependencies",
+            "a card can wait on others (block 4 --by 3). Cycles and self-blocks are rejected. A card with unfinished blockers is flagged, not hidden.",
+          ],
+          [
+            "Revisions",
+            "every mutation bumps the card's revision. That is what makes concurrent edits safe across the CLI, MCP, and browser.",
+          ],
+          [
+            "Permissions are cooperative",
+            "delete is creator-only, edit is creator-or-assignee — based on the actor name you send, not cryptography. Fine for a local board.",
+          ],
+          [
+            "Storage",
+            "sqlite (WAL, multi-process safe) by default; jsonl for a zero-dependency, git-friendly board; memory for tests. Switch with --storage or UKB_STORAGE.",
+          ],
+        ],
+      },
+    ],
+  },
+  {
+    id: "troubleshooting",
+    title: "Troubleshooting",
+    lead: "What the errors mean and what to do.",
+    blocks: [
+      {
+        t: "table",
+        head: ["Error", "Meaning", "Fix"],
+        rows: [
+          [
+            "claim_conflict",
+            "someone else is already working that card",
+            "pick another card, or ask them to reopen it",
+          ],
+          [
+            "forbidden",
+            "you are neither the creator nor the assignee",
+            "have the creator or assignee make the change",
+          ],
+          [
+            "card_not_found",
+            "the id does not exist on this board",
+            "ukb board to see the real ids",
+          ],
+          [
+            "revision_conflict",
+            "the card changed since you read it",
+            "re-read it (ukb show / GET /api/cards/:id) and retry",
+          ],
+          [
+            "invalid_state",
+            "the transition does not make sense (e.g. claiming a done card)",
+            "check the card's current state first",
+          ],
+          [
+            "unauthorized",
+            "mutation without a token",
+            "pass the token from the ukb web URL",
+          ],
+        ],
+      },
+      {
+        t: "p",
+        text:
+          "Agents: run ukb (or kanban_my_cards) from the project you want to board — the store is .ukb/ in the " +
+          "current directory. If identity cannot be resolved, pass --agent <name>.",
+      },
+    ],
+  },
+];
+
+/** The documentation content, exported for tests. */
+export const DOCS_SECTIONS = DOCS;
+
+/* ------------------------------------------------------------------ *
  * Browser app
  * ------------------------------------------------------------------ */
 
@@ -136,9 +478,11 @@ function startApp() {
 
   const els = {
     board: document.getElementById("board"),
+    docs: document.getElementById("docs"),
     actorName: document.getElementById("actor-name"),
     actorType: document.getElementById("actor-type"),
     filterQ: document.getElementById("filter-q"),
+    filters: document.getElementById("filters"),
     filterAssignee: document.getElementById("filter-assignee"),
     filterReviewer: document.getElementById("filter-reviewer"),
     live: document.getElementById("live"),
@@ -156,7 +500,42 @@ function startApp() {
     filter: { q: "", assignee: "", reviewer: "" },
     openCardId: null,
     dragCardId: null,
+    route: currentRoute(),
   };
+
+  /** `#/board` or `#/docs` — the docs page is the home page. */
+  function currentRoute() {
+    const hash = window.location.hash.replace(/^#\/?/, "");
+    return hash.startsWith("board") ? "board" : "docs";
+  }
+
+  function applyRoute() {
+    state.route = currentRoute();
+    const onDocs = state.route === "docs";
+
+    els.board.hidden = onDocs;
+    els.docs.hidden = !onDocs;
+    els.actorName.parentElement.hidden = onDocs;
+    els.filters.hidden = onDocs;
+    els.live.hidden = onDocs;
+    els.newCard.hidden = onDocs;
+
+    for (const link of document.querySelectorAll(".nav-link")) {
+      const active = link.dataset.route === state.route;
+      link.classList.toggle("active", active);
+      link.setAttribute("aria-current", active ? "page" : "false");
+    }
+
+    if (onDocs) {
+      closeDrawer();
+      closeModal();
+      void renderDocs();
+    } else {
+      void refresh();
+    }
+  }
+
+  window.addEventListener("hashchange", applyRoute);
 
   /* ------------------------------- api ------------------------------- */
 
@@ -263,6 +642,7 @@ function startApp() {
   /* ----------------------------- rendering --------------------------- */
 
   function render() {
+    if (state.route !== "board") return;
     renderBoard();
     renderFilterOptions();
     if (state.openCardId !== null) renderDrawer();
@@ -740,6 +1120,151 @@ function startApp() {
     els.modal.textContent = "";
   }
 
+  /* -------------------------------- docs ------------------------------ */
+
+  async function renderDocs() {
+    const hero = document.createElement("header");
+    hero.className = "docs-hero";
+
+    const title = document.createElement("h1");
+    title.textContent = "using-kanban";
+
+    const tagline = document.createElement("p");
+    tagline.className = "docs-tagline";
+    tagline.textContent =
+      "A headless kanban for AI agents and humans — the API is the product, UIs are pluggable.";
+
+    const cta = document.createElement("a");
+    cta.className = "docs-cta";
+    cta.href = "#/board";
+    cta.textContent = "Open the board →";
+
+    const status = document.createElement("p");
+    status.className = "docs-status";
+    status.textContent = "loading board…";
+
+    hero.append(title, tagline, cta, status);
+
+    const layout = document.createElement("div");
+    layout.className = "docs-layout";
+
+    const toc = document.createElement("nav");
+    toc.className = "docs-toc";
+    toc.setAttribute("aria-label", "documentation sections");
+    for (const section of DOCS) {
+      const link = document.createElement("a");
+      link.href = `#/docs/${section.id}`;
+      link.textContent = section.title;
+      link.dataset.section = section.id;
+      toc.append(link);
+    }
+
+    const article = document.createElement("article");
+    article.className = "docs-body";
+    for (const section of DOCS) {
+      article.append(renderDocsSection(section));
+    }
+
+    layout.append(toc, article);
+    els.docs.textContent = "";
+    els.docs.append(hero, layout);
+
+    // live counts in the hero, straight from the API
+    void api("/api/me")
+      .then((info) => {
+        const counts = info.counts ?? {};
+        status.textContent =
+          `${counts.todo ?? 0} todo · ${counts.doing ?? 0} doing · ` +
+          `${counts.review ?? 0} review · ${counts.done ?? 0} done — ` +
+          `acting as ${info.actor?.name ?? state.actor.name}`;
+      })
+      .catch(() => {
+        status.textContent = "board unavailable";
+      });
+  }
+
+  function renderDocsSection(section) {
+    const wrapper = document.createElement("section");
+    wrapper.className = "docs-section";
+    wrapper.id = `docs-${section.id}`;
+
+    const heading = document.createElement("h2");
+    heading.textContent = section.title;
+
+    const lead = document.createElement("p");
+    lead.className = "docs-lead";
+    lead.textContent = section.lead;
+
+    wrapper.append(heading, lead);
+    for (const block of section.blocks) {
+      wrapper.append(renderDocsBlock(block));
+    }
+    return wrapper;
+  }
+
+  function renderDocsBlock(block) {
+    switch (block.t) {
+      case "h": {
+        const element = document.createElement("h3");
+        element.textContent = block.text;
+        return element;
+      }
+      case "p": {
+        const element = document.createElement("p");
+        element.textContent = block.text;
+        return element;
+      }
+      case "code": {
+        const pre = document.createElement("pre");
+        const code = document.createElement("code");
+        code.textContent = block.text;
+        pre.append(code);
+        return pre;
+      }
+      case "ul": {
+        const list = document.createElement("ul");
+        list.className = "docs-list";
+        for (const [term, description] of block.items) {
+          const item = document.createElement("li");
+          const strong = document.createElement("strong");
+          strong.textContent = term;
+          const span = document.createElement("span");
+          span.textContent = ` — ${description}`;
+          item.append(strong, span);
+          list.append(item);
+        }
+        return list;
+      }
+      case "table": {
+        const table = document.createElement("table");
+        table.className = "docs-table";
+        const head = document.createElement("thead");
+        const headRow = document.createElement("tr");
+        for (const cell of block.head) {
+          const th = document.createElement("th");
+          th.textContent = cell;
+          headRow.append(th);
+        }
+        head.append(headRow);
+        const body = document.createElement("tbody");
+        for (const row of block.rows) {
+          const tr = document.createElement("tr");
+          for (const [index, cell] of row.entries()) {
+            const td = document.createElement("td");
+            td.textContent = cell;
+            if (index === 0) td.className = "docs-term";
+            tr.append(td);
+          }
+          body.append(tr);
+        }
+        table.append(head, body);
+        return table;
+      }
+      default:
+        return document.createComment("unknown block");
+    }
+  }
+
   /* ------------------------------- toasts ---------------------------- */
 
   function toast(message, kind = "info") {
@@ -776,8 +1301,20 @@ function startApp() {
     }
   });
 
+  // A boot failure must never leave a blank screen — show it.
+  window.addEventListener("error", (event) => {
+    toast(`ui error: ${event.message}`, "error");
+  });
+  window.addEventListener("unhandledrejection", (event) => {
+    const reason =
+      event.reason instanceof Error
+        ? event.reason.message
+        : String(event.reason);
+    toast(`ui error: ${reason}`, "error");
+  });
+
   loadIdentity();
-  void refresh();
+  applyRoute();
   connectLive();
 }
 

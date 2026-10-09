@@ -17,6 +17,11 @@
         using-kanban
       </div>
 
+      <nav class="nav" aria-label="views">
+        <a href="#/docs" class="nav-link" data-route="docs">Docs</a>
+        <a href="#/board" class="nav-link" data-route="board">Board</a>
+      </nav>
+
       <div class="identity" title="Who this browser acts as on the board">
         <label for="actor-name">acting as</label>
         <input
@@ -31,7 +36,7 @@
         </select>
       </div>
 
-      <div class="filters">
+      <div class="filters" id="filters">
         <input
           id="filter-q"
           type="search"
@@ -46,7 +51,8 @@
       <button id="new-card" class="primary" type="button">+ New card</button>
     </header>
 
-    <main id="board" class="board" aria-label="kanban board"></main>
+    <main id="board" class="board" aria-label="kanban board" hidden></main>
+    <main id="docs" class="docs" aria-label="documentation" hidden></main>
 
     <div id="drawer-backdrop" class="backdrop" hidden></div>
     <aside id="drawer" class="drawer" hidden aria-label="card detail"></aside>
