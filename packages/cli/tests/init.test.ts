@@ -7,7 +7,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 import { runCommand, type Io } from "../src/commands.js";
 import { FRAMEWORKS } from "../src/init.js";
@@ -428,3 +429,62 @@ describe("ukb init --for pi", () => {
     expect(skill).toContain("name: using-kanban");
   });
 });
+
+describe("the pi package's skill", () => {
+  const skill = () =>
+    readFileSync(
+      join(resolveLocalPackageForTest(), "skills/using-kanban/SKILL.md"),
+      "utf8",
+    );
+
+  it("tells the agent to use the board as its todo list", () => {
+    const text = skill();
+    // the substitution rule is the whole point of the skill
+    expect(text).toContain("This is your todo list");
+    expect(text).toContain("use this board instead");
+    // and it must carry the triggers that route a todo request here
+    const description = text.match(/^description:\s*(.+)$/m)?.[1] ?? "";
+    for (const trigger of [
+      "todo",
+      "task list",
+      "checklist",
+      "plan",
+      "backlog",
+      "待办",
+      "任务",
+    ]) {
+      expect(description, `description is missing "${trigger}"`).toContain(
+        trigger,
+      );
+    }
+    expect(description.length).toBeLessThanOrEqual(1024);
+  });
+
+  it("keeps the workflow and the failure modes", () => {
+    const text = skill();
+    for (const fragment of [
+      "ukb mine",
+      "ukb claim",
+      "ukb review",
+      "claim_conflict",
+      "board_not_found",
+      "Blockers are enforced",
+    ]) {
+      expect(text, `skill lost "${fragment}"`).toContain(fragment);
+    }
+  });
+});
+
+/** The package `ukb init --for pi` points at, resolved the same way. */
+function resolveLocalPackageForTest(): string {
+  const url = new URL(import.meta.url);
+  let dir = dirname(fileURLToPath(url));
+  for (let depth = 0; depth < 6; depth += 1) {
+    const candidate = join(dir, "packages", "pi", "package.json");
+    if (existsSync(candidate)) return dirname(candidate);
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  throw new Error("packages/pi not found");
+}
