@@ -80,6 +80,7 @@ describe("tool discovery", () => {
       "kanban_edit",
       "kanban_move",
       "kanban_my_cards",
+      "kanban_projects",
       "kanban_reopen",
       "kanban_review",
       "kanban_review_queue",
@@ -281,5 +282,109 @@ describe("option resolution", () => {
     const fallback = resolveMcpOptions([], {});
     expect(fallback.actor.name).toBe("agent");
     expect(fallback.usedDefaultAgent).toBe(true);
+  });
+});
+
+describe("projects", () => {
+  it("filters the board and my cards by project", async () => {
+    const connection = await connect(tempDir());
+    const call = (name: string, args: Record<string, unknown> = {}) =>
+      connection.client.callTool({ name, arguments: args });
+    const textOf = (result: Awaited<ReturnType<typeof call>>) =>
+      (result.content as { text: string }[])[0]?.text ?? "";
+
+    await call("kanban_add", { title: "web card", project: "web" });
+    await call("kanban_add", { title: "api card", project: "api" });
+    await call("kanban_add", { title: "untagged" });
+
+    // discovery first — this is the call that keeps agents from guessing
+    expect(textOf(await call("kanban_projects"))).toContain("api, web");
+
+    const webBoard = textOf(await call("kanban_board", { project: "web" }));
+    expect(webBoard).toContain("web card");
+    expect(webBoard).not.toContain("api card");
+    expect(webBoard).not.toContain("untagged");
+
+    // no filter still means everything
+    const all = textOf(await call("kanban_board"));
+    expect(all).toContain("api card");
+    expect(all).toContain("untagged");
+
+    // the project is visible on the card itself
+    const shown = textOf(await call("kanban_show", { id: 1 }));
+    expect(shown).toContain("project: web");
+  });
+
+  it("normalises the slug instead of creating a second project", async () => {
+    const connection = await connect(tempDir());
+    const call = (name: string, args: Record<string, unknown> = {}) =>
+      connection.client.callTool({ name, arguments: args });
+    const textOf = (result: Awaited<ReturnType<typeof call>>) =>
+      (result.content as { text: string }[])[0]?.text ?? "";
+
+    await call("kanban_add", { title: "a", project: "  Web  " });
+    await call("kanban_add", { title: "b", project: "web" });
+
+    expect(textOf(await call("kanban_projects"))).toContain(
+      "1 project(s): web",
+    );
+  });
+
+  it("moves a card to another project", async () => {
+    const connection = await connect(tempDir());
+    const call = (name: string, args: Record<string, unknown> = {}) =>
+      connection.client.callTool({ name, arguments: args });
+    const textOf = (result: Awaited<ReturnType<typeof call>>) =>
+      (result.content as { text: string }[])[0]?.text ?? "";
+
+    await call("kanban_add", { title: "movable", project: "web" });
+    await call("kanban_edit", { id: 1, project: "api" });
+    expect(textOf(await call("kanban_show", { id: 1 }))).toContain(
+      "project: api",
+    );
+    expect(
+      textOf(await call("kanban_board", { project: "web" })),
+    ).not.toContain("movable");
+  });
+
+  it("rejects a slug that is not url/cli safe with a readable error", async () => {
+    const connection = await connect(tempDir());
+    const result = await connection.client.callTool({
+      name: "kanban_add",
+      arguments: { title: "x", project: "web ui" },
+    });
+    expect(result.isError).toBe(true);
+    expect((result.content as { text: string }[])[0]?.text).toContain(
+      "lowercase letters",
+    );
+  });
+
+  it("filters my cards and the review queue by project", async () => {
+    const connection = await connect(tempDir());
+    const call = (name: string, args: Record<string, unknown> = {}) =>
+      connection.client.callTool({ name, arguments: args });
+    const textOf = (result: Awaited<ReturnType<typeof call>>) =>
+      (result.content as { text: string }[])[0]?.text ?? "";
+
+    await call("kanban_add", {
+      title: "web work",
+      project: "web",
+      assignee: "claude-code",
+    });
+    await call("kanban_add", {
+      title: "api work",
+      project: "api",
+      assignee: "claude-code",
+      reviewer: "jyxc",
+    });
+    await call("kanban_claim", { id: 2 });
+    await call("kanban_review", { id: 2 });
+
+    const mine = textOf(await call("kanban_my_cards", { project: "web" }));
+    expect(mine).toContain("web work");
+    expect(mine).not.toContain("api work");
+
+    const queue = textOf(await call("kanban_review_queue", { project: "web" }));
+    expect(queue).toContain("Nothing waiting");
   });
 });

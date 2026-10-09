@@ -43,6 +43,8 @@ export interface Card {
   readonly assignee: string | null;
   /** Actor name expected to review this card, or null. */
   readonly reviewer: string | null;
+  /** Project slug this card belongs to, or null for "no project". */
+  readonly project: string | null;
   /** Card ids this card is waiting on. */
   readonly blockedBy: readonly number[];
   readonly createdBy: string;

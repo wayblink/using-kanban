@@ -18,11 +18,31 @@ export const ActorSchema = z.object({
 /** Optional text fields: `undefined` = leave as-is, `null` = clear. */
 export const ClearableTextSchema = z.string().nullish();
 
+/**
+ * A project slug. Deliberately restrictive — it ends up in URLs, CLI flags and
+ * file names, and agents pass it around as an opaque token. Lowercase so that
+ * "Web" and "web" cannot become two different projects by accident.
+ */
+export const ProjectSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(1, "must not be empty")
+  .max(64, "at most 64 characters")
+  .regex(
+    /^[a-z0-9][a-z0-9._-]*$/,
+    "lowercase letters, digits, dot, dash or underscore",
+  );
+
+/** Optional project field: `undefined` = leave as-is, `null` = clear. */
+export const ClearableProjectSchema = ProjectSchema.nullish();
+
 export const AddCardInputSchema = z.object({
   title: z.string().trim().min(1, "must not be empty"),
   body: ClearableTextSchema,
   assignee: ClearableTextSchema,
   reviewer: ClearableTextSchema,
+  project: ClearableProjectSchema,
   blockedBy: z.array(z.number().int().positive()).default([]),
 });
 export type AddCardInput = z.input<typeof AddCardInputSchema>;
@@ -32,6 +52,7 @@ export const EditCardInputSchema = z.object({
   body: ClearableTextSchema,
   assignee: ClearableTextSchema,
   reviewer: ClearableTextSchema,
+  project: ClearableProjectSchema,
 });
 export type EditCardInput = z.input<typeof EditCardInputSchema>;
 
@@ -49,6 +70,7 @@ export const CardPatchSchema = z.object({
   body: z.string().nullable().optional(),
   assignee: z.string().nullable().optional(),
   reviewer: z.string().nullable().optional(),
+  project: z.string().nullable().optional(),
 });
 export type CardPatch = z.infer<typeof CardPatchSchema>;
 
@@ -66,6 +88,8 @@ export const CardCreatedPayloadSchema = z.object({
   body: z.string().nullable(),
   assignee: z.string().nullable(),
   reviewer: z.string().nullable(),
+  /** Absent on events written before projects existed. */
+  project: z.string().nullable().default(null),
   blockedBy: z.array(z.number().int().positive()),
   createdBy: z.string().min(1),
 });

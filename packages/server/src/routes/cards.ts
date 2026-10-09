@@ -12,7 +12,13 @@ import type { RequestContext } from "../router.js";
 /* ------------------------------- queries ------------------------------- */
 
 export function getBoard(ctx: RequestContext): void {
-  sendJson(ctx.res, 200, ctx.kanban.board());
+  // `?project=` narrows the board; the full project list always comes back so
+  // a client can build its filter without a second call.
+  const project = ctx.query.get("project");
+  sendJson(ctx.res, 200, {
+    ...ctx.kanban.board(project),
+    projects: ctx.kanban.projects(),
+  });
 }
 
 export function listCards(ctx: RequestContext): void {
@@ -21,6 +27,7 @@ export function listCards(ctx: RequestContext): void {
   const state = query.get("state");
   const assignee = query.get("assignee");
   const reviewer = query.get("reviewer");
+  const project = query.get("project");
   const text = query.get("q")?.toLowerCase();
 
   let cards = kanban.cards();
@@ -45,6 +52,9 @@ export function listCards(ctx: RequestContext): void {
   if (reviewer !== null) {
     const name = reviewer === "me" ? actor.name : reviewer;
     cards = cards.filter((card) => card.reviewer === name);
+  }
+  if (project !== null) {
+    cards = cards.filter((card) => card.project === project);
   }
   if (text) {
     cards = cards.filter(

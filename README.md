@@ -326,6 +326,26 @@ Agents pass `--agent <name> --agent-type agent` so cards are attributable
 board. Domain failures exit non-zero with the stable code:
 `claim_conflict: card 3 is already being worked by codex`.
 
+### Projects
+
+Cards carry an optional project slug, so one board can hold several projects and
+every front door filters to just one. A card with no project is in no project — a
+project filter is a partition, not an overlay.
+
+```bash
+ukb add "Fix the login bug" --project web   # set it at creation
+ukb edit 7 --project api                    # move it later
+ukb board --project web                     # just that project
+ukb mine --project web                      # my work in one project
+```
+
+The same three MCP verbs take a `project` argument (`kanban_board`,
+`kanban_my_cards`, `kanban_review_queue`), and `kanban_projects` lists the slugs
+in use so an agent never has to guess one. Over REST, `?project=` works on
+`/api/board` and `/api/cards`. Slugs are lowercased and restricted to
+`[a-z0-9._-]`, because they end up in URLs and CLI flags — "Web" and "web"
+cannot become two different projects by accident.
+
 ### Onboarding a framework in one command
 
 ```bash

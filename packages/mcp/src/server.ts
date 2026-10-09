@@ -7,6 +7,20 @@ import {
   type Card,
 } from "@wayblink/using-kanban-core";
 import { z } from "zod";
+
+/**
+ * The optional `project` argument shared by every tool that can filter or set
+ * it. Rejected slugs become tool errors with a readable message rather than a
+ * zod stack trace, so agents can self-correct.
+ */
+function projectSchemaOptional() {
+  return z
+    .string()
+    .optional()
+    .describe(
+      'Project slug, lowercase (e.g. "web", "api-core"). Omit to include every project.',
+    );
+}
 import {
   formatBoard,
   formatCard,
@@ -47,10 +61,11 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
     {
       title: "Show board",
       description:
-        "Show the full board (todo/doing/review/done) for the current project.",
+        "Show the board (todo/doing/review/done). Pass project to see just that project's cards.",
+      inputSchema: { project: projectSchemaOptional() },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    safe(() => text(formatBoard(kanban.board()))),
+    safe(({ project }) => text(formatBoard(kanban.board(project)))),
   );
 
   server.registerTool(
@@ -58,11 +73,15 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
     {
       title: "My open cards",
       description: MINE_DESCRIPTION,
+      inputSchema: { project: projectSchemaOptional() },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    safe(() =>
+    safe(({ project }) =>
       text(
-        formatCards(kanban.mine(actor.name), "No open cards assigned to you."),
+        formatCards(
+          kanban.mine(actor.name, project),
+          "No open cards assigned to you.",
+        ),
       ),
     ),
   );
@@ -78,15 +97,32 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
           .string()
           .optional()
           .describe("Actor name to check (defaults to you)"),
+        project: projectSchemaOptional(),
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    safe(({ agent }) => {
+    safe(({ agent, project }) => {
       const name = agent ?? actor.name;
-      const cards = kanban
-        .cards()
-        .filter((card) => card.reviewer === name && card.state === "review");
+      const cards = kanban.reviewQueue(name, project);
       return text(formatCards(cards, `Nothing waiting for ${name} to review.`));
+    }),
+  );
+
+  server.registerTool(
+    "kanban_projects",
+    {
+      title: "List projects",
+      description:
+        "Every project slug in use on this board, sorted. Call this before filtering by project so you use a name that exists.",
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    safe(() => {
+      const projects = kanban.projects();
+      return text(
+        projects.length === 0
+          ? "No projects in use yet — cards have no project until one is set."
+          : `${projects.length} project(s): ${projects.join(", ")}`,
+      );
     }),
   );
 
@@ -131,6 +167,7 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
           .array(z.number().int().positive())
           .optional()
           .describe("Card ids this card waits on"),
+        project: projectSchemaOptional(),
       },
     },
     safe((input) => {
@@ -141,6 +178,7 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
           assignee: input.assignee,
           reviewer: input.reviewer,
           blockedBy: input.blockedBy,
+          project: input.project,
         },
         actor,
         "mcp",
@@ -161,6 +199,7 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
         body: z.string().optional(),
         assignee: z.string().optional(),
         reviewer: z.string().optional(),
+        project: projectSchemaOptional(),
       },
     },
     safe((input) => {
@@ -171,6 +210,7 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
           body: input.body,
           assignee: input.assignee,
           reviewer: input.reviewer,
+          project: input.project,
         },
         actor,
         "mcp",

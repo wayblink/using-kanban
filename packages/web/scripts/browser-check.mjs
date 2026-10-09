@@ -188,18 +188,24 @@ async function main() {
       token: "browser-check",
     });
     const base = `http://127.0.0.1:${server.port}`;
-    for (const title of [
-      "Design the REST API",
-      "Write the MCP tool descriptions",
+    for (const card of [
+      {
+        title: "Design the REST API",
+        body: "AC: verified in a browser",
+        reviewer: "jyxc",
+      },
+      {
+        title: "Write the MCP tool descriptions",
+        body: "AC: verified in a browser",
+        reviewer: "jyxc",
+      },
+      { title: "project: web card", project: "web", reviewer: "jyxc" },
+      { title: "project: api card", project: "api", reviewer: "jyxc" },
     ]) {
       await fetch(`${base}/api/cards?token=browser-check`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Actor-Name": "jyxc" },
-        body: JSON.stringify({
-          title,
-          body: "AC: verified in a browser",
-          reviewer: "jyxc",
-        }),
+        body: JSON.stringify(card),
       });
     }
     url = `${base}/?token=browser-check`;
@@ -400,6 +406,59 @@ async function main() {
     // back to English for the remaining board assertions
     await clickLang("en");
     await cdp.send("Page.navigate", { url });
+    await new Promise((resolve) => setTimeout(resolve, 700));
+
+    /* ------------------------------ projects ----------------------------- */
+
+    // the language block above navigates back to the docs home
+    await cdp.send("Page.navigate", { url: `${url}#/board` });
+    await new Promise((resolve) => setTimeout(resolve, 900));
+
+    const projectUi = async () =>
+      JSON.parse(
+        await cdp.evaluate(`JSON.stringify({
+          cards: [...document.querySelectorAll(".card-title")].map((e) => e.textContent),
+          badges: [...document.querySelectorAll(".badge.project")].map((e) => e.textContent),
+          options: [...document.querySelectorAll("#filter-project option")].map((o) => o.textContent),
+        })`),
+      );
+
+    const all = await projectUi();
+    report.push([
+      "project badges and filter options render",
+      all.cards.length === 4 &&
+        all.badges.length === 2 &&
+        all.options.includes("web") &&
+        all.options.includes("api"),
+      `${all.cards.length} cards · badges=${all.badges.join("/")} · options=${all.options.join("/")}`,
+    ]);
+
+    await cdp.evaluate(`(() => {
+      const s = document.getElementById("filter-project");
+      s.value = "web";
+      s.dispatchEvent(new Event("change", { bubbles: true }));
+    })()`);
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    const webOnly = await projectUi();
+    report.push([
+      "project filter narrows the board",
+      webOnly.cards.length === 1 && webOnly.cards[0] === "project: web card",
+      `cards=${webOnly.cards.join("/")}`,
+    ]);
+
+    // the dropdown still lists every project while a filter is active
+    report.push([
+      "project options survive the filter",
+      webOnly.options.includes("api") && webOnly.options.includes("web"),
+      `options=${webOnly.options.join("/")}`,
+    ]);
+
+    // clear it again so the rest of the check sees the whole board
+    await cdp.evaluate(`(() => {
+      const s = document.getElementById("filter-project");
+      s.value = "";
+      s.dispatchEvent(new Event("change", { bubbles: true }));
+    })()`);
     await new Promise((resolve) => setTimeout(resolve, 700));
 
     /* ------------------------------ docs page ----------------------------- */

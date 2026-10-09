@@ -35,10 +35,12 @@ export function filterCards(cards, filter = {}) {
     .toLowerCase();
   const assignee = String(filter.assignee ?? "").trim();
   const reviewer = String(filter.reviewer ?? "").trim();
+  const project = String(filter.project ?? "").trim();
 
   return cards.filter((card) => {
     if (assignee && card.assignee !== assignee) return false;
     if (reviewer && card.reviewer !== reviewer) return false;
+    if (project && card.project !== project) return false;
     if (q && !`${card.title} ${card.body ?? ""}`.toLowerCase().includes(q))
       return false;
     return true;
@@ -150,6 +152,10 @@ export const I18N = {
     "column.review": "Review",
     "column.done": "Done",
     "column.empty": "nothing here",
+    "card.project": "project:",
+    "filter.anyProject": "any project",
+    "filter.anyAssignee": "any assignee",
+    "filter.anyReviewer": "any reviewer",
     "card.reviewer": "reviewer:",
     "card.blockedBy": "blocked-by:",
     "time.justNow": "just now",
@@ -160,6 +166,7 @@ export const I18N = {
     "time.years": "{n}y ago",
     "drawer.assignee": "Assignee",
     "drawer.reviewer": "Reviewer",
+    "drawer.project": "Project",
     "drawer.blockedBy": "Blocked by",
     "drawer.body": "Body",
     "drawer.history": "History",
@@ -215,6 +222,10 @@ export const I18N = {
     "column.review": "审查中",
     "column.done": "已完成",
     "column.empty": "暂无卡片",
+    "card.project": "项目：",
+    "filter.anyProject": "全部项目",
+    "filter.anyAssignee": "全部负责人",
+    "filter.anyReviewer": "全部审查者",
     "card.reviewer": "审查：",
     "card.blockedBy": "阻塞：",
     "time.justNow": "刚刚",
@@ -225,6 +236,7 @@ export const I18N = {
     "time.years": "{n} 年前",
     "drawer.assignee": "负责人",
     "drawer.reviewer": "审查者",
+    "drawer.project": "项目",
     "drawer.blockedBy": "阻塞于",
     "drawer.body": "描述",
     "drawer.history": "历史记录",
@@ -452,6 +464,41 @@ const DOCS_EN = [
           "The AGENTS.md / CLAUDE.md snippet is what teaches the workflow — claim before working, review when ready — " +
           "so even an agent that never reads these docs behaves correctly.",
       },
+      {
+        t: "h",
+        text: "Projects",
+      },
+      {
+        t: "p",
+        text:
+          "Cards carry an optional project slug, so one board can hold several projects " +
+          "and every front door can filter to just one. A card with no project is in no " +
+          "project — a project filter is a partition, not an overlay.",
+      },
+      {
+        t: "code",
+        text:
+          'ukb add "Fix the login bug" --project web   # set it at creation\n' +
+          "ukb edit 7 --project api                     # move it later\n" +
+          "ukb board --project web                      # just that project\n" +
+          "ukb mine --project web                       # my work in one project",
+      },
+      {
+        t: "p",
+        text:
+          "Over MCP the same three verbs take a project argument — kanban_board, " +
+          "kanban_my_cards and kanban_review_queue — and kanban_projects lists the " +
+          "slugs in use, so an agent never has to guess one. The REST API takes " +
+          "?project= on /api/board and /api/cards, and the Web UI has a project " +
+          "dropdown beside the assignee and reviewer filters.",
+      },
+      {
+        t: "p",
+        text:
+          "Slugs are normalised to lowercase and restricted to letters, digits, dot, " +
+          'dash and underscore, because they end up in URLs and CLI flags: "Web" and ' +
+          '"web" cannot become two different projects by accident.',
+      },
       { t: "h", text: "The tools an agent gets" },
       {
         t: "table",
@@ -472,6 +519,10 @@ const DOCS_EN = [
             "the transitions",
           ],
           ["kanban_block / kanban_unblock", "dependencies"],
+          [
+            "kanban_projects",
+            "the project slugs in use — call before filtering",
+          ],
         ],
       },
     ],
@@ -776,6 +827,38 @@ const DOCS_ZH = [
         t: "p",
         text: "AGENTS.md / CLAUDE.md 中的片段负责传授工作流——先认领再动手、就绪后提交审查——因此即使是从不阅读这些文档的智能体也能正确行事。",
       },
+      {
+        t: "h",
+        text: "项目",
+      },
+      {
+        t: "p",
+        text:
+          "卡片可以带一个可选的 项目 标识，于是一块看板就能容纳多个项目，并且每个入口都能只过滤其中一个。 " +
+          "没有项目的卡片不属于任何项目——项目过滤是一种划分，而不是叠加显示。",
+      },
+      {
+        t: "code",
+        text:
+          'ukb add "修登录 bug" --project web   # 创建时设置\n' +
+          "ukb edit 7 --project api                     # 之后转移\n" +
+          "ukb board --project web                      # 只看该项目\n" +
+          "ukb mine --project web                       # 我在该项目的工作",
+      },
+      {
+        t: "p",
+        text:
+          "在 MCP 中，同样的三个动作接受 project 参数——kanban_board、kanban_my_cards 和 " +
+          "kanban_review_queue——另外 kanban_projects 会列出正在使用的标识，智能体无需猜测。 " +
+          "REST API 在 /api/board 和 /api/cards 上接受 ?project=，Web 界面在负责人与审查者筛选器旁 " +
+          "也有一个项目下拉框。",
+      },
+      {
+        t: "p",
+        text:
+          "标识会归一化为小写，并限制为字母、数字、点、连字符和下划线，因为它们会出现在 URL 和命令行参数里： " +
+          '"Web" 与 "web" 不会意外变成两个不同的项目。',
+      },
       { t: "h", text: "智能体获得的工具" },
       {
         t: "table",
@@ -793,6 +876,7 @@ const DOCS_ZH = [
             "状态流转",
           ],
           ["kanban_block / kanban_unblock", "依赖关系"],
+          ["kanban_projects", "正在使用的项目标识——过滤前先调用"],
         ],
       },
     ],
@@ -951,6 +1035,7 @@ function startApp() {
     actorType: document.getElementById("actor-type"),
     filterQ: document.getElementById("filter-q"),
     filters: document.getElementById("filters"),
+    filterProject: document.getElementById("filter-project"),
     filterAssignee: document.getElementById("filter-assignee"),
     filterReviewer: document.getElementById("filter-reviewer"),
     live: document.getElementById("live"),
@@ -965,7 +1050,7 @@ function startApp() {
   const state = {
     cards: [],
     actor: { name: "me", type: "human" },
-    filter: { q: "", assignee: "", reviewer: "" },
+    filter: { q: "", project: "", assignee: "", reviewer: "" },
     openCardId: null,
     dragCardId: null,
     route: currentRoute(),
@@ -1302,6 +1387,8 @@ function startApp() {
         ),
       );
     }
+    if (card.project)
+      meta.append(badge(`${t("card.project")}${card.project}`, "project"));
     if (card.reviewer)
       meta.append(badge(`${t("card.reviewer")}${card.reviewer}`, "reviewer"));
     if (blocked) {
@@ -1368,15 +1455,27 @@ function startApp() {
 
   function renderFilterOptions() {
     fillSelect(
+      els.filterProject,
+      projectOptions(state.cards),
+      t("filter.anyProject"),
+    );
+    fillSelect(
       els.filterAssignee,
       actorOptions(state.cards, "assignee"),
-      "any assignee",
+      t("filter.anyAssignee"),
     );
     fillSelect(
       els.filterReviewer,
       actorOptions(state.cards, "reviewer"),
-      "any reviewer",
+      t("filter.anyReviewer"),
     );
+  }
+
+  /** Distinct project slugs in use, sorted — untagged cards are not a project. */
+  function projectOptions(cards) {
+    const names = new Set();
+    for (const card of cards) if (card.project) names.add(card.project);
+    return [...names].sort();
   }
 
   function fillSelect(select, values, anyLabel) {
@@ -1393,8 +1492,14 @@ function startApp() {
       select.append(option);
     }
     select.value = values.includes(current) ? current : "";
-    state.filter[select === els.filterAssignee ? "assignee" : "reviewer"] =
-      select.value;
+    state.filter[filterKeyFor(select)] = select.value;
+  }
+
+  /** Which filter field a given <select> owns. */
+  function filterKeyFor(select) {
+    if (select === els.filterProject) return "project";
+    if (select === els.filterAssignee) return "assignee";
+    return "reviewer";
   }
 
   /* ----------------------------- mutations --------------------------- */
@@ -1497,6 +1602,12 @@ function startApp() {
         t("drawer.reviewer"),
         textInput(card.reviewer ?? "", async (value) => {
           await saveCard(id, { reviewer: value });
+        }),
+      ),
+      field(
+        t("drawer.project"),
+        textInput(card.project ?? "", async (value) => {
+          await saveCard(id, { project: value });
         }),
       ),
     );
@@ -1654,12 +1765,14 @@ function startApp() {
     const bodyInput = textArea("", () => {});
     const assignee = textInput(state.actor.name, () => {});
     const reviewer = textInput("", () => {});
+    const project = textInput("", () => {});
 
     const row = document.createElement("div");
     row.className = "row";
     row.append(
       field(t("drawer.assignee"), assignee),
       field(t("drawer.reviewer"), reviewer),
+      field(t("drawer.project"), project),
     );
 
     const form = document.createElement("div");
@@ -1693,6 +1806,7 @@ function startApp() {
             body: bodyInput.value.trim() || undefined,
             assignee: assignee.value.trim() || undefined,
             reviewer: reviewer.value.trim() || undefined,
+            project: project.value.trim() || undefined,
           },
         });
         closeModal();
@@ -1895,6 +2009,10 @@ function startApp() {
   });
   els.filterAssignee.addEventListener("change", () => {
     state.filter.assignee = els.filterAssignee.value;
+    renderBoard();
+  });
+  els.filterProject.addEventListener("change", () => {
+    state.filter.project = els.filterProject.value;
     renderBoard();
   });
   els.filterReviewer.addEventListener("change", () => {

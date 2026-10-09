@@ -10,12 +10,16 @@ export function formatCardBrief(card: Card): string {
   const parts = [`#${card.id} [${card.state}]`, card.title];
   if (card.assignee) parts.push(`@${card.assignee}`);
   if (card.reviewer) parts.push(`reviewer:${card.reviewer}`);
+  if (card.project) parts.push(`project:${card.project}`);
   if (card.blockedBy.length > 0)
     parts.push(`blocked-by:${card.blockedBy.join(",")}`);
   return parts.join(" ");
 }
 
-export function formatBoard(board: Board): string {
+export function formatBoard(
+  board: Board,
+  projects: readonly string[] = [],
+): string {
   const columns: [string, readonly Card[]][] = [
     ["todo", board.todo],
     ["doing", board.doing],
@@ -32,6 +36,10 @@ export function formatBoard(board: Board): string {
     for (const card of cards) {
       lines.push(`  ${formatCardBrief(card)}`);
     }
+  }
+  if (projects.length > 0) {
+    lines.push("");
+    lines.push(`projects: ${projects.join(", ")}`);
   }
   return lines.join("\n");
 }

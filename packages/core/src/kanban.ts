@@ -53,9 +53,10 @@ export class Kanban {
 
   /* ------------------------------ queries ------------------------------ */
 
-  board(): Board {
+  /** The whole board, or just one project's slice of it. */
+  board(project?: string | null): Board {
     this.projection.sync(this.log);
-    const { todo, doing, review, done } = this.projection.board();
+    const { todo, doing, review, done } = this.projection.board(project);
     return { todo, doing, review, done };
   }
 
@@ -85,15 +86,25 @@ export class Kanban {
   }
 
   /** Open cards assigned to `assignee` — the "what should I work on" call. */
-  mine(assignee: string): Card[] {
+  mine(assignee: string, project?: string | null): Card[] {
     this.projection.sync(this.log);
-    return this.projection.openFor(assignee);
+    return this.projection.openFor(assignee, project);
   }
 
   /** Cards waiting for `reviewer` to review. */
-  reviewQueue(reviewer: string): Card[] {
+  reviewQueue(reviewer: string, project?: string | null): Card[] {
     this.projection.sync(this.log);
-    return this.projection.reviewQueueFor(reviewer);
+    return this.projection.reviewQueueFor(reviewer, project);
+  }
+
+  /** Every distinct project in use, sorted — drives filter dropdowns. */
+  projects(): string[] {
+    this.projection.sync(this.log);
+    const names = new Set<string>();
+    for (const card of this.projection.all()) {
+      if (card.project) names.add(card.project);
+    }
+    return [...names].sort();
   }
 
   /* ----------------------------- mutations ----------------------------- */
@@ -118,6 +129,7 @@ export class Kanban {
         body: parsed.body ?? null,
         assignee: parsed.assignee ?? null,
         reviewer: parsed.reviewer ?? null,
+        project: parsed.project?.trim() || null,
         blockedBy: parsed.blockedBy ?? [],
         createdBy: actor.name,
       },
@@ -144,6 +156,8 @@ export class Kanban {
       patch.assignee = parsed.assignee?.trim() || null;
     if (parsed.reviewer !== undefined)
       patch.reviewer = parsed.reviewer?.trim() || null;
+    if (parsed.project !== undefined)
+      patch.project = parsed.project?.trim() || null;
     if (Object.keys(patch).length === 0) {
       return { card, events: [] };
     }

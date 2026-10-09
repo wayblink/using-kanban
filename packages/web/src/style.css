@@ -364,6 +364,14 @@ button.primary:hover {
   color: var(--col-review);
 }
 
+/* Project badge: a neutral accent, since a project is a grouping rather than
+   a state. */
+.badge.project {
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
 .badge.blocked {
   border-color: color-mix(in srgb, var(--danger) 45%, transparent);
   color: var(--danger);

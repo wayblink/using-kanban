@@ -421,3 +421,58 @@ describe("documentation in both languages", () => {
     }
   });
 });
+
+describe("project filtering", () => {
+  const cards = [
+    {
+      id: 1,
+      title: "web one",
+      project: "web",
+      state: "todo",
+      assignee: "jyxc",
+    },
+    {
+      id: 2,
+      title: "api one",
+      project: "api",
+      state: "todo",
+      assignee: "jyxc",
+    },
+    { id: 3, title: "untagged", project: null, state: "todo", assignee: null },
+  ].map((card) => ({
+    ...card,
+    body: null,
+    reviewer: null,
+    blockedBy: [],
+    createdBy: "jyxc",
+    createdAt: "",
+    updatedAt: "",
+    revision: 1,
+  }));
+
+  it("passes only the selected project's cards", () => {
+    const web = filterCards(cards, { project: "web" });
+    expect(web.map((card) => card.title)).toEqual(["web one"]);
+  });
+
+  it("shows every project when the filter is empty", () => {
+    expect(filterCards(cards, { project: "" })).toHaveLength(3);
+    expect(filterCards(cards, {})).toHaveLength(3);
+  });
+
+  it("is a partition: untagged cards are not in any project", () => {
+    for (const project of ["web", "api"]) {
+      const titles = filterCards(cards, { project }).map((c) => c.title);
+      expect(titles).not.toContain("untagged");
+    }
+  });
+
+  it("composes with the other filters", () => {
+    expect(
+      filterCards(cards, { project: "web", assignee: "jyxc" }),
+    ).toHaveLength(1);
+    expect(
+      filterCards(cards, { project: "web", assignee: "codex" }),
+    ).toHaveLength(0);
+  });
+});

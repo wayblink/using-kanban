@@ -1,4 +1,10 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -327,5 +333,132 @@ describe("shared stores (no daemon)", () => {
 
     expect(existsSync(join(dir, DEFAULT_STORAGE_DIR, "board.db"))).toBe(true);
     expect(openKanban({ dir }).card(card.id)?.title).toBe("default location");
+  });
+});
+
+describe("projects", () => {
+  const web = { title: "web card", project: "web" };
+  const api = { title: "api card", project: "api" };
+
+  it("records the project on the card and lists the ones in use", () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    kanban.add(web, human);
+    kanban.add(api, human);
+    kanban.add({ title: "no project" }, human);
+
+    expect(kanban.board().todo.map((card) => card.project)).toEqual([
+      "web",
+      "api",
+      null,
+    ]);
+    expect(kanban.projects()).toEqual(["api", "web"]);
+  });
+
+  it("filters the board to one project", () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    kanban.add(web, human);
+    kanban.add(api, human);
+    kanban.add({ title: "no project" }, human);
+
+    const board = kanban.board("web");
+    expect(board.todo.map((card) => card.title)).toEqual(["web card"]);
+    // no filter means every project, including the untagged card
+    expect(kanban.board().todo).toHaveLength(3);
+    // an unknown project is an empty board, not an error
+    expect(kanban.board("nope").todo).toEqual([]);
+  });
+
+  it("filters mine and the review queue", () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    const a = kanban.add(web, human);
+    kanban.add({ ...web, title: "other" }, human);
+    kanban.claim(a.card.id, agent);
+
+    expect(kanban.mine("claude-code").map((c) => c.title)).toEqual([
+      "web card",
+    ]);
+    expect(kanban.mine("claude-code", "api")).toEqual([]);
+
+    const r = kanban.add({ ...api, reviewer: "jyxc" }, human);
+    kanban.review(r.card.id, agent);
+    expect(kanban.reviewQueue("jyxc").map((c) => c.title)).toEqual([
+      "api card",
+    ]);
+    expect(kanban.reviewQueue("jyxc", "web")).toEqual([]);
+  });
+
+  it("lets the creator or assignee move a card between projects", () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    const added = kanban.add(web, human);
+
+    // an unrelated agent cannot, exactly as for any other field
+    expect(() => kanban.edit(added.card.id, { project: "api" }, agent)).toThrow(
+      KanbanError,
+    );
+
+    kanban.claim(added.card.id, agent);
+    const moved = kanban.edit(added.card.id, { project: "api" }, agent);
+    expect(moved.card.project).toBe("api");
+
+    const cleared = kanban.edit(added.card.id, { project: null }, human);
+    expect(cleared.card.project).toBeNull();
+  });
+
+  it("normalises the slug so Web and web cannot diverge", () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    const added = kanban.add({ title: "x", project: "  Web  " }, human);
+    expect(added.card.project).toBe("web");
+
+    const viaEdit = kanban.edit(added.card.id, { project: "API" }, human);
+    expect(viaEdit.card.project).toBe("api");
+  });
+
+  it("rejects a slug that is not url/cli safe", () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    expect(() => kanban.add({ title: "x", project: "web ui" }, human)).toThrow(
+      KanbanError,
+    );
+    expect(() => kanban.add({ title: "x", project: "web/api" }, human)).toThrow(
+      KanbanError,
+    );
+    expect(() => kanban.add({ title: "x", project: "  " }, human)).toThrow(
+      KanbanError,
+    );
+    expect(() =>
+      kanban.add({ title: "x", project: "-leading-dash" }, human),
+    ).toThrow(KanbanError);
+    // 65 characters
+    expect(() =>
+      kanban.add({ title: "x", project: "a".repeat(65) }, human),
+    ).toThrow(KanbanError);
+  });
+
+  it("replays events written before projects existed", async () => {
+    const dir = tempDir();
+    const added = openKanban({ dir, storage: "jsonl" }).add(
+      { title: "legacy", reviewer: "jyxc" },
+      human,
+    );
+    // rewrite the log the way the pre-project code did: no `project` key at all
+    const file = join(dir, DEFAULT_STORAGE_DIR, "events.jsonl");
+    writeFileSync(
+      file,
+      readFileSync(file, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => {
+          const event = JSON.parse(line);
+          if (event.type === "card.created") delete event.payload.project;
+          return JSON.stringify(event);
+        })
+        .join("\n") + "\n",
+    );
+
+    const reopened = openKanban({ dir, storage: "jsonl" });
+    expect(reopened.card(added.card.id)?.project).toBeNull();
+    expect(reopened.card(added.card.id)?.title).toBe("legacy");
+    expect(reopened.projects()).toEqual([]);
+    expect(reopened.board("web").todo).toHaveLength(0);
+    expect(reopened.board().todo).toHaveLength(1);
   });
 });

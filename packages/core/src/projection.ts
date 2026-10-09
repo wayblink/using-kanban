@@ -40,6 +40,7 @@ export class Projection {
           state: "todo",
           assignee: payload.assignee,
           reviewer: payload.reviewer,
+          project: payload.project,
           blockedBy: payload.blockedBy,
           createdBy: payload.createdBy,
           createdAt: event.ts,
@@ -118,8 +119,13 @@ export class Projection {
     return [...this.cards.values()].sort((a, b) => a.id - b.id);
   }
 
-  board(): { todo: Card[]; doing: Card[]; review: Card[]; done: Card[] } {
-    const all = this.all();
+  board(project?: string | null): {
+    todo: Card[];
+    doing: Card[];
+    review: Card[];
+    done: Card[];
+  } {
+    const all = this.inProject(project);
     return {
       todo: all.filter((card) => card.state === "todo"),
       doing: all.filter((card) => card.state === "doing"),
@@ -129,17 +135,28 @@ export class Projection {
   }
 
   /** Open cards (anything but done) assigned to `assignee`. */
-  openFor(assignee: string): Card[] {
-    return this.all().filter(
+  openFor(assignee: string, project?: string | null): Card[] {
+    return this.inProject(project).filter(
       (card) => card.assignee === assignee && card.state !== "done",
     );
   }
 
   /** Cards in review where `reviewer` is the expected reviewer. */
-  reviewQueueFor(reviewer: string): Card[] {
-    return this.all().filter(
+  reviewQueueFor(reviewer: string, project?: string | null): Card[] {
+    return this.inProject(project).filter(
       (card) => card.reviewer === reviewer && card.state === "review",
     );
+  }
+
+  /**
+   * Cards in `project`, or every card when it is null/undefined. Cards with no
+   * project are only visible when no project is selected — a project filter is
+   * a partition, not a "show everything tagged" overlay.
+   */
+  private inProject(project?: string | null): Card[] {
+    const all = this.all();
+    if (project === undefined || project === null) return all;
+    return all.filter((card) => card.project === project);
   }
 
   /** True when `targetId` is reachable from `fromId` by following blockedBy edges. */
@@ -171,6 +188,7 @@ export class Projection {
       ...(patch?.body !== undefined ? { body: patch.body } : {}),
       ...(patch?.assignee !== undefined ? { assignee: patch.assignee } : {}),
       ...(patch?.reviewer !== undefined ? { reviewer: patch.reviewer } : {}),
+      ...(patch?.project !== undefined ? { project: patch.project } : {}),
       updatedAt: ts,
       revision: card.revision + 1,
     };

@@ -89,17 +89,17 @@ usage: ukb [command] [args]
 
 board:
   ukb                              your open cards (a call to act, not just a list)
-  ukb board                        the whole board
+  ukb board [--project p]          the whole board, or one project's slice
   ukb show <id>                    card detail + event history
 
 work:
-  ukb add "<title>" [--body "..."] [--assignee X] [--reviewer Y] [--blocked-by <id>]
+  ukb add "<title>" [--body "..."] [--assignee X] [--reviewer Y] [--project p]
   ukb claim <id>                   todo → doing, assigned to you (do this first!)
   ukb review <id>                  → review
   ukb done <id>                    → done
   ukb reopen <id>                  → todo
   ukb move <id> <todo|doing|review|done>
-  ukb edit <id> [--title T] [--body B] [--assignee X] [--reviewer Y]
+  ukb edit <id> [--title T] [--body B] [--assignee X] [--reviewer Y] [--project p]
   ukb delete <id>                  creator only
   ukb block <id> --by <id>         make a card wait on another
   ukb unblock <id> --by <id>
@@ -164,11 +164,21 @@ export async function runCommand(
   try {
     switch (command) {
       case "mine": {
-        io.stdout(formatMine(kanban.mine(actor.name), actor.name));
+        io.stdout(
+          formatMine(
+            kanban.mine(actor.name, flagString(parsed.flags, "project")),
+            actor.name,
+          ),
+        );
         return 0;
       }
       case "board": {
-        io.stdout(formatBoard(kanban.board()));
+        io.stdout(
+          formatBoard(
+            kanban.board(flagString(parsed.flags, "project")),
+            kanban.projects(),
+          ),
+        );
         return 0;
       }
       case "show": {
@@ -191,6 +201,7 @@ export async function runCommand(
             body: flagString(parsed.flags, "body") ?? null,
             assignee: flagString(parsed.flags, "assignee") ?? null,
             reviewer: flagString(parsed.flags, "reviewer") ?? null,
+            project: flagString(parsed.flags, "project"),
             blockedBy: flagNumbers(parsed.flags, "blocked-by"),
           },
           actor,
@@ -208,6 +219,7 @@ export async function runCommand(
             body: flagString(parsed.flags, "body"),
             assignee: flagString(parsed.flags, "assignee"),
             reviewer: flagString(parsed.flags, "reviewer"),
+            project: flagString(parsed.flags, "project"),
           },
           actor,
           "cli",

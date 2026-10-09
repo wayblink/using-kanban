@@ -393,3 +393,72 @@ describe("routing", () => {
     expect((await json<{ docs: string }>(response)).docs).toBe("/openapi.json");
   });
 });
+
+describe("projects over REST", () => {
+  it("stores, filters and reports the projects in use", async () => {
+    const web = await createCard("web card", { project: "web" });
+    const api = await createCard("api card", { project: "api" });
+    await createCard("untagged");
+
+    // the board carries the project list so a client can build its filter
+    const board = await request("/api/board", { auth: false });
+    const boardBody = await json<{
+      todo: { id: number }[];
+      projects: string[];
+    }>(board);
+    expect(boardBody.projects).toEqual(["api", "web"]);
+    expect(boardBody.todo).toHaveLength(3);
+
+    const webBoard = await request("/api/board?project=web", { auth: false });
+    const webBody = await json<{ todo: { id: number }[] }>(webBoard);
+    expect(webBody.todo.map((card) => card.id)).toEqual([web.id]);
+
+    const webCards = await request("/api/cards?project=web", { auth: false });
+    const webCardsBody = await json<{ cards: { id: number }[] }>(webCards);
+    expect(webCardsBody.cards.map((card) => card.id)).toEqual([web.id]);
+
+    // the project list survives the filter — it describes the board, not the view
+    const filtered = await request("/api/board?project=api", { auth: false });
+    expect((await json<{ projects: string[] }>(filtered)).projects).toEqual([
+      "api",
+      "web",
+    ]);
+
+    // an unknown project is an empty board, not an error
+    const none = await request("/api/board?project=nope", { auth: false });
+    expect((await json<{ todo: unknown[] }>(none)).todo).toEqual([]);
+
+    // and it composes with the other filters
+    const both = await request("/api/cards?project=web&state=done", {
+      auth: false,
+    });
+    expect((await json<{ cards: unknown[] }>(both)).cards).toEqual([]);
+    expect(api.id).toBeGreaterThan(web.id);
+  });
+
+  it("moves a card to another project through PATCH", async () => {
+    const card = await createCard("movable", { project: "web" });
+    const response = await request(`/api/cards/${card.id}`, {
+      method: "PATCH",
+      auth: authHeaders({ "X-Actor-Name": "jyxc" }),
+      body: JSON.stringify({ project: "api" }),
+    });
+    expect(response.status).toBe(200);
+    expect(
+      (await json<{ card: { project: string } }>(response)).card.project,
+    ).toBe("api");
+  });
+
+  it("rejects a slug that is not url/cli safe", async () => {
+    const response = await request("/api/cards", {
+      method: "POST",
+      auth: authHeaders({ "X-Actor-Name": "jyxc" }),
+      body: JSON.stringify({ title: "x", project: "web ui" }),
+    });
+    expect(response.status).toBe(400);
+    const errorBody = await json<{ code?: string; error?: { code: string } }>(
+      response,
+    );
+    expect(errorBody.code ?? errorBody.error?.code).toBe("invalid_input");
+  });
+});

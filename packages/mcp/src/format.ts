@@ -8,6 +8,7 @@ export function formatCardBrief(card: Card): string {
   const parts = [`#${card.id} [${card.state}]`, card.title];
   if (card.assignee) parts.push(`@${card.assignee}`);
   if (card.reviewer) parts.push(`reviewer:${card.reviewer}`);
+  if (card.project) parts.push(`project:${card.project}`);
   if (card.blockedBy.length > 0)
     parts.push(`blocked-by:${card.blockedBy.join(",")}`);
   return parts.join(" ");
@@ -46,6 +47,7 @@ export function formatCard(card: Card, events: readonly Event[]): string {
   const lines: string[] = [
     `#${card.id} ${card.title} [${card.state}]`,
     `assignee: ${card.assignee ?? "—"}`,
+    `project: ${card.project ?? "—"}`,
     `reviewer: ${card.reviewer ?? "—"}`,
     `blocked by: ${card.blockedBy.length > 0 ? card.blockedBy.map((id) => `#${id}`).join(", ") : "—"}`,
     `created by: ${card.createdBy}  ·  revision ${card.revision}  ·  updated ${card.updatedAt}`,
