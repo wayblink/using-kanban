@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { homedir, hostname, userInfo } from "node:os";
+import { resolve } from "node:path";
 import { z } from "zod";
 import { ActorSchema, type StorageKind } from "@wayblink/using-kanban-core";
 
@@ -28,6 +29,12 @@ export const ServerOptionsSchema = z.object({
   actor: ActorSchema.default({ type: "human", name: defaultActorName() }),
   /** Directory of static assets to serve at `/` (the default Web UI). */
   uiDir: z.string().optional(),
+  /**
+   * Directories a card note's document link may point into. The store
+   * directory and the server's working directory are always allowed; these
+   * extend that (e.g. the repo the cards are about).
+   */
+  docRoots: z.array(z.string()).default([]),
   /** Value for `Access-Control-Allow-Origin`; `*` allows embedding from anywhere. */
   corsOrigin: z.string().default("*"),
   /** How often the SSE broker polls the event log. */
@@ -45,6 +52,7 @@ export interface ResolvedServerOptions {
   uiDir?: string | undefined;
   corsOrigin: string;
   ssePollMs: number;
+  docRoots: string[];
 }
 
 export function generateToken(): string {
@@ -69,5 +77,6 @@ export function resolveServerOptions(
   return {
     ...parsed,
     token: parsed.token ?? generateToken(),
+    docRoots: parsed.docRoots.map((root) => resolve(root)),
   };
 }

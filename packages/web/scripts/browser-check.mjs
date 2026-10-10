@@ -9,7 +9,7 @@
  * and prints any console errors.
  */
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startServer } from "@wayblink/using-kanban-server";
@@ -86,7 +86,9 @@ class Cdp {
       awaitPromise: true,
     });
     if (result.exceptionDetails) {
-      throw new Error(`page js failed: ${result.exceptionDetails.text}`);
+      const details = result.exceptionDetails;
+      const description = details.exception?.description ?? details.text;
+      throw new Error(`page js failed: ${description}`);
     }
     return result.result.value;
   }
@@ -181,13 +183,37 @@ async function main() {
   let server = null;
   if (!explicitUrl) {
     const dir = mkdtempSync(join(tmpdir(), "ukb-browser-board-"));
+    // A document a note can link at, so the in-UI document viewer has something
+    // real to read rather than a fixture.
+    const docRoot = join(dir, "docs");
+    mkdirSync(docRoot, { recursive: true });
+    writeFileSync(
+      join(docRoot, "rest-api.md"),
+      [
+        "# REST API design",
+        "",
+        "The board is **event-sourced**: every change appends an event.",
+        "",
+        "## Endpoints",
+        "",
+        "- `GET /api/board`",
+        "- `POST /api/cards`",
+        "",
+        "| Method | Path |",
+        "| --- | --- |",
+        "| GET | /api/board |",
+      ].join("\n"),
+      "utf8",
+    );
     server = await startServer({
       dir,
       uiDir: new URL("../src", import.meta.url).pathname,
       port: Number(new URL(url).port) || 48080,
       token: "browser-check",
+      docRoots: [docRoot],
     });
     const base = `http://127.0.0.1:${server.port}`;
+    const created = [];
     for (const card of [
       {
         title: "Design the REST API",
@@ -202,12 +228,29 @@ async function main() {
       { title: "project: web card", project: "web", reviewer: "jyxc" },
       { title: "project: api card", project: "api", reviewer: "jyxc" },
     ]) {
-      await fetch(`${base}/api/cards?token=browser-check`, {
+      const response = await fetch(`${base}/api/cards?token=browser-check`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Actor-Name": "jyxc" },
         body: JSON.stringify(card),
       });
+      created.push(await response.json());
     }
+    const [api, mcp] = created;
+    // A relation (card 2 waits on card 1) and a note pointing at the document
+    // above — the two things the drawer has to render from either end.
+    await fetch(`${base}/api/cards/${mcp.card.id}/relate?token=browser-check`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Actor-Name": "jyxc" },
+      body: JSON.stringify({ other: api.card.id, direction: "upstream" }),
+    });
+    await fetch(`${base}/api/cards/${api.card.id}/notes?token=browser-check`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Actor-Name": "jyxc" },
+      body: JSON.stringify({
+        text: "the REST design doc",
+        url: "docs/rest-api.md",
+      }),
+    });
     // Enough finished cards to exercise the done-column preview, which is what
     // keeps a centralised board (dozens or hundreds of done cards) on one screen.
     for (let index = 0; index < 11; index += 1) {
@@ -530,6 +573,132 @@ async function main() {
       "expanding the done column reveals every project's cards",
       expanded.rendered > 8 && expanded.projects.length >= 1,
       `rendered=${expanded.rendered} · projects=${expanded.projects.join("/")} · control="${expanded.collapse}"`,
+    ]);
+
+    /* --------------------- relations, notes, documents -------------------- */
+
+    await cdp.send("Page.navigate", { url: `${url}#/board` });
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    // Act as the card's creator, so the mutations below are permitted — the
+    // board's permissions are cooperative and based on the actor name.
+    await cdp.evaluate(
+      `localStorage.setItem('using-kanban.actor', JSON.stringify({ name: 'jyxc', type: 'human' }))`,
+    );
+    // a same-document navigation would keep the old identity in memory
+    await cdp.send("Page.reload");
+    await new Promise((resolve) => setTimeout(resolve, 900));
+
+    // open the card that has both a relation and a note
+    await cdp.evaluate(
+      `[...document.querySelectorAll('.card')].find((c) => c.querySelector('.card-title')?.textContent === 'Design the REST API')?.click()`,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 600));
+
+    const relations = JSON.parse(
+      await cdp.evaluate(`JSON.stringify({
+        fields: [...document.querySelectorAll('#drawer .field > label')].map((l) => l.textContent),
+        downstream: [...document.querySelectorAll('#drawer .badge.relation')].map((b) => b.textContent),
+      })`),
+    );
+    report.push([
+      "the drawer shows both ends of a relation",
+      relations.fields.some((label) => label.startsWith("Upstream")) &&
+        relations.fields.some((label) => label.startsWith("Downstream")) &&
+        relations.downstream.some((chip) =>
+          chip.includes("Write the MCP tool descriptions"),
+        ),
+      `fields=${relations.fields.join(" / ")} · downstream=${relations.downstream.join(" / ")}`,
+    ]);
+
+    const noteUi = JSON.parse(
+      await cdp.evaluate(`JSON.stringify({
+        text: document.querySelector('#drawer .note-text')?.textContent ?? '',
+        link: document.querySelector('#drawer .note-link')?.textContent ?? '',
+        badge: document.querySelector('.badge.notes')?.textContent ?? '',
+      })`),
+    );
+    report.push([
+      "a note shows its remark and its document link",
+      noteUi.text === "the REST design doc" &&
+        noteUi.link === "docs/rest-api.md",
+      `text="${noteUi.text}" · link=${noteUi.link} · card badge="${noteUi.badge}"`,
+    ]);
+
+    // clicking the link reads the document from the server and renders it here
+    await cdp.clickCenter("#drawer .note-link");
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    const viewer = JSON.parse(
+      await cdp.evaluate(`JSON.stringify({
+        visible: getComputedStyle(document.querySelector('#doc-viewer')).display !== 'none',
+        heading: document.querySelector('#doc-viewer .markdown h1')?.textContent ?? '',
+        strong: document.querySelector('#doc-viewer .markdown strong')?.textContent ?? '',
+        listItems: document.querySelectorAll('#doc-viewer .markdown li').length,
+        tableRows: document.querySelectorAll('#doc-viewer .markdown tbody tr').length,
+        iframes: document.querySelectorAll('#doc-viewer iframe').length,
+        scriptTags: document.querySelectorAll('#doc-viewer script').length,
+      })`),
+    );
+    report.push([
+      "the document viewer renders a local markdown doc",
+      viewer.visible &&
+        viewer.heading === "REST API design" &&
+        viewer.strong === "event-sourced" &&
+        viewer.listItems === 2 &&
+        viewer.tableRows === 1 &&
+        viewer.iframes === 0 &&
+        viewer.scriptTags === 0,
+      `heading="${viewer.heading}" · strong="${viewer.strong}" · ${viewer.listItems} list items · ${viewer.tableRows} table rows`,
+    ]);
+
+    // the rendered document is worth a screenshot of its own
+    const docShot = await cdp.send("Page.captureScreenshot", { format: "png" });
+    writeFileSync(
+      out.replace(/\.png$/, "") + "-doc.png",
+      Buffer.from(docShot.data, "base64"),
+    );
+
+    await cdp.send("Input.dispatchKeyEvent", {
+      type: "keyDown",
+      key: "Escape",
+      code: "Escape",
+      windowsVirtualKeyCode: 27,
+    });
+    await cdp.send("Input.dispatchKeyEvent", {
+      type: "keyUp",
+      key: "Escape",
+      code: "Escape",
+      windowsVirtualKeyCode: 27,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const docClosed = await cdp.evaluate(
+      `getComputedStyle(document.querySelector('#doc-viewer')).display`,
+    );
+    report.push([
+      "Escape closes the document viewer",
+      docClosed === "none",
+      `display: ${docClosed}`,
+    ]);
+
+    // and adding a relation from the UI writes the edge
+    await cdp.evaluate(`(() => {
+      const fields = [...document.querySelectorAll('#drawer .field')];
+      const downstream = fields.find((f) => f.querySelector('label')?.textContent.startsWith('Downstream'));
+      const input = downstream.querySelector('input');
+      input.value = '3';
+      const relate = [...downstream.querySelectorAll('button')].find((b) => b.textContent === 'Relate');
+      relate.click();
+    })()`);
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    const addedRelation = JSON.parse(
+      await cdp.evaluate(`JSON.stringify({
+        downstream: [...document.querySelectorAll('#drawer .badge.relation')].map((b) => b.textContent),
+        toasts: [...document.querySelectorAll('.toast')].map((toast) => toast.textContent),
+      })`),
+    );
+    report.push([
+      "adding a downstream relation from the UI works",
+      addedRelation.downstream.some((chip) => chip.startsWith("#3")),
+      `downstream=${addedRelation.downstream.join(" / ")} · toasts=${JSON.stringify(addedRelation.toasts)}`,
     ]);
 
     /* ------------------------------ docs page ----------------------------- */

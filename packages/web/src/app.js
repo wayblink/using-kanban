@@ -65,10 +65,17 @@ export function filterCards(cards, filter = {}) {
     if (assignee && card.assignee !== assignee) return false;
     if (reviewer && card.reviewer !== reviewer) return false;
     if (project && card.project !== project) return false;
-    if (q && !`${card.title} ${card.body ?? ""}`.toLowerCase().includes(q))
-      return false;
+    if (q && !cardHaystack(card).includes(q)) return false;
     return true;
   });
+}
+
+/** Everything a text search looks at — notes included, links and all. */
+function cardHaystack(card) {
+  const notes = (card.notes ?? [])
+    .map((note) => `${note.text ?? ""} ${note.url ?? ""}`)
+    .join(" ");
+  return `${card.title} ${card.body ?? ""} ${notes}`.toLowerCase();
 }
 
 /** Most recently touched first — the top of a column is where work is happening. */
@@ -121,6 +128,317 @@ export function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (char) => HTML_ESCAPES[char]);
 }
 
+/* ------------------------------------------------------------------ *
+ * Documents behind a note's link
+ * ------------------------------------------------------------------ */
+
+const MARKDOWN_FILE = /\.(md|markdown|mdown|mkd)$/i;
+const HTML_FILE = /\.(?:x?html?)$/i;
+
+/**
+ * What the UI does with a note's link.
+ *
+ * `link` is a hosted URL — open it in a tab. Everything else is treated as a
+ * path to a file on this machine, which the server reads for the UI (see
+ * `GET /api/doc`), so a note can point at the design doc in the repo the card
+ * is about without that doc being served anywhere.
+ */
+export function docKindOf(url) {
+  const value = String(url ?? "").trim();
+  if (value === "") return null;
+  if (/^https?:\/\//i.test(value)) return "link";
+  const path = value.replace(/^file:\/\//, "").split(/[?#]/)[0] ?? "";
+  if (MARKDOWN_FILE.test(path)) return "markdown";
+  if (HTML_FILE.test(path)) return "html";
+  return "text";
+}
+
+/** Schemes that must never end up in an href, whatever the document says. */
+function safeUrl(url) {
+  const value = String(url ?? "").trim();
+  return /^(?:javascript|data|vbscript):/i.test(value) ? "" : value;
+}
+
+/** One markdown list item, or null when the line is not one. */
+function listItemOf(line) {
+  const match = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/.exec(line);
+  if (!match) return null;
+  return {
+    indent: match[1]?.length ?? 0,
+    ordered: /\d/.test(match[2] ?? ""),
+    text: match[3] ?? "",
+  };
+}
+
+function isSeparatorRow(line) {
+  return /^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/.test(line) && line.includes("-");
+}
+
+function tableCells(row) {
+  return row
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map((cell) => cell.trim());
+}
+
+/** Does this line start a block that a paragraph must not swallow? */
+function startsBlock(line) {
+  return (
+    line.trim() === "" ||
+    /^\s*(?:```|~~~)/.test(line) ||
+    /^#{1,6}\s/.test(line) ||
+    /^\s*>/.test(line) ||
+    /^\s*\|/.test(line) ||
+    listItemOf(line) !== null ||
+    /^\s*(?:[-*_]\s*){3,}$/.test(line)
+  );
+}
+
+/**
+ * A small, dependency-free markdown renderer.
+ *
+ * The document is the user's own file, but it is still escaped before any
+ * markdown is applied: markup inside a doc renders as text, never as DOM.
+ * It covers what a design doc actually uses — headings, lists, tables, code
+ * fences, quotes, links and images — and nothing more.
+ *
+ * `resolveHref` / `resolveSrc` map a relative reference onto a URL the server
+ * can serve, so a doc sitting next to its diagrams still renders them.
+ */
+export function markdownToHtml(markdown, options = {}) {
+  const lines = String(markdown ?? "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n");
+  const out = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index] ?? "";
+
+    const fence = /^\s*(```|~~~)\s*(\S*)\s*$/.exec(line);
+    if (fence) {
+      const marker = fence[1] ?? "```";
+      const body = [];
+      index += 1;
+      while (index < lines.length) {
+        const current = lines[index] ?? "";
+        if (current.trim().startsWith(marker)) break;
+        body.push(current);
+        index += 1;
+      }
+      index += 1; // the closing fence
+      out.push(`<pre><code>${escapeHtml(body.join("\n"))}</code></pre>`);
+      continue;
+    }
+
+    if (line.trim() === "") {
+      index += 1;
+      continue;
+    }
+
+    const heading = /^(#{1,6})\s+(.*)$/.exec(line);
+    if (heading) {
+      const level = heading[1]?.length ?? 1;
+      out.push(
+        `<h${level}>${inlineMarkdown(heading[2] ?? "", options)}</h${level}>`,
+      );
+      index += 1;
+      continue;
+    }
+
+    if (/^\s*(?:[-*_]\s*){3,}$/.test(line)) {
+      out.push("<hr />");
+      index += 1;
+      continue;
+    }
+
+    if (/^\s*>/.test(line)) {
+      const quoted = [];
+      while (index < lines.length && /^\s*>/.test(lines[index] ?? "")) {
+        quoted.push((lines[index] ?? "").replace(/^\s*>\s?/, ""));
+        index += 1;
+      }
+      out.push(
+        `<blockquote>${markdownToHtml(quoted.join("\n"), options)}</blockquote>`,
+      );
+      continue;
+    }
+
+    // A table needs a header row plus a `|---|` separator directly under it.
+    if (/^\s*\|/.test(line)) {
+      const rows = [];
+      let peek = index;
+      while (peek < lines.length && /^\s*\|/.test(lines[peek] ?? "")) {
+        rows.push(lines[peek] ?? "");
+        peek += 1;
+      }
+      if (rows.length >= 2 && isSeparatorRow(rows[1] ?? "")) {
+        const head = tableCells(rows[0] ?? "");
+        const body = rows.slice(2).map(tableCells);
+        const cells = (values, tag) =>
+          values
+            .map(
+              (value) => `<${tag}>${inlineMarkdown(value, options)}</${tag}>`,
+            )
+            .join("");
+        out.push(
+          `<table><thead><tr>${cells(head, "th")}</tr></thead><tbody>${body
+            .map((row) => `<tr>${cells(row, "td")}</tr>`)
+            .join("")}</tbody></table>`,
+        );
+        index = peek;
+        continue;
+      }
+    }
+
+    if (listItemOf(line)) {
+      const [html, next] = renderListBlock(lines, index, options);
+      out.push(html);
+      index = next;
+      continue;
+    }
+
+    const paragraph = [];
+    while (index < lines.length && !startsBlock(lines[index] ?? "")) {
+      paragraph.push(lines[index] ?? "");
+      index += 1;
+    }
+    if (paragraph.length === 0) {
+      index += 1;
+      continue;
+    }
+    out.push(
+      `<p>${inlineMarkdown(paragraph.join("\n"), options).replace(
+        /\n/g,
+        "<br />",
+      )}</p>`,
+    );
+  }
+
+  return out.join("\n");
+}
+
+function renderListBlock(lines, start, options) {
+  const first = listItemOf(lines[start] ?? "") ?? {
+    indent: 0,
+    ordered: false,
+    text: "",
+  };
+  const { indent: baseIndent, ordered } = first;
+  // Inner HTML per item, so a nested list can be appended inside its <li>.
+  const contents = [];
+  let index = start;
+
+  while (index < lines.length) {
+    const line = lines[index] ?? "";
+
+    if (line.trim() === "") {
+      // A blank line only continues the list when another item follows.
+      let peek = index + 1;
+      while (peek < lines.length && (lines[peek] ?? "").trim() === "") {
+        peek += 1;
+      }
+      const next = listItemOf(lines[peek] ?? "");
+      if (next && next.indent >= baseIndent && next.ordered === ordered) {
+        index = peek;
+        continue;
+      }
+      break;
+    }
+
+    const item = listItemOf(line);
+    if (!item || item.ordered !== ordered) break;
+    if (item.indent < baseIndent) break;
+
+    if (item.indent > baseIndent) {
+      const [nested, next] = renderListBlock(lines, index, options);
+      const last = contents.length - 1;
+      if (last >= 0) contents[last] = `${contents[last] ?? ""}${nested}`;
+      else contents.push(nested);
+      index = next;
+      continue;
+    }
+
+    let text = item.text;
+    index += 1;
+    // Indented lines are a continuation of this item, not a new block.
+    while (index < lines.length) {
+      const next = lines[index] ?? "";
+      if (next.trim() === "") break;
+      if (listItemOf(next)) break;
+      if (!/^\s{2,}\S/.test(next)) break;
+      text += ` ${next.trim()}`;
+      index += 1;
+    }
+    contents.push(inlineMarkdown(text, options));
+  }
+
+  const tag = ordered ? "ol" : "ul";
+  const items = contents.map((content) => `<li>${content}</li>`).join("");
+  return [`<${tag}>${items}</${tag}>`, index];
+}
+
+/**
+ * Inline markdown. Everything is escaped first; links, images and code spans
+ * are swapped for placeholders so later passes cannot corrupt them, then
+ * restored at the end.
+ */
+function inlineMarkdown(text, options = {}) {
+  const resolveHref = options.resolveHref ?? ((href) => href);
+  const resolveSrc = options.resolveSrc ?? ((src) => src);
+  const kept = [];
+  // Private-use characters as placeholders: they cannot occur in a document,
+  // and unlike NUL they keep the regexes (and eslint) happy.
+  const keep = (html) => {
+    kept.push(html);
+    return `\uE000${kept.length - 1}\uE001`;
+  };
+
+  let out = escapeHtml(text);
+
+  out = out.replace(/`([^`]+)`/g, (_match, code) =>
+    keep(`<code>${code}</code>`),
+  );
+
+  out = out.replace(
+    /!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g,
+    (_match, alt, src) => {
+      const resolved = safeUrl(resolveSrc(src));
+      if (!resolved) return keep(alt);
+      return keep(`<img src="${resolved}" alt="${alt}" loading="lazy" />`);
+    },
+  );
+
+  out = out.replace(
+    /\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g,
+    (_match, label, href) => {
+      const resolved = safeUrl(resolveHref(href));
+      if (!resolved) return keep(label);
+      const external = /^https?:\/\//i.test(resolved);
+      const extra = external ? ' target="_blank" rel="noreferrer"' : "";
+      return keep(`<a href="${resolved}"${extra}>${label}</a>`);
+    },
+  );
+
+  out = out.replace(
+    /(^|[\s(])(https?:\/\/[^\s<>()]+)/g,
+    (_match, lead, url) =>
+      `${lead}${keep(`<a href="${url}" target="_blank" rel="noreferrer">${url}</a>`)}`,
+  );
+
+  out = out.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  out = out.replace(/__([^_]+)__/g, "<strong>$1</strong>");
+  out = out.replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>");
+  out = out.replace(/(^|[^_])_([^_]+)_/g, "$1<em>$2</em>");
+
+  return out.replace(
+    /\uE000(\d+)\uE001/g,
+    (_match, id) => kept[Number(id)] ?? "",
+  );
+}
+
 export function parseActor(stored, fallback) {
   try {
     const parsed = JSON.parse(stored);
@@ -146,6 +464,51 @@ export function actorOptions(cards, role) {
     if (value) names.add(value);
   }
   return [...names].sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Resolves a reference inside a document onto a URL the server can serve.
+ *
+ * A note's link is a path on this machine, and the document it points at lives
+ * next to its own screenshots and sibling pages — so a relative reference has
+ * to be resolved against the document's directory and then read through
+ * `/api/doc`, not against the UI's origin.
+ */
+export function resolveDocRef(ref, docPath) {
+  const value = String(ref ?? "").trim();
+  if (value === "" || /^(?:https?:|data:|mailto:|tel:|#|\/\/)/i.test(value)) {
+    return value;
+  }
+  const clean = value.replace(/^file:\/\//, "");
+  const base = String(docPath ?? "")
+    .replace(/\\/g, "/")
+    .replace(/\/[^/]*$/, "");
+  const joined =
+    clean.startsWith("/") || clean.startsWith("~") ? clean : `${base}/${clean}`;
+  return `/api/doc?raw=1&path=${encodeURIComponent(normaliseDocPath(joined))}`;
+}
+
+/** Collapses `.` and `..` without touching the filesystem. */
+export function normaliseDocPath(path) {
+  const out = [];
+  for (const segment of String(path ?? "").split("/")) {
+    if (segment === "" || segment === ".") continue;
+    if (segment === "..") {
+      out.pop();
+      continue;
+    }
+    out.push(segment);
+  }
+  return `/${out.join("/")}`;
+}
+
+/** Rewrites relative `src`/`href` attributes in an HTML document. */
+export function rewriteDocRefs(html, docPath) {
+  return String(html ?? "").replace(
+    /(\ssrc|\shref)\s*=\s*(["'])(.*?)\2/gi,
+    (match, attribute, quote, value) =>
+      `${attribute}=${quote}${resolveDocRef(value, docPath)}${quote}`,
+  );
 }
 
 /* ------------------------------------------------------------------ *
@@ -184,6 +547,8 @@ export const I18N = {
     "filter.anyReviewer": "any reviewer",
     "card.reviewer": "reviewer:",
     "card.blockedBy": "blocked-by:",
+    "card.blocks": "blocks:",
+    "card.notes": "notes:",
     "time.justNow": "just now",
     "time.minutes": "{n}m ago",
     "time.hours": "{n}h ago",
@@ -193,7 +558,12 @@ export const I18N = {
     "drawer.assignee": "Assignee",
     "drawer.reviewer": "Reviewer",
     "drawer.project": "Project",
-    "drawer.blockedBy": "Blocked by",
+    "drawer.blockedBy": "Upstream — waits on",
+    "drawer.blocks": "Downstream — waits for this",
+    "drawer.addUpstream": "add upstream card #",
+    "drawer.addDownstream": "add downstream card #",
+    "drawer.relate": "Relate",
+    "drawer.notes": "Notes — remarks and document links",
     "drawer.body": "Body",
     "drawer.history": "History",
     "drawer.title": "Title",
@@ -202,8 +572,20 @@ export const I18N = {
     "drawer.done": "Done",
     "drawer.reopen": "Reopen",
     "drawer.delete": "Delete card",
-    "drawer.blockOn": "block on card #",
-    "drawer.block": "Block",
+    "drawer.noteText": "Remark",
+    "drawer.noteUrl": "Link — https://… or a local path",
+    "drawer.addNote": "Add note",
+    "drawer.openDoc": "Open",
+    "drawer.removeNote": "remove note {id}",
+    "drawer.noNotes": "no notes yet",
+    "drawer.needsText": "a note needs some text",
+    "doc.title": "Document",
+    "doc.loading": "loading…",
+    "doc.failed": "the document could not be read",
+    "doc.close": "close document",
+    "doc.newTab": "open in a new tab",
+    "doc.hint":
+      "served from this machine — the note's link, resolved by the server",
     "drawer.createdBy": "created by",
     "drawer.revision": "revision",
     "drawer.updated": "updated",
@@ -256,6 +638,8 @@ export const I18N = {
     "filter.anyReviewer": "全部审查者",
     "card.reviewer": "审查：",
     "card.blockedBy": "阻塞：",
+    "card.blocks": "下游：",
+    "card.notes": "备注：",
     "time.justNow": "刚刚",
     "time.minutes": "{n} 分钟前",
     "time.hours": "{n} 小时前",
@@ -265,7 +649,12 @@ export const I18N = {
     "drawer.assignee": "负责人",
     "drawer.reviewer": "审查者",
     "drawer.project": "项目",
-    "drawer.blockedBy": "阻塞于",
+    "drawer.blockedBy": "上游 — 本卡片等待",
+    "drawer.blocks": "下游 — 等待本卡片",
+    "drawer.addUpstream": "添加上游卡片 #",
+    "drawer.addDownstream": "添加下游卡片 #",
+    "drawer.relate": "关联",
+    "drawer.notes": "备注 — 说明与文档链接",
     "drawer.body": "描述",
     "drawer.history": "历史记录",
     "drawer.title": "标题",
@@ -274,8 +663,19 @@ export const I18N = {
     "drawer.done": "完成",
     "drawer.reopen": "重新打开",
     "drawer.delete": "删除卡片",
-    "drawer.blockOn": "阻塞于卡片 #",
-    "drawer.block": "阻塞",
+    "drawer.noteText": "备注内容",
+    "drawer.noteUrl": "链接 — https://… 或本机路径",
+    "drawer.addNote": "添加备注",
+    "drawer.openDoc": "打开",
+    "drawer.removeNote": "删除备注 {id}",
+    "drawer.noNotes": "暂无备注",
+    "drawer.needsText": "备注需要一些文字",
+    "doc.title": "文档",
+    "doc.loading": "加载中…",
+    "doc.failed": "无法读取该文档",
+    "doc.close": "关闭文档",
+    "doc.newTab": "在新标签页打开",
+    "doc.hint": "由本机提供 — 服务器解析备注中的链接",
     "drawer.createdBy": "创建者",
     "drawer.revision": "版本",
     "drawer.updated": "更新于",
@@ -422,7 +822,15 @@ const DOCS_EN = [
         items: [
           [
             "Card drawer",
-            "click any card to edit title/body/assignee/reviewer, run transitions, manage blockers, read the event history, or delete it (creator only).",
+            "click any card to edit title/body/assignee/reviewer, run transitions, manage its upstream and downstream relations, attach notes, read the event history, or delete it (creator only).",
+          ],
+          [
+            "Relations",
+            "a card shows both ends of its relations: what it waits on, and what waits on it. Add from either side — the edge is one edge.",
+          ],
+          [
+            "Notes",
+            "remarks with a document link. A local markdown or HTML file opens right here in the document viewer; an https link opens in a new tab.",
           ],
           ["Filters", "filter by text, assignee, and reviewer."],
           [
@@ -453,6 +861,9 @@ const DOCS_EN = [
           "ukb move 3 doing\\n" +
           'ukb edit 3 --body "…"            # empty string clears a field\\n' +
           "ukb block 4 --by 3               # dependencies\\n" +
+          "ukb relate 4 --with 3 --as upstream    # name the direction\\n" +
+          "ukb unrelate 4 --with 3          # drop it, either way round\\n" +
+          'ukb note 4 "design doc" --url docs/design.md\\n' +
           "ukb web                          # start the API + this UI\\n" +
           "ukb doctor                       # is this project wired up?",
       },
@@ -553,6 +964,14 @@ const DOCS_EN = [
             "dependencies — a card with an unfinished blocker cannot be claimed or moved to doing",
           ],
           [
+            "kanban_relate / kanban_unrelate",
+            "the same relation with a named direction (upstream/downstream), managed from either card",
+          ],
+          [
+            "kanban_note_add / kanban_note_update / kanban_note_remove",
+            "notes — remarks and document links, e.g. the design doc for the requirement",
+          ],
+          [
             "kanban_projects",
             "the project slugs in use — call before filtering",
           ],
@@ -580,7 +999,23 @@ const DOCS_EN = [
             "transitions",
           ],
           ["POST", "/api/cards/:id/{block,unblock}", "dependencies"],
+          [
+            "POST",
+            "/api/cards/:id/{relate,unrelate}",
+            "relations — { other, direction: upstream|downstream }",
+          ],
+          [
+            "POST",
+            "/api/cards/:id/notes",
+            "add a note — { text, url } (url may be a local file)",
+          ],
+          [
+            "PATCH/DELETE",
+            "/api/cards/:id/notes/:noteId",
+            "edit or remove a note",
+          ],
           ["DELETE", "/api/cards/:id", "delete (creator only)"],
+          ["GET", "/api/doc?path=…", "the document behind a note's link"],
           ["GET", "/api/events", "SSE stream of the shared log"],
           ["GET", "/openapi.json", "the full spec"],
         ],
@@ -626,8 +1061,12 @@ const DOCS_EN = [
             "{ type: human | agent, name }. One namespace, so a human can review an agent's card and vice versa.",
           ],
           [
-            "Dependencies",
-            "a card can wait on others (block 4 --by 3). Cycles and self-blocks are rejected. A card with unfinished blockers is flagged, not hidden.",
+            "Relations",
+            "a card can wait on others (block 4 --by 3), and others can wait on it. The edge is stored once and read from both ends — upstream (blockedBy) and downstream (blocks) — so a card is many cards' predecessor and many cards' successor at once. Cycles and self-relations are rejected, and a card with unfinished upstream work cannot be claimed.",
+          ],
+          [
+            "Notes",
+            "remarks attached to a card, each with an optional document link. The link may be https://… or a path to a file on this machine; the server reads local markdown, HTML and text for the Web UI from the directories it is allowed to see (--doc-root, the store dir, its cwd).",
           ],
           [
             "Revisions",
@@ -798,7 +1237,15 @@ const DOCS_ZH = [
         items: [
           [
             "卡片抽屉",
-            "点击任意卡片可编辑标题/描述/负责人/审查者、执行状态流转、管理阻塞关系、查看事件历史，或删除卡片（仅创建者）。",
+            "点击任意卡片可编辑标题/描述/负责人/审查者、执行状态流转、管理上下游关系、添加备注、查看事件历史，或删除卡片（仅创建者）。",
+          ],
+          [
+            "上下游关系",
+            "卡片会同时显示关系的两端：它等待谁，以及谁在等待它。从任意一端添加都是同一条边。",
+          ],
+          [
+            "备注",
+            "带文档链接的说明。本机的 markdown 或 HTML 文件会直接在文档查看器中打开；https 链接则在新标签页打开。",
           ],
           ["筛选", "按文本、负责人、审查者筛选。"],
           [
@@ -829,6 +1276,9 @@ const DOCS_ZH = [
           "ukb move 3 doing\n" +
           'ukb edit 3 --body "…"            # 传空字符串可清空字段\n' +
           "ukb block 4 --by 3               # 依赖关系\n" +
+          "ukb relate 4 --with 3 --as upstream    # 指明方向\n" +
+          "ukb unrelate 4 --with 3          # 任意一端删除\n" +
+          'ukb note 4 "设计文档" --url docs/design.md\n' +
           "ukb web                          # 启动 API 与这个界面\n" +
           "ukb doctor                       # 检查项目是否已配置好",
       },
@@ -916,6 +1366,14 @@ const DOCS_ZH = [
             "kanban_block / kanban_unblock",
             "依赖关系——有未完成阻塞项的卡片无法被认领或移入进行中",
           ],
+          [
+            "kanban_relate / kanban_unrelate",
+            "同一条关系，但方向显式命名（上游/下游），可从任意一张卡片操作",
+          ],
+          [
+            "kanban_note_add / kanban_note_update / kanban_note_remove",
+            "备注——说明与文档链接，例如需求的设计文档",
+          ],
           ["kanban_projects", "正在使用的项目标识——过滤前先调用"],
         ],
       },
@@ -941,7 +1399,19 @@ const DOCS_ZH = [
             "状态流转",
           ],
           ["POST", "/api/cards/:id/{block,unblock}", "依赖关系"],
+          [
+            "POST",
+            "/api/cards/:id/{relate,unrelate}",
+            "上下游关系——{ other, direction: upstream|downstream }",
+          ],
+          [
+            "POST",
+            "/api/cards/:id/notes",
+            "添加备注——{ text, url }（url 可以是本机文件）",
+          ],
+          ["PATCH/DELETE", "/api/cards/:id/notes/:noteId", "编辑或删除备注"],
           ["DELETE", "/api/cards/:id", "删除（仅创建者）"],
+          ["GET", "/api/doc?path=…", "备注链接指向的文档"],
           ["GET", "/api/events", "共享日志的 SSE 流"],
           ["GET", "/openapi.json", "完整规范"],
         ],
@@ -984,8 +1454,12 @@ const DOCS_ZH = [
             "{ type: human | agent, name }。同一套命名空间，因此人类可以审查智能体的卡片，反之亦然。",
           ],
           [
-            "依赖",
-            "一张卡片可以等待其他卡片（block 4 --by 3）。环路与自阻塞会被拒绝。存在未完成阻塞项的卡片会被标记，而不是隐藏。",
+            "上下游关系",
+            "一张卡片可以等待其他卡片（block 4 --by 3），也可以被其他卡片等待。这条边只存一份，但从两端都能读到——上游（blockedBy）与下游（blocks）——于是一张卡片可以同时是许多卡片的前置，也是许多卡片的后置。环路与自关联会被拒绝，上游未完成的卡片无法被认领。",
+          ],
+          [
+            "备注",
+            "挂在卡片上的说明，每条可带一个文档链接。链接可以是 https://…，也可以是本机上的文件路径；服务器会为 Web 界面读取本机的 markdown、HTML 与文本，范围仅限于它被允许访问的目录（--doc-root、存储目录及其工作目录）。",
           ],
           [
             "版本号",
@@ -1086,6 +1560,8 @@ function startApp() {
     drawer: document.getElementById("drawer"),
     modalBackdrop: document.getElementById("modal-backdrop"),
     modal: document.getElementById("modal"),
+    docBackdrop: document.getElementById("doc-backdrop"),
+    docViewer: document.getElementById("doc-viewer"),
     toasts: document.getElementById("toasts"),
   };
 
@@ -1471,6 +1947,14 @@ function startApp() {
         badge(`${t("card.blockedBy")}${card.blockedBy.join(",")}`, "blocked"),
       );
     }
+    if ((card.blocks ?? []).length > 0) {
+      meta.append(
+        badge(`${t("card.blocks")}${card.blocks.join(",")}`, "downstream"),
+      );
+    }
+    if ((card.notes ?? []).length > 0) {
+      meta.append(badge(`${t("card.notes")}${card.notes.length}`, "notes"));
+    }
     meta.append(badge(formatRelativeTime(card.updatedAt, Date.now(), t), ""));
 
     element.append(title, meta);
@@ -1710,68 +2194,24 @@ function startApp() {
     }
     body.append(actions);
 
-    // blockers
-    const blockersField = field(t("drawer.blockedBy"));
-    const blockers = document.createElement("div");
-    blockers.className = "blockers";
-    const blockersOf = (candidate) => candidate.blockedBy ?? [];
-    if (blockersOf(card).length === 0) {
-      const none = document.createElement("span");
-      none.className = "badge";
-      none.textContent = t("drawer.none");
-      blockers.append(none);
-    }
-    for (const blockerId of blockersOf(card)) {
-      const blocker = state.cards.find((entry) => entry.id === blockerId);
-      const chip = document.createElement("span");
-      chip.className = "badge";
-      chip.textContent = `#${blockerId}${blocker ? ` ${blocker.title} (${blocker.state})` : ""}`;
-      const remove = document.createElement("button");
-      remove.className = "icon-button";
-      remove.type = "button";
-      remove.textContent = "✕";
-      remove.setAttribute("aria-label", t("drawer.unblock", { id: blockerId }));
-      remove.addEventListener("click", async () => {
-        try {
-          await api(`/api/cards/${id}/unblock`, {
-            method: "POST",
-            body: { blockedBy: blockerId },
-          });
-          await refresh();
-        } catch (error) {
-          toast(error.message, "error");
-        }
-      });
-      chip.append(remove);
-      blockers.append(chip);
-    }
-    const blockInput = document.createElement("input");
-    blockInput.type = "number";
-    blockInput.placeholder = t("drawer.blockOn");
-    blockInput.min = "1";
-    const blockButton = document.createElement("button");
-    blockButton.type = "button";
-    blockButton.textContent = t("drawer.block");
-    blockButton.addEventListener("click", async () => {
-      const blockedBy = Number(blockInput.value);
-      if (!Number.isInteger(blockedBy) || blockedBy <= 0) {
-        toast(t("modal.enterId"), "error");
-        return;
-      }
-      try {
-        await api(`/api/cards/${id}/block`, {
-          method: "POST",
-          body: { blockedBy },
-        });
-        blockInput.value = "";
-        await refresh();
-      } catch (error) {
-        toast(error.message, "error");
-      }
-    });
-    blockers.append(blockInput, blockButton);
-    blockersField.append(blockers);
-    body.append(blockersField);
+    // relations — one edge, shown from both ends
+    body.append(
+      relationField(
+        card,
+        "blockedBy",
+        t("drawer.blockedBy"),
+        t("drawer.addUpstream"),
+      ),
+      relationField(
+        card,
+        "blocks",
+        t("drawer.blocks"),
+        t("drawer.addDownstream"),
+      ),
+    );
+
+    // notes — remarks and the documents they link to
+    body.append(notesField(card));
 
     // history
     const historyField = field(t("drawer.history"));
@@ -1817,6 +2257,274 @@ function startApp() {
     body.append(danger);
 
     els.drawer.append(header, body);
+  }
+
+  /**
+   * One end of the relation graph. `side` is the card field holding the ids:
+   * `blockedBy` is upstream (this card waits on them), `blocks` is downstream
+   * (they wait on this card). Adding from either side writes the same edge.
+   */
+  function relationField(card, side, label, placeholder) {
+    const wrapper = field(label);
+    const chips = document.createElement("div");
+    chips.className = "blockers";
+
+    const ids = card[side] ?? [];
+    if (ids.length === 0) {
+      const none = document.createElement("span");
+      none.className = "badge";
+      none.textContent = t("drawer.none");
+      chips.append(none);
+    }
+
+    for (const otherId of ids) {
+      const other = state.cards.find((entry) => entry.id === otherId);
+      const chip = document.createElement("span");
+      chip.className = "badge relation";
+      chip.textContent = `#${otherId}${other ? ` ${other.title} (${other.state})` : ""}`;
+      chip.title = other?.title ?? `#${otherId}`;
+      chip.addEventListener("click", () => void openDrawer(otherId));
+      const remove = document.createElement("button");
+      remove.className = "icon-button";
+      remove.type = "button";
+      remove.textContent = "✕";
+      remove.setAttribute("aria-label", t("drawer.unrelate", { id: otherId }));
+      remove.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        try {
+          await api(`/api/cards/${card.id}/unrelate`, {
+            method: "POST",
+            body: { other: otherId },
+          });
+          await refresh();
+        } catch (error) {
+          toast(error.message, "error");
+        }
+      });
+      chip.append(remove);
+      chips.append(chip);
+    }
+
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = "1";
+    input.placeholder = placeholder;
+    const add = document.createElement("button");
+    add.type = "button";
+    add.textContent = t("drawer.relate");
+    add.addEventListener("click", async () => {
+      const other = Number(input.value);
+      if (!Number.isInteger(other) || other <= 0) {
+        toast(t("modal.enterId"), "error");
+        return;
+      }
+      try {
+        await api(`/api/cards/${card.id}/relate`, {
+          method: "POST",
+          body: {
+            other,
+            direction: side === "blocks" ? "downstream" : "upstream",
+          },
+        });
+        input.value = "";
+        await refresh();
+      } catch (error) {
+        toast(error.message, "error");
+      }
+    });
+    chips.append(input, add);
+    wrapper.append(chips);
+    return wrapper;
+  }
+
+  /** Remarks and the documents they link to. */
+  function notesField(card) {
+    const wrapper = field(t("drawer.notes"));
+    const list = document.createElement("div");
+    list.className = "notes";
+
+    const notes = card.notes ?? [];
+    if (notes.length === 0) {
+      const none = document.createElement("span");
+      none.className = "badge";
+      none.textContent = t("drawer.noNotes");
+      list.append(none);
+    }
+
+    for (const note of notes) {
+      const item = document.createElement("div");
+      item.className = "note";
+
+      const text = document.createElement("div");
+      text.className = "note-text";
+      text.textContent = note.text;
+      item.append(text);
+
+      if (note.url) {
+        const kind = docKindOf(note.url);
+        const link = document.createElement("button");
+        link.type = "button";
+        link.className = "note-link";
+        link.textContent = note.url;
+        link.title = kind === "link" ? t("doc.newTab") : t("drawer.openDoc");
+        link.addEventListener("click", () => {
+          if (kind === "link") {
+            window.open(note.url, "_blank", "noreferrer");
+            return;
+          }
+          void openDoc(note.url);
+        });
+        item.append(link);
+      }
+
+      const meta = document.createElement("span");
+      meta.className = "note-meta";
+      meta.textContent = `${note.createdBy} · ${formatRelativeTime(note.createdAt, Date.now(), t)}`;
+      item.append(meta);
+
+      const remove = document.createElement("button");
+      remove.className = "icon-button";
+      remove.type = "button";
+      remove.textContent = "✕";
+      remove.setAttribute(
+        "aria-label",
+        t("drawer.removeNote", { id: note.id }),
+      );
+      remove.addEventListener("click", async () => {
+        try {
+          await api(`/api/cards/${card.id}/notes/${note.id}`, {
+            method: "DELETE",
+          });
+          await refresh();
+        } catch (error) {
+          toast(error.message, "error");
+        }
+      });
+      item.append(remove);
+      list.append(item);
+    }
+
+    const noteText = document.createElement("input");
+    noteText.type = "text";
+    noteText.placeholder = t("drawer.noteText");
+    const noteUrl = document.createElement("input");
+    noteUrl.type = "text";
+    noteUrl.placeholder = t("drawer.noteUrl");
+    const add = document.createElement("button");
+    add.type = "button";
+    add.textContent = t("drawer.addNote");
+    add.addEventListener("click", async () => {
+      const text = noteText.value.trim();
+      if (!text) {
+        toast(t("drawer.needsText"), "error");
+        return;
+      }
+      try {
+        await api(`/api/cards/${card.id}/notes`, {
+          method: "POST",
+          body: { text, url: noteUrl.value.trim() || null },
+        });
+        noteText.value = "";
+        noteUrl.value = "";
+        await refresh();
+      } catch (error) {
+        toast(error.message, "error");
+      }
+    });
+    list.append(noteText, noteUrl, add);
+    wrapper.append(list);
+    return wrapper;
+  }
+
+  /* ----------------------------- documents ---------------------------- */
+
+  /** Reads a note's document from the server and shows it in place. */
+  async function openDoc(url) {
+    els.docBackdrop.hidden = false;
+    els.docViewer.hidden = false;
+    docShell(url);
+    try {
+      const payload = await api(`/api/doc?path=${encodeURIComponent(url)}`);
+      renderDoc(payload);
+    } catch (error) {
+      docFailure(error.message);
+    }
+  }
+
+  function closeDoc() {
+    els.docBackdrop.hidden = true;
+    els.docViewer.hidden = true;
+    els.docViewer.textContent = "";
+  }
+
+  function docShell(url) {
+    els.docViewer.textContent = "";
+    const header = document.createElement("div");
+    header.className = "doc-header";
+    const title = document.createElement("h2");
+    title.textContent = url;
+    const close = document.createElement("button");
+    close.className = "icon-button";
+    close.type = "button";
+    close.textContent = "✕";
+    close.setAttribute("aria-label", t("doc.close"));
+    close.addEventListener("click", closeDoc);
+    header.append(title, close);
+
+    const hint = document.createElement("p");
+    hint.className = "doc-hint";
+    hint.textContent = t("doc.hint");
+
+    const body = document.createElement("div");
+    body.className = "doc-body";
+    const loading = document.createElement("p");
+    loading.textContent = t("doc.loading");
+    body.append(loading);
+
+    els.docViewer.append(header, hint, body);
+  }
+
+  function docFailure(message) {
+    const body = els.docViewer.querySelector(".doc-body");
+    if (!body) return;
+    body.textContent = "";
+    const failed = document.createElement("p");
+    failed.className = "doc-failed";
+    failed.textContent = `${t("doc.failed")} — ${message}`;
+    body.append(failed);
+  }
+
+  function renderDoc(doc) {
+    const body = els.docViewer.querySelector(".doc-body");
+    if (!body) return;
+    body.textContent = "";
+
+    if (doc.kind === "html") {
+      // Sandboxed: the document is content, never code running in this origin.
+      const frame = document.createElement("iframe");
+      frame.className = "doc-frame";
+      frame.setAttribute("sandbox", "");
+      frame.setAttribute("referrerpolicy", "no-referrer");
+      frame.srcdoc = rewriteDocRefs(doc.content ?? "", doc.path);
+      body.append(frame);
+      return;
+    }
+
+    if (doc.kind === "markdown") {
+      const article = document.createElement("article");
+      article.className = "markdown";
+      article.innerHTML = markdownToHtml(doc.content ?? "", {
+        resolveHref: (href) => resolveDocRef(href, doc.path),
+        resolveSrc: (src) => resolveDocRef(src, doc.path),
+      });
+      body.append(article);
+      return;
+    }
+
+    const pre = document.createElement("pre");
+    pre.className = "doc-text";
+    pre.textContent = doc.content ?? "";
+    body.append(pre);
   }
 
   async function saveCard(id, patch) {
@@ -2076,6 +2784,7 @@ function startApp() {
   }
   els.drawerBackdrop.addEventListener("click", closeDrawer);
   els.modalBackdrop.addEventListener("click", closeModal);
+  els.docBackdrop.addEventListener("click", closeDoc);
   els.actorName.addEventListener("change", saveIdentity);
   els.actorType.addEventListener("change", saveIdentity);
   els.filterQ.addEventListener("input", () => {
@@ -2095,10 +2804,15 @@ function startApp() {
     renderBoard();
   });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
-      closeDrawer();
-      closeModal();
+    if (event.key !== "Escape") return;
+    // The document viewer sits on top of the drawer, so Escape peels one layer:
+    // closing both at once loses the card the reader came from.
+    if (!els.docViewer.hidden) {
+      closeDoc();
+      return;
     }
+    closeDrawer();
+    closeModal();
   });
 
   // A boot failure must never leave a blank screen — show it.

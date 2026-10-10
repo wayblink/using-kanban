@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
@@ -460,5 +460,202 @@ describe("projects over REST", () => {
       response,
     );
     expect(errorBody.code ?? errorBody.error?.code).toBe("invalid_input");
+  });
+});
+
+describe("relations over REST", () => {
+  it("relates cards from either side onto one edge", async () => {
+    const a = await createCard("design");
+    const b = await createCard("implement");
+
+    const upstream = await request(`/api/cards/${b.id}/relate`, {
+      method: "POST",
+      body: JSON.stringify({ other: a.id, direction: "upstream" }),
+    });
+    expect(upstream.status).toBe(200);
+    const upstreamCard = await json<{
+      card: { blockedBy: number[]; blocks: number[] };
+    }>(upstream);
+    expect(upstreamCard.card.blockedBy).toEqual([a.id]);
+    expect(upstreamCard.card.blocks).toEqual([]);
+
+    // the same relation, named from the other card: the card that changes is
+    // the one that ends up waiting, so this returns b
+    const downstream = await request(`/api/cards/${a.id}/relate`, {
+      method: "POST",
+      body: JSON.stringify({ other: b.id, direction: "downstream" }),
+    });
+    const downstreamCard = await json<{
+      card: { blockedBy: number[]; blocks: number[] };
+    }>(downstream);
+    expect(downstreamCard.card.blockedBy).toEqual([a.id]);
+
+    const detail = await request(`/api/cards/${a.id}`, { auth: false });
+    const shown = await json<{ card: { blocks: number[] } }>(detail);
+    expect(shown.card.blocks).toEqual([b.id]);
+
+    const unrelated = await request(`/api/cards/${a.id}/unrelate`, {
+      method: "POST",
+      body: JSON.stringify({ other: b.id }),
+    });
+    const after = await json<{
+      card: { blockedBy: number[]; blocks: number[] };
+    }>(unrelated);
+    expect(after.card.blocks).toEqual([]);
+
+    const cleared = await request(`/api/cards/${b.id}`, { auth: false });
+    expect(
+      (await json<{ card: { blockedBy: number[] } }>(cleared)).card.blockedBy,
+    ).toEqual([]);
+  });
+
+  it("rejects a bad direction and a cycle", async () => {
+    const a = await createCard("a");
+    const b = await createCard("b");
+    await request(`/api/cards/${b.id}/relate`, {
+      method: "POST",
+      body: JSON.stringify({ other: a.id, direction: "upstream" }),
+    });
+
+    const bad = await request(`/api/cards/${a.id}/relate`, {
+      method: "POST",
+      body: JSON.stringify({ other: b.id, direction: "sideways" }),
+    });
+    expect(bad.status).toBe(400);
+
+    const cycle = await request(`/api/cards/${a.id}/relate`, {
+      method: "POST",
+      body: JSON.stringify({ other: b.id, direction: "upstream" }),
+    });
+    expect(cycle.status).toBe(400);
+  });
+});
+
+describe("notes over REST", () => {
+  it("adds, edits and removes a note with a document link", async () => {
+    const card = await createCard("ship it");
+
+    const created = await request(`/api/cards/${card.id}/notes`, {
+      method: "POST",
+      body: JSON.stringify({ text: "design doc", url: "docs/design.md" }),
+    });
+    expect(created.status).toBe(201);
+    const added = await json<{
+      note: { id: number; text: string; url: string; createdBy: string };
+    }>(created);
+    expect(added.note.text).toBe("design doc");
+    expect(added.note.url).toBe("docs/design.md");
+    expect(added.note.createdBy).toBe("jyxc");
+
+    const shown = await request(`/api/cards/${card.id}`, { auth: false });
+    const detail = await json<{
+      card: { notes: { id: number; text: string }[] };
+    }>(shown);
+    expect(detail.card.notes.map((note) => note.text)).toEqual(["design doc"]);
+
+    const patched = await request(
+      `/api/cards/${card.id}/notes/${added.note.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ url: null }),
+      },
+    );
+    expect(patched.status).toBe(200);
+    expect((await json<{ note: { url: null } }>(patched)).note.url).toBeNull();
+
+    const searched = await request("/api/cards?q=design", { auth: false });
+    expect(
+      (await json<{ cards: { id: number }[] }>(searched)).cards.map(
+        (c) => c.id,
+      ),
+    ).toContain(card.id);
+
+    const removed = await request(
+      `/api/cards/${card.id}/notes/${added.note.id}`,
+      { method: "DELETE" },
+    );
+    expect(removed.status).toBe(204);
+    const after = await request(`/api/cards/${card.id}`, { auth: false });
+    expect(
+      (await json<{ card: { notes: unknown[] } }>(after)).card.notes,
+    ).toEqual([]);
+  });
+
+  it("rejects an unknown note and a stranger", async () => {
+    const card = await createCard("ship it");
+
+    const missing = await request(`/api/cards/${card.id}/notes/99`, {
+      method: "DELETE",
+    });
+    expect(missing.status).toBe(404);
+
+    const stranger = await request(`/api/cards/${card.id}/notes`, {
+      method: "POST",
+      auth: authHeaders({ "X-Actor-Name": "codex" }),
+      body: JSON.stringify({ text: "hi" }),
+    });
+    expect(stranger.status).toBe(403);
+  });
+});
+
+describe("documents", () => {
+  it("serves a note's local document as markdown", async () => {
+    const dir = tempDir();
+    const root = join(dir, "docs");
+    mkdirSync(root, { recursive: true });
+    writeFileSync(
+      join(root, "design.md"),
+      "# Design\n\nHello **world**\n",
+      "utf8",
+    );
+
+    const server = await startServer({ dir, token: TOKEN, docRoots: [root] });
+    running.push(server);
+    const url = `http://127.0.0.1:${server.port}`;
+
+    const response = await fetch(
+      `${url}/api/doc?path=design.md&token=${TOKEN}`,
+    );
+    expect(response.status).toBe(200);
+    const doc = await json<{ name: string; kind: string; content: string }>(
+      response,
+    );
+    expect(doc.name).toBe("design.md");
+    expect(doc.kind).toBe("markdown");
+    expect(doc.content).toContain("Hello **world**");
+
+    const raw = await fetch(
+      `${url}/api/doc?path=${encodeURIComponent(join(root, "design.md"))}&raw=1&token=${TOKEN}`,
+    );
+    expect(raw.status).toBe(200);
+    expect(raw.headers.get("content-type")).toContain("text/markdown");
+    expect(await raw.text()).toContain("# Design");
+  });
+
+  it("refuses paths outside the allowed roots", async () => {
+    const dir = tempDir();
+    const server = await startServer({ dir, token: TOKEN });
+    running.push(server);
+    const url = `http://127.0.0.1:${server.port}`;
+
+    const escaped = await fetch(
+      `${url}/api/doc?path=${encodeURIComponent("../../etc/passwd")}&token=${TOKEN}`,
+    );
+    expect(escaped.status).toBe(403);
+
+    const absolute = await fetch(
+      `${url}/api/doc?path=${encodeURIComponent("/etc/passwd")}&token=${TOKEN}`,
+    );
+    expect(absolute.status).toBe(403);
+  });
+
+  it("needs the token even on loopback — it reads files", async () => {
+    const dir = tempDir();
+    const server = await startServer({ dir, token: TOKEN });
+    running.push(server);
+    const response = await fetch(
+      `http://127.0.0.1:${server.port}/api/doc?path=x.md`,
+    );
+    expect(response.status).toBe(401);
   });
 });

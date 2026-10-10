@@ -9,11 +9,16 @@ import {
   actionForColumn,
   actorOptions,
   blockedCardIds,
+  docKindOf,
   escapeHtml,
   filterCards,
   formatRelativeTime,
+  markdownToHtml,
+  normaliseDocPath,
   parseActor,
   previewCards,
+  resolveDocRef,
+  rewriteDocRefs,
   sortCards,
 } from "../src/app.js";
 
@@ -25,6 +30,8 @@ const card = (overrides = {}) => ({
   assignee: null,
   reviewer: null,
   blockedBy: [],
+  blocks: [],
+  notes: [],
   createdBy: "jyxc",
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
@@ -52,6 +59,16 @@ describe("drag and drop maps to intent verbs", () => {
 });
 
 describe("filterCards", () => {
+  it("matches note text and note links too", () => {
+    const withNote = card({
+      id: 2,
+      notes: [{ id: 9, text: "design doc", url: "docs/design.md" }],
+    });
+    expect(filterCards([withNote], { q: "design" })).toHaveLength(1);
+    expect(filterCards([withNote], { q: "docs/design.md" })).toHaveLength(1);
+    expect(filterCards([withNote], { q: "nothing" })).toHaveLength(0);
+  });
+
   const cards = [
     card({
       id: 1,
@@ -220,6 +237,145 @@ describe("actorOptions", () => {
   });
 });
 
+describe("document links", () => {
+  it("tells a hosted link from a local document", () => {
+    expect(docKindOf("https://example.com/design.md")).toBe("link");
+    expect(docKindOf("docs/design.md")).toBe("markdown");
+    expect(docKindOf("docs/design.markdown")).toBe("markdown");
+    expect(docKindOf("~/notes/page.html")).toBe("html");
+    expect(docKindOf("file:///tmp/page.htm")).toBe("html");
+    expect(docKindOf("notes.txt")).toBe("text");
+    expect(docKindOf("")).toBeNull();
+    expect(docKindOf(null)).toBeNull();
+  });
+
+  it("resolves a relative reference against the document's directory", () => {
+    expect(resolveDocRef("./diagram.png", "/repo/docs/design.md")).toBe(
+      "/api/doc?raw=1&path=%2Frepo%2Fdocs%2Fdiagram.png",
+    );
+    expect(resolveDocRef("../other/page.md", "/repo/docs/design.md")).toBe(
+      "/api/doc?raw=1&path=%2Frepo%2Fother%2Fpage.md",
+    );
+  });
+
+  it("leaves absolute and remote references alone", () => {
+    expect(resolveDocRef("https://example.com/x", "/repo/docs/design.md")).toBe(
+      "https://example.com/x",
+    );
+    expect(resolveDocRef("#section", "/repo/docs/design.md")).toBe("#section");
+    expect(resolveDocRef("mailto:a@b.c", "/repo/docs/design.md")).toBe(
+      "mailto:a@b.c",
+    );
+    expect(resolveDocRef("/abs/page.md", "/repo/docs/design.md")).toBe(
+      "/api/doc?raw=1&path=%2Fabs%2Fpage.md",
+    );
+  });
+
+  it("collapses . and .. without touching the filesystem", () => {
+    expect(normaliseDocPath("/a/b/../c/./d.md")).toBe("/a/c/d.md");
+    expect(normaliseDocPath("a/b")).toBe("/a/b");
+  });
+
+  it("rewrites relative refs in an HTML document", () => {
+    const html =
+      '<img src="./a.png"><a href="/abs/page.html">x</a><a href="https://e.com">y</a>';
+    expect(rewriteDocRefs(html, "/repo/docs/page.html")).toBe(
+      '<img src="/api/doc?raw=1&path=%2Frepo%2Fdocs%2Fa.png">' +
+        '<a href="/api/doc?raw=1&path=%2Fabs%2Fpage.html">x</a>' +
+        '<a href="https://e.com">y</a>',
+    );
+  });
+});
+
+describe("markdownToHtml", () => {
+  const options = {
+    resolveHref: (href) => resolveDocRef(href, "/repo/docs/design.md"),
+    resolveSrc: (src) => resolveDocRef(src, "/repo/docs/design.md"),
+  };
+
+  it("renders the blocks a design doc uses", () => {
+    const html = markdownToHtml(
+      [
+        "# Title",
+        "",
+        "A paragraph with **bold**, *italic* and `code`.",
+        "",
+        "- one",
+        "- two",
+        "",
+        "> quoted",
+        "",
+        "```js",
+        'const x = "<b>";',
+        "```",
+        "",
+        "| A | B |",
+        "| --- | --- |",
+        "| 1 | 2 |",
+        "",
+        "---",
+      ].join("\n"),
+      options,
+    );
+    expect(html).toContain("<h1>Title</h1>");
+    expect(html).toContain("<strong>bold</strong>");
+    expect(html).toContain("<em>italic</em>");
+    expect(html).toContain("<code>code</code>");
+    expect(html).toContain("<li>one</li>");
+    expect(html).toContain("<blockquote>");
+    expect(html).toContain("<pre><code>");
+    expect(html).toContain("<th>A</th>");
+    expect(html).toContain("<td>2</td>");
+    expect(html).toContain("<hr />");
+  });
+
+  it("nests a list inside its parent item", () => {
+    const html = markdownToHtml("- one\n  - nested\n- two", options);
+    expect(html).toBe(
+      "<ul><li>one<ul><li>nested</li></ul></li><li>two</li></ul>",
+    );
+  });
+
+  it("escapes markup instead of trusting it", () => {
+    const html = markdownToHtml(
+      '<script>alert(1)</script> and <img src=x onerror="alert(1)">',
+      options,
+    );
+    expect(html).not.toContain("<script>");
+    expect(html).not.toContain("<img src=x");
+    // escaped, so it is text in the document rather than markup in the page
+    expect(html).toContain("&lt;script&gt;");
+    expect(html).toContain("onerror=&quot;");
+  });
+
+  it("drops a dangerous link scheme and keeps the label", () => {
+    const html = markdownToHtml("[click](javascript:alert(1))", options);
+    expect(html).not.toContain("javascript:");
+    expect(html).toContain(">click</a>");
+  });
+
+  it("resolves links and images through the doc endpoint", () => {
+    const html = markdownToHtml(
+      "[page](./page.md) ![diagram](./diagram.png)",
+      options,
+    );
+    expect(html).toContain(
+      'href="/api/doc?raw=1&path=%2Frepo%2Fdocs%2Fpage.md"',
+    );
+    expect(html).toContain(
+      'src="/api/doc?raw=1&path=%2Frepo%2Fdocs%2Fdiagram.png"',
+    );
+  });
+
+  it("linkifies a bare url and leaves code spans alone", () => {
+    const html = markdownToHtml(
+      "see https://example.com/x and `a_b_c`",
+      options,
+    );
+    expect(html).toContain('href="https://example.com/x"');
+    expect(html).toContain("<code>a_b_c</code>");
+  });
+});
 describe("documentation content", () => {
   it("has unique section ids and non-empty content", () => {
     const ids = DOCS_SECTIONS.map((section) => section.id);

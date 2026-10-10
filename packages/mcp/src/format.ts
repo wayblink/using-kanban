@@ -11,6 +11,8 @@ export function formatCardBrief(card: Card): string {
   if (card.project) parts.push(`project:${card.project}`);
   if (card.blockedBy.length > 0)
     parts.push(`blocked-by:${card.blockedBy.join(",")}`);
+  if (card.blocks.length > 0) parts.push(`blocks:${card.blocks.join(",")}`);
+  if (card.notes.length > 0) parts.push(`notes:${card.notes.length}`);
   return parts.join(" ");
 }
 
@@ -50,10 +52,19 @@ export function formatCard(card: Card, events: readonly Event[]): string {
     `project: ${card.project ?? "—"}`,
     `reviewer: ${card.reviewer ?? "—"}`,
     `blocked by: ${card.blockedBy.length > 0 ? card.blockedBy.map((id) => `#${id}`).join(", ") : "—"}`,
+    `blocks: ${card.blocks.length > 0 ? card.blocks.map((id) => `#${id}`).join(", ") : "—"}`,
     `created by: ${card.createdBy}  ·  revision ${card.revision}  ·  updated ${card.updatedAt}`,
   ];
   if (card.body) {
     lines.push("body:", ...card.body.split("\n").map((line) => `  ${line}`));
+  }
+  if (card.notes.length > 0) {
+    lines.push("notes:");
+    for (const note of card.notes) {
+      lines.push(
+        `  #${note.id} ${note.text}${note.url ? ` — ${note.url}` : ""} (${note.createdBy}, ${note.createdAt})`,
+      );
+    }
   }
   if (events.length > 0) {
     lines.push("history:");
@@ -88,6 +99,14 @@ function describeEvent(event: Event): string {
     case "card.dependency_removed": {
       const payload = event.payload as { blockedBy?: number };
       return `unblocked from #${payload.blockedBy ?? "?"} by ${who}`;
+    }
+    case "card.note_added":
+      return `added a note by ${who}`;
+    case "card.note_updated":
+      return `edited a note by ${who}`;
+    case "card.note_removed": {
+      const payload = event.payload as { note?: number };
+      return `removed note #${payload.note ?? "?"} by ${who}`;
     }
     default:
       return `${event.type} by ${who}`;

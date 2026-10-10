@@ -16,7 +16,7 @@ opencode, Pi, …) share one board. No team concept, no message bus, no daemon.
 | ------------------------------- | ------ | -------------------------------------------------------------------- |
 | `@wayblink/using-kanban-core`   | ✅     | Event-sourced engine: event log, projection, transition guards       |
 | `@wayblink/using-kanban-server` | ✅     | REST + SSE API, token auth, OpenAPI, static UI hosting, `ukb-server` |
-| `@wayblink/using-kanban-mcp`    | ✅     | MCP stdio server, 14 tools — the multi-framework front door          |
+| `@wayblink/using-kanban-mcp`    | ✅     | MCP stdio server, 19 tools — the multi-framework front door          |
 | `@wayblink/using-kanban-web`    | ✅     | Default Web UI: drag & drop, live over SSE, one self-contained file  |
 | `@wayblink/using-kanban-cli`    | ✅     | `ukb` binary + `ukb init --for <framework>` installers               |
 
@@ -94,10 +94,20 @@ kanban.history(card.id); // full event trail
   with `board_not_found` (exit 2) rather than quietly reporting an empty board —
   "there is no work here" and "you have not started" are different answers, and
   an agent cannot tell them apart otherwise. Any write creates the store.
-- **Dependencies**: `block(id, blockedById)` / `unblock`, multiple per card,
-  cycles rejected. A card with an unfinished blocker cannot be claimed or moved
-  into `doing` — the guard names the blockers so the failure is actionable.
-  `done` is never gated, so an irrelevant blocker cannot become a dead end.
+- **Relations**: one edge, two directions, many-to-many. `block(id, blockedById)`
+  and the direction-aware `relate(id, other, "upstream" | "downstream")` both
+  write the same edge, so a card can be many cards' predecessor and many cards'
+  successor at once. Every card reads back both ends — `blockedBy` (upstream,
+  what it waits on) and `blocks` (downstream, what waits on it) — and either
+  side can manage the relation (`unrelate` works from either card). Cycles and
+  self-relations are rejected. A card with unfinished upstream work cannot be
+  claimed or moved into `doing` — the guard names the blockers so the failure is
+  actionable, and `done` is never gated, so an irrelevant blocker cannot become
+  a dead end.
+- **Notes**: remarks on a card, each with an optional document link — the
+  design doc for the requirement, say. The link is either `https://…` or a path
+  to a file on this machine; the Web UI reads local markdown, HTML and text and
+  renders it in place (see `GET /api/doc`).
 - **Optimistic concurrency**: every mutation accepts `expectedRevision`; a
   stale revision fails with `revision_conflict` instead of clobbering a
   concurrent update (drag-drop vs. an agent claiming the same card)
@@ -119,6 +129,11 @@ DELETE /api/cards/:id                 creator only
 GET    /api/cards/:id/history
 POST   /api/cards/:id/{claim,review,done,reopen,move}
 POST   /api/cards/:id/{block,unblock} { blockedBy: <id> }
+POST   /api/cards/:id/{relate,unrelate} { other: <id>, direction: upstream|downstream }
+POST   /api/cards/:id/notes         { text, url } — a remark with a document link
+PATCH  /api/cards/:id/notes/:noteId { text?, url? }
+DELETE /api/cards/:id/notes/:noteId
+GET    /api/doc?path=<path>[&raw=1] the document behind a note's link
 GET    /api/events                    SSE: card.created / card.moved / card.updated / card.deleted
 GET    /api/me                        current actor, storage info, column counts
 GET    /openapi.json                  full spec
@@ -174,21 +189,23 @@ product) gets live updates — including changes made by the CLI or an MCP serve
 One stdio server, `ukb-mcp`, exposing the board as tools to any MCP-capable
 agent. It talks to the core in-process — no daemon, no HTTP hop.
 
-| Tool                              | Purpose                                    |
-| --------------------------------- | ------------------------------------------ |
-| `kanban_my_cards`                 | **Your open cards** — the call to act      |
-| `kanban_review_queue`             | Cards waiting for your review              |
-| `kanban_board`                    | Full board (todo/doing/review/done)        |
-| `kanban_show`                     | Card detail: body, blockers, event history |
-| `kanban_add`                      | Create a card (todo)                       |
-| `kanban_claim`                    | todo → doing, assigned to you              |
-| `kanban_review`                   | → review                                   |
-| `kanban_done`                     | → done (idempotent)                        |
-| `kanban_reopen`                   | → todo                                     |
-| `kanban_move`                     | → any column                               |
-| `kanban_edit`                     | Edit fields (creator or assignee)          |
-| `kanban_delete`                   | Delete (creator only)                      |
-| `kanban_block` / `kanban_unblock` | Dependencies                               |
+| Tool                                      | Purpose                                            |
+| ----------------------------------------- | -------------------------------------------------- |
+| `kanban_my_cards`                         | **Your open cards** — the call to act              |
+| `kanban_review_queue`                     | Cards waiting for your review                      |
+| `kanban_board`                            | Full board (todo/doing/review/done)                |
+| `kanban_show`                             | Card detail: body, blockers, event history         |
+| `kanban_add`                              | Create a card (todo)                               |
+| `kanban_claim`                            | todo → doing, assigned to you                      |
+| `kanban_review`                           | → review                                           |
+| `kanban_done`                             | → done (idempotent)                                |
+| `kanban_reopen`                           | → todo                                             |
+| `kanban_move`                             | → any column                                       |
+| `kanban_edit`                             | Edit fields (creator or assignee)                  |
+| `kanban_delete`                           | Delete (creator only)                              |
+| `kanban_block` / `kanban_unblock`         | Dependencies                                       |
+| `kanban_relate` / `kanban_unrelate`       | Relations with a named direction, from either card |
+| `kanban_note_add` / `_update` / `_remove` | Notes — remarks and document links                 |
 
 Plus the `kanban://board` resource (the board as JSON).
 
@@ -246,8 +263,7 @@ the agent runs in), `--storage` / `UKB_STORAGE`, `--agent-type` / `UKB_AGENT_TYP
 
 **Why the workflow is in the descriptions:** `kanban_my_cards` reads as a call
 to act — _claim todo cards before starting work, move to review when ready_ — so
-even an agent that never sees your docs behaves correctly. That inheritance from
-agkanban is deliberate.
+even an agent that never sees your docs behaves correctly.
 
 ## Web UI (`@wayblink/using-kanban-web`)
 
@@ -256,7 +272,7 @@ The default UI is dependency-free — no framework, no build step, no
 or drop the single inlined file anywhere:
 
 ```bash
-node packages/web/scripts/inline.mjs   # → dist/index.html (one self-contained file, ~36 KB)
+node packages/web/scripts/inline.mjs   # → dist/index.html (one self-contained file)
 ukb-server --dir . --ui ./packages/web/dist
 ```
 
@@ -270,8 +286,15 @@ ukb-server --dir . --ui ./packages/web/dist
 - **Identity**: the top bar is _who this browser acts as_ (persisted in
   `localStorage`, sent as `X-Actor-Name`/`X-Actor-Type`). The human and the
   agents share one board and one namespace.
-- **Card drawer**: edit title/body/assignee/reviewer, run transitions, add or
-  remove blockers, read the event history, delete (creator only).
+- **Card drawer**: edit title/body/assignee/reviewer, run transitions, manage
+  both ends of the card's relations, attach notes, read the event history,
+  delete (creator only).
+- **Relations**: a card shows what it waits on and what waits on it; either end
+  adds or removes the same edge.
+- **Notes and documents**: a note carries a remark plus a link. A local markdown
+  or HTML file opens in the built-in document viewer (rendered markdown, or a
+  sandboxed frame for HTML, with relative images and links resolved through the
+  server); an `https://` link opens in a new tab.
 - **Filters** by text, assignee, and reviewer; **new card** modal with body
   field for target files and acceptance criteria.
 - **Built-in docs at `/`** — the home page explains the workflow, the CLI, the
@@ -304,7 +327,8 @@ pnpm --filter @wayblink/using-kanban-web drag-check      # Playwright: real drag
 built-in WebSocket — no Playwright, no Puppeteer. It starts its own throwaway
 board, asserts the layout (hidden panels stay hidden, the board fills the
 viewport, four columns), clicks a card, presses Escape, opens and closes the
-modal, and fails on any console error.
+modal, relates two cards, reads a local markdown document into the document
+viewer, and fails on any console error.
 
 `drag-check` adds what synthetic mouse events cannot: HTML5 drag-and-drop. It
 drags a card onto **Doing** and asserts the card was _claimed_ and attributed to
@@ -327,6 +351,9 @@ ukb reopen 3                       # → todo
 ukb move 3 doing
 ukb edit 3 --body "…"              # empty string clears a field
 ukb block 4 --by 3                 # dependencies
+ukb relate 4 --with 3 --as upstream # name the direction instead
+ukb unrelate 4 --with 3            # drop the relation, either way round
+ukb note 4 "design doc" --url docs/design.md   # a remark with a document link
 ukb web                            # start the API + Web UI and open a browser
 ukb doctor                         # is this project wired up?
 ```
@@ -356,6 +383,34 @@ in use so an agent never has to guess one. Over REST, `?project=` works on
 `[a-z0-9._-]`, because they end up in URLs and CLI flags — "Web" and "web"
 cannot become two different projects by accident.
 
+### Notes and documents
+
+A card's body is for the work; a **note** is for the paperwork. Each note is a
+remark plus an optional link — the requirement's design doc, a runbook, a
+mockup:
+
+```bash
+ukb note 4 "requirement design doc" --url docs/design.md
+ukb note 4 "API review" --url https://example.com/review   # hosted: opens in a tab
+ukb note-edit 4 12 --url docs/design-v2.md
+ukb note-remove 4 12
+```
+
+A link is either `https://…` or a path to a file on this machine. Local files are
+read by the server and rendered by the Web UI — markdown as a document, HTML in a
+sandboxed frame, anything else as text — so a note can point at a doc that lives
+in the repo the card is about without that doc being served anywhere.
+
+Containment is deliberate: `GET /api/doc` only serves files that resolve inside
+a **document root** — the directories passed with `--doc-root`, the store
+directory, and the server's working directory. `..` cannot climb out, only
+document and image extensions are served, and the route always needs the token
+because it reads files off the machine rather than just the board.
+
+```bash
+ukb web --doc-root ~/yard/proma,~/yard/gala   # where the cards' docs live
+```
+
 ### Onboarding a framework in one command
 
 ```bash
@@ -373,10 +428,14 @@ ukb init --for claude-code --local # point at this checkout, not the npm package
 **Pi needs a package, not an MCP entry.** A server written to `mcp.json` defaults
 to `exposure: "codemode"`, so its tools are only reachable indirectly and never
 appear in the agent's tool list — the model does not know they exist and ignores
-them. `ukb init --for pi` instead registers `packages/pi`, which declares the
-same server as an *extension* with `exposure: "direct"`. That puts all 15 tools in
-the context the model actually reads, and the package also ships the skill. This
-is the difference between an agent using the board and never touching it.
+them. `ukb init --for pi` instead registers `packages/pi`, which contributes a
+native `ukb` *tool* (plus a `/ukb` slash command) straight into the agent's tool
+list, and ships the skill. The tool is a thin shell over the same `ukb` CLI every
+other front door uses — no second copy of the board logic — and Pi draws each
+call in a colour-coded block (green on success, red on error) under a `ukb
+<action>` header, so the board reads like a first-class verb rather than a JSON
+argument dump. This is the difference between an agent using the board and never
+touching it.
 
 **Use `--local` before the packages are on npm.** The default config runs
 `npx -y @wayblink/using-kanban-mcp`, which only resolves once published.

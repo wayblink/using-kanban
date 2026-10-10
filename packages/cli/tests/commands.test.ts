@@ -202,6 +202,87 @@ describe("identity", () => {
   });
 });
 
+describe("relations and notes", () => {
+  it("relates two cards from either side and unrelates them", async () => {
+    const dir = tempDir();
+    await run(["add", "design"], dir);
+    await run(["add", "implement"], dir);
+
+    const upstream = await run(
+      ["relate", "2", "--with", "1", "--as", "upstream"],
+      dir,
+    );
+    expect(upstream.out.join("\n")).toContain("#2 now waits on #1");
+    expect(upstream.out.join("\n")).toContain("blocked-by:1");
+
+    // the same edge, named from the other card — no second relation, and the
+    // upstream card now reports the downstream side of it
+    const downstream = await run(
+      ["relate", "1", "--with", "2", "--as", "downstream"],
+      dir,
+    );
+    expect(downstream.out.join("\n")).toContain("#2 now waits on #1");
+    expect((await run(["show", "1"], dir)).out.join("\n")).toContain(
+      "blocks: #2",
+    );
+
+    const unrelated = await run(["unrelate", "1", "--with", "2"], dir);
+    expect(unrelated.out.join("\n")).not.toContain("blocked-by");
+    expect(unrelated.out.join("\n")).not.toContain("blocks:");
+  });
+
+  it("rejects a direction that is not upstream or downstream", async () => {
+    const dir = tempDir();
+    await run(["add", "one"], dir);
+    await run(["add", "two"], dir);
+    await expect(
+      runCommand(
+        ["relate", "2", "--with", "1", "--as", "sideways"],
+        makeIo(dir),
+      ),
+    ).rejects.toThrowError(/upstream/);
+  });
+
+  it("adds, edits and removes a note with a document link", async () => {
+    const dir = tempDir();
+    await run(["add", "ship it"], dir);
+
+    const noted = await run(
+      ["note", "1", "design doc", "--url", "docs/design.md"],
+      dir,
+    );
+    expect(noted.out.join("\n")).toContain("noted #2");
+    expect(noted.out.join("\n")).toContain("docs/design.md");
+
+    const shown = await run(["show", "1"], dir);
+    expect(shown.out.join("\n")).toContain("notes:");
+    expect(shown.out.join("\n")).toContain("design doc");
+
+    const edited = await run(
+      ["note-edit", "1", "2", "design doc v2", "--url", "docs/v2.md"],
+      dir,
+    );
+    expect(edited.out.join("\n")).toContain("updated note #2");
+    expect((await run(["show", "1"], dir)).out.join("\n")).toContain(
+      "design doc v2",
+    );
+
+    const removed = await run(["note-remove", "1", "2"], dir);
+    expect(removed.out.join("\n")).toContain("removed note #2");
+    expect((await run(["show", "1"], dir)).out.join("\n")).not.toContain(
+      "design doc v2",
+    );
+  });
+
+  it("requires text for a note", async () => {
+    const dir = tempDir();
+    await run(["add", "ship it"], dir);
+    await expect(runCommand(["note", "1"], makeIo(dir))).rejects.toThrowError(
+      /ukb note needs text/,
+    );
+  });
+});
+
 describe("render", () => {
   const card: Card = {
     id: 3,
@@ -212,6 +293,16 @@ describe("render", () => {
     reviewer: "jyxc",
     project: null,
     blockedBy: [1],
+    blocks: [4],
+    notes: [
+      {
+        id: 9,
+        text: "design doc",
+        url: "docs/design.md",
+        createdBy: "jyxc",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    ],
     createdBy: "jyxc",
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",

@@ -47,6 +47,9 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
       case "--ui":
         options.uiDir = next();
         break;
+      case "--doc-root":
+        options.docRoots = [...(options.docRoots ?? []), next()];
+        break;
       case "--cors-origin":
         options.corsOrigin = next();
         break;
@@ -81,6 +84,8 @@ function printHelp(): void {
       "  --actor <name>      default actor name (default: $USER)",
       "  --actor-type <t>    human (default) | agent",
       "  --ui <dir>          static UI bundle to serve at /",
+      "  --doc-root <dir>    a directory card notes may link documents from",
+      "                      (repeatable; the store dir and cwd always count)",
       "  --cors-origin <o>   Access-Control-Allow-Origin (default: *)",
       "  --quiet             print only the URL",
       "",
@@ -106,6 +111,9 @@ async function main(): Promise<void> {
         "",
         `  store      ${running.handler.options.dir}/.ukb (${running.handler.options.storage})`,
         `  actor      ${running.handler.options.actor.type}/${running.handler.options.actor.name}`,
+        ...(running.handler.options.docRoots.length > 0
+          ? [`  docs       ${running.handler.options.docRoots.join(", ")}`]
+          : []),
         "",
         "Mutations need the token: Authorization: Bearer <token>, or ?token=<token>",
         "Press Ctrl+C to stop.",

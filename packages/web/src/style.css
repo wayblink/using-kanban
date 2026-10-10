@@ -411,6 +411,18 @@ button.primary:hover {
   background: var(--accent-soft);
 }
 
+/* Downstream cards and notes: quieter than the blockers badge, because they
+   are context rather than a reason the card cannot be worked. */
+.badge.downstream {
+  border-color: color-mix(in srgb, var(--col-done) 40%, transparent);
+  color: var(--col-done);
+}
+
+.badge.notes {
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  color: var(--accent);
+}
+
 .empty {
   color: var(--text-dim);
   font-size: 13px;
@@ -577,6 +589,255 @@ button.primary:hover {
   flex-wrap: wrap;
   gap: 6px;
   align-items: center;
+}
+
+/* A relation chip is a link to the other card — hover says so. */
+.badge.relation {
+  cursor: pointer;
+}
+
+.badge.relation:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* --------------------------------- notes ------------------------------- */
+
+.notes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.note {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.note-text {
+  font-size: 13px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.note-meta {
+  grid-column: 1;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* The document link: a button, because clicking it opens the viewer. */
+.note-link {
+  grid-column: 1 / -1;
+  justify-self: start;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.note > .icon-button {
+  grid-row: 1;
+  grid-column: 2;
+  align-self: start;
+}
+
+/* ----------------------------- doc viewer ------------------------------ */
+
+.doc-viewer {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(880px, calc(100vw - 32px));
+  height: min(86vh, 900px);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  z-index: 22;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.doc-viewer[hidden] {
+  display: none;
+}
+
+.doc-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.doc-header h2 {
+  margin: 0;
+  font-size: 14px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-all;
+}
+
+.doc-hint {
+  margin: 0;
+  padding: 6px 16px;
+  font-size: 11px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+}
+
+.doc-body {
+  flex: 1;
+  overflow: auto;
+  padding: 18px 22px;
+}
+
+.doc-body .doc-failed {
+  color: var(--danger);
+  font-size: 13px;
+}
+
+.doc-frame {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: var(--surface);
+}
+
+.doc-text {
+  margin: 0;
+  font-size: 13px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Rendered markdown — enough typography to read a design doc comfortably. */
+.markdown {
+  font-size: 14px;
+  line-height: 1.65;
+  word-break: break-word;
+}
+
+.markdown > :first-child {
+  margin-top: 0;
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  margin: 1.4em 0 0.5em;
+  line-height: 1.3;
+}
+
+.markdown h1 {
+  font-size: 22px;
+}
+
+.markdown h2 {
+  font-size: 18px;
+}
+
+.markdown h3 {
+  font-size: 16px;
+}
+
+.markdown p {
+  margin: 0.7em 0;
+}
+
+.markdown a {
+  color: var(--accent);
+}
+
+.markdown ul,
+.markdown ol {
+  margin: 0.6em 0;
+  padding-left: 1.4em;
+}
+
+.markdown li {
+  margin: 0.25em 0;
+}
+
+.markdown code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.markdown pre {
+  margin: 0.8em 0;
+  padding: 12px 14px;
+  overflow-x: auto;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.markdown pre code {
+  padding: 0;
+  border: none;
+  background: none;
+}
+
+.markdown blockquote {
+  margin: 0.8em 0;
+  padding: 2px 14px;
+  border-left: 3px solid var(--accent);
+  color: var(--text-dim);
+}
+
+.markdown hr {
+  margin: 1.4em 0;
+  border: none;
+  border-top: 1px solid var(--border);
+}
+
+.markdown img {
+  max-width: 100%;
+  border-radius: var(--radius);
+}
+
+.markdown table {
+  margin: 0.9em 0;
+  border-collapse: collapse;
+  font-size: 13px;
+  display: block;
+  overflow-x: auto;
+}
+
+.markdown th,
+.markdown td {
+  border: 1px solid var(--border);
+  padding: 5px 10px;
+  text-align: left;
+}
+
+.markdown th {
+  background: var(--surface-2);
 }
 
 .icon-button {

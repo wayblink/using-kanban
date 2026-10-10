@@ -16,6 +16,7 @@ import {
 } from "./options.js";
 import { matchRoute, type RequestContext, type Route } from "./router.js";
 import {
+  addCardNote,
   blockCard,
   claimCard,
   createCard,
@@ -27,10 +28,15 @@ import {
   listCards,
   moveCard,
   reopenCard,
+  relateCard,
+  removeCardNote,
   reviewCard,
   unblockCard,
+  unrelateCard,
   updateCard,
+  updateCardNote,
 } from "./routes/cards.js";
+import { getDoc } from "./routes/docs.js";
 import { streamEvents } from "./routes/events.js";
 import { health, me, openapi } from "./routes/meta.js";
 import { serveStaticUi } from "./static.js";
@@ -102,6 +108,44 @@ const ROUTES: readonly Route[] = [
     path: "/api/cards/:id/unblock",
     mutation: true,
     handler: unblockCard,
+  },
+  {
+    method: "POST",
+    path: "/api/cards/:id/relate",
+    mutation: true,
+    handler: relateCard,
+  },
+  {
+    method: "POST",
+    path: "/api/cards/:id/unrelate",
+    mutation: true,
+    handler: unrelateCard,
+  },
+  {
+    method: "POST",
+    path: "/api/cards/:id/notes",
+    mutation: true,
+    handler: addCardNote,
+  },
+  {
+    method: "PATCH",
+    path: "/api/cards/:id/notes/:noteId",
+    mutation: true,
+    handler: updateCardNote,
+  },
+  {
+    method: "DELETE",
+    path: "/api/cards/:id/notes/:noteId",
+    mutation: true,
+    handler: removeCardNote,
+  },
+  {
+    // Always token-gated: it reads files off this machine, which is a
+    // different thing from reading the board.
+    method: "GET",
+    path: "/api/doc",
+    mutation: true,
+    handler: getDoc,
   },
   {
     method: "GET",

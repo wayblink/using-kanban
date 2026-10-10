@@ -151,7 +151,7 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
     {
       title: "Show card",
       description:
-        "Read a card's full detail: body (target files and acceptance criteria), assignee, reviewer, blockers and event history. Always read the body before acting on a card.",
+        "Read a card's full detail: body (target files and acceptance criteria), assignee, reviewer, upstream/downstream relations, notes (document links) and event history. Always read the body before acting on a card.",
       inputSchema: { id: cardIdSchema },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
@@ -333,7 +333,7 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
     {
       title: "Block card",
       description:
-        "Make card `id` wait on card `blockedBy`. Cycles and self-blocks are rejected.",
+        "Make card `id` wait on card `blockedBy` — the upstream spelling of a relation. Prefer kanban_relate when you want to name the direction. Cycles and self-blocks are rejected.",
       inputSchema: { id: cardIdSchema, blockedBy: z.number().int().positive() },
     },
     safe(({ id, blockedBy }) => {
@@ -347,12 +347,126 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
     {
       title: "Unblock card",
       description:
-        "Remove the dependency between card `id` and card `blockedBy`.",
+        "Remove a dependency between card `id` and card `blockedBy`. kanban_unrelate removes it from either side.",
       inputSchema: { id: cardIdSchema, blockedBy: z.number().int().positive() },
     },
     safe(({ id, blockedBy }) => {
       const { card } = write().unblock(id, blockedBy, actor, "mcp");
       return text(`unblocked ${formatCardBrief(card)}`);
+    }),
+  );
+
+  server.registerTool(
+    "kanban_relate",
+    {
+      title: "Relate cards",
+      description:
+        "Link two cards as upstream/downstream. `direction` is the side `other` sits on relative to `id`: " +
+        '"upstream" makes this card wait on it (a predecessor), "downstream" makes it wait on this card ' +
+        "(a successor). Either spelling lands on the same edge, so a card can be many cards' predecessor " +
+        "and many cards' successor at once. Cycles are rejected.",
+      inputSchema: {
+        id: cardIdSchema,
+        other: cardIdSchema.describe(
+          "The card on the other end of the relation",
+        ),
+        direction: z.enum(["upstream", "downstream"]),
+      },
+    },
+    safe(({ id, other, direction }) => {
+      const { card } = write().relate(id, other, direction, actor, "mcp");
+      // The card that changes is always the one that ends up waiting: `id`
+      // when the other card is upstream, the other card when it is downstream.
+      const waiting = direction === "upstream" ? id : other;
+      const waitedOn = direction === "upstream" ? other : id;
+      return text(
+        `related ${formatCardBrief(card)} — #${waiting} waits on #${waitedOn}`,
+      );
+    }),
+  );
+
+  server.registerTool(
+    "kanban_unrelate",
+    {
+      title: "Unrelate cards",
+      description:
+        "Remove the relation between two cards, whichever way round it runs. A no-op when they are unrelated.",
+      inputSchema: { id: cardIdSchema, other: cardIdSchema },
+    },
+    safe(({ id, other }) => {
+      const { card } = write().unrelate(id, other, actor, "mcp");
+      return text(`unrelated ${formatCardBrief(card)} from #${other}`);
+    }),
+  );
+
+  server.registerTool(
+    "kanban_note_add",
+    {
+      title: "Add note",
+      description:
+        "Attach a remark to a card — the place for a document link, e.g. the design doc for the " +
+        "requirement. `url` may be an https link or a path to a local file (docs/design.md); the Web UI " +
+        "renders local markdown and HTML in place.",
+      inputSchema: {
+        id: cardIdSchema,
+        text: z.string().min(1).describe("The remark itself"),
+        url: z
+          .string()
+          .optional()
+          .describe("Document link: https://… or a path to a local file"),
+      },
+    },
+    safe(({ id, text: noteText, url }) => {
+      const { card } = write().addNote(
+        id,
+        { text: noteText, url },
+        actor,
+        "mcp",
+      );
+      const note = card.notes[card.notes.length - 1];
+      return text(
+        `noted #${note?.id ?? "?"} on ${formatCardBrief(card)}` +
+          (note?.url ? ` — ${note.url}` : ""),
+      );
+    }),
+  );
+
+  server.registerTool(
+    "kanban_note_update",
+    {
+      title: "Edit note",
+      description:
+        "Edit a note's text and/or link. The note id is shown by kanban_show; pass url: null to clear the link.",
+      inputSchema: {
+        id: cardIdSchema,
+        noteId: z.number().int().positive().describe("Note id"),
+        text: z.string().optional(),
+        url: z.string().nullish(),
+      },
+    },
+    safe(({ id, noteId, text: noteText, url }) => {
+      const { card } = write().updateNote(
+        id,
+        noteId,
+        { text: noteText, url },
+        actor,
+        "mcp",
+      );
+      return text(`updated note #${noteId} on ${formatCardBrief(card)}`);
+    }),
+  );
+
+  server.registerTool(
+    "kanban_note_remove",
+    {
+      title: "Remove note",
+      description:
+        "Remove a note from a card. The note id is shown by kanban_show.",
+      inputSchema: { id: cardIdSchema, noteId: z.number().int().positive() },
+    },
+    safe(({ id, noteId }) => {
+      const { card } = write().removeNote(id, noteId, actor, "mcp");
+      return text(`removed note #${noteId} from ${formatCardBrief(card)}`);
     }),
   );
 

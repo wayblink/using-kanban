@@ -80,12 +80,17 @@ describe("tool discovery", () => {
       "kanban_edit",
       "kanban_move",
       "kanban_my_cards",
+      "kanban_note_add",
+      "kanban_note_remove",
+      "kanban_note_update",
       "kanban_projects",
+      "kanban_relate",
       "kanban_reopen",
       "kanban_review",
       "kanban_review_queue",
       "kanban_show",
       "kanban_unblock",
+      "kanban_unrelate",
     ]);
 
     // The workflow must live in the descriptions — that is what makes a naive
@@ -199,6 +204,79 @@ describe("the agent workflow", () => {
 
     const unblocked = await call("kanban_unblock", { id: 2, blockedBy: 1 });
     expect(unblocked.content[0]?.text).not.toContain("blocked-by");
+  });
+
+  it("relates cards in both directions on one edge", async () => {
+    await call("kanban_add", { title: "design" });
+    await call("kanban_add", { title: "implement", assignee: "claude-code" });
+
+    const upstream = await call("kanban_relate", {
+      id: 2,
+      other: 1,
+      direction: "upstream",
+    });
+    expect(upstream.content[0]?.text).toContain("blocked-by:1");
+    expect(upstream.content[0]?.text).toContain("#2 waits on #1");
+
+    // saying it from the other card is the same edge, not a second one — and
+    // #1 now reports the downstream side of it
+    const fromUpstream = await call("kanban_relate", {
+      id: 1,
+      other: 2,
+      direction: "downstream",
+    });
+    expect(fromUpstream.content[0]?.text).toContain("#2 waits on #1");
+
+    const shown = await call("kanban_show", { id: 1 });
+    expect(shown.content[0]?.text).toContain("blocks: #2");
+
+    const unrelated = await call("kanban_unrelate", { id: 1, other: 2 });
+    expect(unrelated.content[0]?.text).not.toContain("blocked-by");
+    expect(unrelated.content[0]?.text).not.toContain("blocks:");
+  });
+
+  it("keeps a note with a document link on the card", async () => {
+    await call("kanban_add", { title: "ship it" });
+    const added = await call("kanban_note_add", {
+      id: 1,
+      text: "requirement design doc",
+      url: "docs/design.md",
+    });
+    expect(added.content[0]?.text).toContain("noted #2");
+    expect(added.content[0]?.text).toContain("docs/design.md");
+    expect(added.content[0]?.text).toContain("notes:1");
+
+    const shown = await call("kanban_show", { id: 1 });
+    expect(shown.content[0]?.text).toContain("requirement design doc");
+    expect(shown.content[0]?.text).toContain("docs/design.md");
+
+    const edited = await call("kanban_note_update", {
+      id: 1,
+      noteId: 2,
+      url: "https://example.com/design",
+    });
+    expect(edited.isError).toBeUndefined();
+    expect((await call("kanban_show", { id: 1 })).content[0]?.text).toContain(
+      "https://example.com/design",
+    );
+
+    const removed = await call("kanban_note_remove", { id: 1, noteId: 2 });
+    expect(removed.content[0]?.text).toContain("removed note #2");
+    expect(
+      (await call("kanban_show", { id: 1 })).content[0]?.text,
+    ).not.toContain("requirement design doc");
+  });
+
+  it("rejects a note on a card the actor does not own", async () => {
+    await call("kanban_add", { title: "someone else's" });
+    const stranger = await connect(dir, "codex");
+    const denied = await stranger.call("kanban_note_add", {
+      id: 1,
+      text: "hi",
+    });
+    expect(denied.isError).toBe(true);
+    expect(denied.content[0]?.text).toContain("forbidden");
+    await stranger.client.close();
   });
 
   it("moves and reopens cards", async () => {

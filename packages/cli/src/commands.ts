@@ -77,6 +77,11 @@ const COMMANDS = [
   "delete",
   "block",
   "unblock",
+  "relate",
+  "unrelate",
+  "note",
+  "note-edit",
+  "note-remove",
   "web",
   "init",
   "doctor",
@@ -103,9 +108,19 @@ work:
   ukb delete <id>                  creator only
   ukb block <id> --by <id>         make a card wait on another
   ukb unblock <id> --by <id>
+  ukb relate <id> --with <id> --as upstream|downstream
+                                     name the direction of a relation;
+                                     "upstream" = the other card is a
+                                     predecessor, "downstream" = a successor
+  ukb unrelate <id> --with <id>     drop the relation, either way round
+  ukb note <id> "design doc" [--url docs/design.md]
+                                     add a remark — a doc link, say
+  ukb note-edit <id> <noteId> ["…"] [--url …]
+  ukb note-remove <id> <noteId>
 
 setup:
   ukb web [--port N] [--no-open]    start the API + Web UI
+  ukb web --doc-root <dir>[,<dir>]  let card notes link docs from there
   ukb init --for <framework> [--browser]
                                      wire this project into an agent framework
                                      (--browser also adds the Playwright MCP server)
@@ -292,6 +307,83 @@ export async function runCommand(
         );
         return 0;
       }
+      case "relate":
+      case "unrelate": {
+        const id = requireId(parsed.positionals[0], command);
+        const withId = Number(flagString(parsed.flags, "with"));
+        if (!Number.isInteger(withId) || withId <= 0) {
+          throw new UsageError(`ukb ${command} needs --with <card id>`);
+        }
+        if (command === "unrelate") {
+          const { card } = kanban.unrelate(id, withId, actor, "cli");
+          io.stdout(formatMutation(card, `unrelated from #${withId}`));
+          return 0;
+        }
+        const as = flagString(parsed.flags, "as") ?? "upstream";
+        if (as !== "upstream" && as !== "downstream") {
+          throw new UsageError(
+            "ukb relate --as expects upstream (default) or downstream",
+          );
+        }
+        const { card } = kanban.relate(id, withId, as, actor, "cli");
+        const waiting = as === "upstream" ? id : withId;
+        const waitedOn = as === "upstream" ? withId : id;
+        io.stdout(
+          formatMutation(card, `#${waiting} now waits on #${waitedOn}`),
+        );
+        return 0;
+      }
+      case "note": {
+        const id = requireId(parsed.positionals[0], command);
+        const text = parsed.positionals.slice(1).join(" ").trim();
+        if (!text) {
+          throw new UsageError(
+            'ukb note needs text: ukb note 4 "design doc" --url docs/design.md',
+          );
+        }
+        const { card } = kanban.addNote(
+          id,
+          { text, url: flagString(parsed.flags, "url") ?? null },
+          actor,
+          "cli",
+        );
+        const note = card.notes[card.notes.length - 1];
+        io.stdout(
+          formatMutation(
+            card,
+            `noted #${note?.id ?? "?"}${note?.url ? ` — ${note.url}` : ""}`,
+          ),
+        );
+        return 0;
+      }
+      case "note-edit": {
+        const id = requireId(parsed.positionals[0], command);
+        const noteId = requireId(parsed.positionals[1], command);
+        const text = parsed.positionals.slice(2).join(" ").trim();
+        const url = flagString(parsed.flags, "url");
+        if (!text && url === undefined) {
+          throw new UsageError("ukb note-edit needs text and/or --url");
+        }
+        const { card } = kanban.updateNote(
+          id,
+          noteId,
+          {
+            ...(text ? { text } : {}),
+            ...(url !== undefined ? { url } : {}),
+          },
+          actor,
+          "cli",
+        );
+        io.stdout(formatMutation(card, `updated note #${noteId}`));
+        return 0;
+      }
+      case "note-remove": {
+        const id = requireId(parsed.positionals[0], command);
+        const noteId = requireId(parsed.positionals[1], command);
+        const { card } = kanban.removeNote(id, noteId, actor, "cli");
+        io.stdout(formatMutation(card, `removed note #${noteId}`));
+        return 0;
+      }
       default:
         throw new UsageError(`unhandled command "${command}"`);
     }
@@ -318,6 +410,12 @@ async function runWeb(
       : undefined,
     token: flagString(flags, "token"),
     uiDir,
+    // Where a card note's document link may point. Comma-separated because
+    // the argv parser keeps the last of a repeated flag.
+    docRoots: (flagString(flags, "doc-root") ?? "")
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0),
   });
 
   io.stdout("");
@@ -327,6 +425,15 @@ async function runWeb(
     uiDir
       ? `  ui     ${uiDir}`
       : "  ui     none (install @wayblink/using-kanban-web or pass --ui <dir>)",
+  );
+  const docRoots = (flagString(flags, "doc-root") ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  io.stdout(
+    docRoots.length > 0
+      ? `  docs   ${docRoots.join(", ")}`
+      : "  docs   cwd and the store dir only (pass --doc-root to allow more)",
   );
   io.stdout("  Ctrl+C to stop");
   io.stdout("");
