@@ -456,9 +456,15 @@ describe("a board that does not exist yet", () => {
     ] as const) {
       const result = await call(name, args);
       expect(result.isError, `${name} should fail`).toBe(true);
-      expect((result.content as { text: string }[])[0]?.text).toContain(
-        "board_not_found",
-      );
+      const text = (result.content as { text: string }[])[0]?.text ?? "";
+      expect(text).toContain("board_not_found");
+      // actionable, not just diagnostic — see the note in core/open.ts
+      expect(text).toContain("kanban_add");
+      expect(text).toContain("no setup step");
+      // and it must not send the agent hunting for another project's board,
+      // which it otherwise does — it found an unrelated .ukb/ and read it raw
+      expect(text).toContain("do not");
+      expect(text).toContain("own board");
     }
   });
 

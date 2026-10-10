@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { describe, expect, it } from "vitest";
 import {
   flagBoolean,
@@ -78,9 +79,12 @@ describe("storage and dir resolution", () => {
     );
   });
 
-  it("resolves the board directory", () => {
-    expect(resolveDir({ dir: "/tmp/x" }, {}, "/cwd")).toBe("/tmp/x");
-    expect(resolveDir({}, { UKB_DIR: "/tmp/y" }, "/cwd")).toBe("/tmp/y");
-    expect(resolveDir({}, {}, "/cwd")).toBe("/cwd");
+  it("resolves the board directory to a centralised store", () => {
+    expect(resolveDir({ dir: "/tmp/x" }, {})).toBe("/tmp/x");
+    expect(resolveDir({}, { UKB_DIR: "/tmp/y" })).toBe("/tmp/y");
+    // The default is the home directory, NOT the working directory: one board
+    // per machine, projects separated by the `project` field. Running `ukb
+    // board` from anywhere must show the same board.
+    expect(resolveDir({}, {})).toBe(homedir());
   });
 });

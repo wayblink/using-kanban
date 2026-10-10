@@ -60,7 +60,7 @@ external API consumer, and idles out on its own.
 ```ts
 import { openKanban } from "@wayblink/using-kanban-core";
 
-const kanban = openKanban({ dir: process.cwd() }); // <dir>/.ukb/board.db
+const kanban = openKanban(); // ~/.ukb/board.db — one board for the machine
 
 const human = { type: "human", name: "jyxc" };
 const agent = { type: "agent", name: "claude-code" };
@@ -86,11 +86,14 @@ kanban.history(card.id); // full event trail
 - **States**: `todo → doing → review → done` (`reopen` goes back to `todo`)
 - **Actors**: `{ type: "human" | "agent", name }` — one namespace, so a human
   can review an agent's card and vice versa
-- **No board yet?** Reads never create one. `ukb board` in a directory with no
-  `.ukb/` fails with `board_not_found` (exit 2) rather than quietly reporting an
-  empty board — "there is no work here" and "you are in the wrong place" are
-  different answers, and an agent cannot tell them apart otherwise. Any write
-  creates the store.
+- **One centralised board.** The store is `~/.ukb/`, not a directory per project:
+  every project on the machine shares one board and separates its work with the
+  `project` field on cards. `--dir` / `UKB_DIR` still point elsewhere when you
+  want a separate store.
+- **No board yet?** Reads never create one. With no `~/.ukb/`, `ukb board` fails
+  with `board_not_found` (exit 2) rather than quietly reporting an empty board —
+  "there is no work here" and "you have not started" are different answers, and
+  an agent cannot tell them apart otherwise. Any write creates the store.
 - **Dependencies**: `block(id, blockedById)` / `unblock`, multiple per card,
   cycles rejected. A card with an unfinished blocker cannot be claimed or moved
   into `doing` — the guard names the blockers so the failure is actionable.

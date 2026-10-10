@@ -69,21 +69,13 @@ function mcpEntry(
     }
     // process.execPath rather than "node": the agent harness may not have node
     // on its PATH, but it always has this one.
-    return {
-      command: process.execPath,
-      args: [bin, "--agent", agent, "--dir", projectDir],
-    };
+    // No --dir: the store is centralised, so every project shares one board and
+    // separates its work with the `project` field.
+    return { command: process.execPath, args: [bin, "--agent", agent] };
   }
   return {
     command: "npx",
-    args: [
-      "-y",
-      "@wayblink/using-kanban-mcp",
-      "--agent",
-      agent,
-      "--dir",
-      projectDir,
-    ],
+    args: ["-y", "@wayblink/using-kanban-mcp", "--agent", agent],
   };
 }
 

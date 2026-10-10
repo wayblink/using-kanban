@@ -113,7 +113,8 @@ setup:
   ukb doctor                        check the environment
 
 global flags:
-  --dir <path>       board directory (default: current project; store at <dir>/.ukb)
+  --dir <path>       board directory (default: home; the store is <dir>/.ukb)
+  --project <dir>    where "ukb init" writes the agent config (default: cwd)
   --storage <kind>   sqlite (default) | jsonl | memory
   --agent <name>     who you are (default: $USER) — agents should always pass this
   --agent-type <t>   human (default) | agent
@@ -149,14 +150,22 @@ export async function runCommand(
     throw new UsageError(`unknown command "${command}" — try: ukb help`);
   }
 
-  const dir = resolveDir(parsed.flags, io.env, io.cwd);
+  const dir = resolveDir(parsed.flags, io.env);
   const storage = resolveStorage(parsed.flags, io.env);
 
   switch (command) {
     case "web":
       return runWeb(parsed.flags, io, dir, storage);
     case "init":
-      return runInit(parsed.flags, io, dir, io.home ?? homedir());
+      // Onboarding a framework is about the project you are standing in, which
+      // is no longer the board directory now that the store is centralised.
+      // `--project` overrides where the config files are written.
+      return runInit(
+        parsed.flags,
+        io,
+        flagString(parsed.flags, "project") ?? io.cwd,
+        io.home ?? homedir(),
+      );
     case "doctor":
       return runDoctor(parsed.flags, io, dir, storage);
     default:

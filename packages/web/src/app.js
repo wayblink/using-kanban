@@ -289,8 +289,9 @@ const DOCS_EN = [
       {
         t: "p",
         text:
-          "One board per project, stored in `.ukb/` next to your code. Agents and the human share it: " +
-          "agents pick up work through MCP tools or the CLI, the human watches and steers through this UI.",
+          "One board for the whole machine, stored centrally at `~/.ukb/`. Agents and the human share it: " +
+          "agents pick up work through MCP tools or the CLI, the human watches and steers through this UI. " +
+          "Projects are separated by the `project` field on cards, not by directory.",
       },
       {
         t: "p",
@@ -660,8 +661,9 @@ const DOCS_EN = [
       {
         t: "p",
         text:
-          "Agents: run ukb (or kanban_my_cards) from the project you want to board — the store is .ukb/ in the " +
-          "current directory. If identity cannot be resolved, pass --agent <name>.",
+          "Agents: run ukb (or kanban_my_cards) from anywhere — there is one board at ~/.ukb/, so the directory " +
+          "you run from does not matter. Filter with --project <slug> to see one project's work. If identity " +
+          "cannot be resolved, pass --agent <name>.",
       },
     ],
   },
@@ -675,7 +677,9 @@ const DOCS_ZH = [
     blocks: [
       {
         t: "p",
-        text: "每个项目一块看板，存放在代码旁的 `.ukb/` 目录中。智能体与人类共用它：智能体通过 MCP 工具或命令行认领工作，人类通过这个界面观察与调度。",
+        text:
+          "全机共用一块看板，集中存放在 `~/.ukb/`。智能体与人类共用它：智能体通过 MCP 工具或命令行认领工作，" +
+          "人类通过这个界面观察与调度。项目之间靠卡片上的 `project` 字段区分，而不是靠目录。",
       },
       {
         t: "p",
@@ -1010,7 +1014,9 @@ const DOCS_ZH = [
       },
       {
         t: "p",
-        text: "智能体：请在要操作看板的项目目录下运行 ukb（或 kanban_my_cards）——存储位于当前目录的 .ukb/。如果无法解析身份，请传入 --agent <名称>。",
+        text:
+          "智能体：在任意目录下运行 ukb（或 kanban_my_cards）即可——全机只有一块看板，位于 ~/.ukb/，" +
+          "所以从哪个目录运行并不重要。用 --project <标识> 过滤以只看某个项目的工作。如果无法解析身份，请传入 --agent <名称>。",
       },
     ],
   },

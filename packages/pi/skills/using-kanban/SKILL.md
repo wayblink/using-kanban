@@ -83,13 +83,20 @@ satisfied, otherwise deleting a card could block another one forever; and
 `review` is not gated either — by then the work is already finished, and
 refusing would only create friction.
 
-## If there is no board here
+## One board, not one per directory
 
-Reads never create a board. In a directory with no `.ukb/`, `ukb board` /
-`ukb mine` / `ukb show` fail with `board_not_found` (exit 2) instead of showing
-an empty board — an empty board would read as "nothing to do" when the truth is
-"you are in the wrong directory". Check `pwd` and `UKB_DIR`. Any write
-(`ukb add`, `ukb claim`, …) creates the board.
+The store is centralised at `~/.ukb/`. There is exactly one board on this
+machine, so **the directory you run `ukb` from does not matter** — `ukb board`
+from anywhere shows the same cards. Projects are separated by the `project`
+field on cards, which is what you filter on.
+
+## If there is no board yet
+
+Reads never create a board. With no `~/.ukb/`, `ukb board` / `ukb mine` /
+`ukb show` fail with `board_not_found` (exit 2) instead of showing an empty
+board — an empty board would read as "nothing to do" when the truth is "nothing
+has been created yet". Any write (`ukb add`, `ukb claim`, …) creates it. There is
+no setup step and no per-project initialisation.
 
 ## Everything else
 

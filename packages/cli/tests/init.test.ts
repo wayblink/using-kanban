@@ -58,6 +58,8 @@ async function init(
   const io = makeIo(project, home);
   const argv = [
     "init",
+    "--project",
+    project,
     "--for",
     framework,
     ...(options.dryRun ? ["--dry-run"] : []),
@@ -108,7 +110,8 @@ describe("ukb init", () => {
     ]);
     expect(mcp.mcpServers["using-kanban"]?.command).toBe("npx");
     expect(mcp.mcpServers["using-kanban"]?.args).toContain("claude-code");
-    expect(mcp.mcpServers["using-kanban"]?.args).toContain(first.project);
+    // centralised store: no project path in the MCP args any more
+    expect(mcp.mcpServers["using-kanban"]?.args).not.toContain(first.project);
     expect(readFileSync(join(first.project, "CLAUDE.md"), "utf8")).toContain(
       "using-kanban:start",
     );
@@ -140,7 +143,8 @@ describe("ukb init", () => {
     expect(contents).toContain('model = "gpt-5"');
     expect(contents).toContain("[mcp_servers.using-kanban]");
     expect(contents).toContain('"codex"');
-    expect(contents).toContain(project);
+    // centralised store: no project path in the block
+    expect(contents).not.toContain(project);
     expect(contents.split("# >>> using-kanban:using-kanban >>>")).toHaveLength(
       2,
     );
@@ -235,8 +239,8 @@ describe("ukb init --local", () => {
     expect(entry.command).toBe(process.execPath);
     expect(entry.args[0]).toMatch(/packages\/mcp\/dist\/bin\.js$/);
     expect(existsSync(entry.args[0])).toBe(true);
-    expect(entry.args).toContain("--dir");
-    expect(entry.args).toContain(project);
+    // no --dir: the store is centralised, so every project shares one board
+    expect(entry.args).toEqual([entry.args[0], "--agent", "claude-code"]);
     // crucially, no npx and no unpublished package name
     expect(entry.command).not.toBe("npx");
     expect(entry.args.join(" ")).not.toContain("@wayblink/using-kanban-mcp");
@@ -248,13 +252,12 @@ describe("ukb init --local", () => {
     const entry = config.mcpServers["using-kanban"];
 
     expect(entry.command).toBe("npx");
+    // no --dir: centralised store, projects separated by the `project` field
     expect(entry.args).toEqual([
       "-y",
       "@wayblink/using-kanban-mcp",
       "--agent",
       "claude-code",
-      "--dir",
-      project,
     ]);
   });
 
@@ -278,7 +281,13 @@ describe("ukb init --local", () => {
     expect(entry.type).toBe("local");
     expect(entry.command[0]).toBe(process.execPath);
     expect(entry.command[1]).toMatch(/packages\/mcp\/dist\/bin\.js$/);
-    expect(entry.command).toContain("--dir");
+    // no --dir here either
+    expect(entry.command).toEqual([
+      entry.command[0],
+      entry.command[1],
+      "--agent",
+      "opencode",
+    ]);
     expect(entry.command.join(" ")).not.toContain("@wayblink/using-kanban-mcp");
   });
 

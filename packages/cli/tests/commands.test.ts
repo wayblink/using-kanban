@@ -21,6 +21,11 @@ afterAll(() => {
   }
 });
 
+/**
+ * A sandboxed Io. `UKB_DIR` points at `dir` because the store is centralised
+ * under the home directory by default — the working directory is deliberately
+ * not consulted, so tests must say where the board is.
+ */
 function makeIo(
   dir: string,
   env: NodeJS.ProcessEnv = {},
@@ -28,7 +33,7 @@ function makeIo(
   const out: string[] = [];
   return {
     cwd: dir,
-    env: { USER: "tester", ...env },
+    env: { USER: "tester", UKB_DIR: dir, ...env },
     stdout: (text) => out.push(text),
     stderr: (text) => out.push(text),
     out,
@@ -149,9 +154,17 @@ describe("board commands", () => {
     const io = makeIo(dir);
 
     for (const command of [["board"], ["mine"], ["show", "1"]]) {
-      await expect(runCommand(command, io)).rejects.toMatchObject({
-        code: "board_not_found",
-      });
+      const error = await runCommand(command, io).catch((caught) => caught);
+      expect(error).toMatchObject({ code: "board_not_found" });
+      // The message has to be actionable, not just diagnostic: an agent that
+      // reads a bare "not found" concludes the tool is unavailable here and
+      // moves on. It must say that adding a card is what creates the board…
+      expect(String(error.message)).toContain("kanban_add");
+      expect(String(error.message)).toContain("no setup step");
+      // …and that hunting for another project's board is wrong, which an agent
+      // otherwise does — it found an unrelated .ukb/ and read it with sqlite3.
+      expect(String(error.message)).toContain("do not");
+      expect(String(error.message)).toContain("own board");
     }
     // and nothing was created on disk
     expect(existsSync(join(dir, ".ukb"))).toBe(false);

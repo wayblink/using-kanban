@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import type { StorageKind } from "@wayblink/using-kanban-core";
 
 export interface ParsedArgv {
@@ -121,10 +122,17 @@ export function resolveStorage(
   return value;
 }
 
+/**
+ * The board directory: `--dir`, else `UKB_DIR`, else the home directory.
+ *
+ * Centralised on purpose — one board for the whole machine, with projects
+ * separated by the `project` field on cards rather than by directory. The
+ * working directory is deliberately not consulted: running `ukb board` from
+ * anywhere must show the same board.
+ */
 export function resolveDir(
   flags: Record<string, string | true>,
   env: NodeJS.ProcessEnv,
-  cwd: string,
 ): string {
-  return flagString(flags, "dir") ?? env.UKB_DIR ?? cwd;
+  return flagString(flags, "dir") ?? env.UKB_DIR ?? homedir();
 }

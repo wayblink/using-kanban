@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { hostname, userInfo } from "node:os";
+import { homedir, hostname, userInfo } from "node:os";
 import { z } from "zod";
 import { ActorSchema, type StorageKind } from "@wayblink/using-kanban-core";
 
@@ -15,7 +15,8 @@ function defaultActorName(): string {
 
 export const ServerOptionsSchema = z.object({
   /** Board directory — the store lives at `<dir>/.ukb/`. */
-  dir: z.string().default(process.cwd()),
+  // One centralised board; projects are separated by the `project` field.
+  dir: z.string().default(homedir()),
   storage: z.enum(["sqlite", "jsonl", "memory"]).default("sqlite"),
   /** Bind address. Anything other than loopback is opt-in. */
   host: z.string().default(DEFAULT_HOST),

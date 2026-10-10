@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { JsonlEventLog } from "./event-log-jsonl.js";
 import { MemoryEventLog } from "./event-log.js";
@@ -11,7 +12,12 @@ export type StorageKind = "sqlite" | "jsonl" | "memory";
 export interface OpenKanbanOptions {
   /** Defaults to `sqlite`. */
   readonly storage?: StorageKind | undefined;
-  /** Board directory. Defaults to `process.cwd()`. */
+  /**
+   * Where the store lives: `<dir>/.ukb/`. Defaults to the home directory, so
+   * every project on the machine shares ONE board and separates its work with
+   * the `project` field instead. Pass a directory (or `path`) to use a
+   * different store.
+   */
   readonly dir?: string | undefined;
   /** Explicit log file (overrides `dir` + storage default name). */
   readonly path?: string | undefined;
@@ -47,14 +53,29 @@ export function openKanban(options: OpenKanbanOptions = {}): Kanban {
     return new Kanban({ log: new MemoryEventLog() });
   }
 
-  const dir = resolve(options.dir ?? process.cwd());
+  const dir = resolve(options.dir ?? homedir());
   const path = options.path
     ? resolve(options.path)
     : join(dir, DEFAULT_STORAGE_DIR, DEFAULT_FILE_NAMES[storage]);
   if (options.create === false && !existsSync(path)) {
+    // Wording matters here, and both halves of it are measured rather than
+    // guessed:
+    //
+    // 1. An agent that gets a bare "not found" concludes the tool is
+    //    unavailable here and moves on — it abandoned the board and explored
+    //    the filesystem instead. So say that adding a card is what creates the
+    //    board, and that there is no setup step.
+    // 2. Worse, "this project has none yet" invites the agent to go find the
+    //    project that *does* have one. It duly hunted the filesystem, found
+    //    another project's .ukb/ and read it with raw sqlite3, bypassing the
+    //    API entirely. So say explicitly that each directory has its own board
+    //    and that hunting is wrong.
     throw new KanbanError(
       "board_not_found",
-      `no board in ${dir} — create one first (ukb add / kanban_add)`,
+      `no board in ${dir} — this directory has no board yet. ` +
+        `Add the first card (ukb add / kanban_add) and one is created here; ` +
+        `there is no setup step. Every directory has its own board, so do not ` +
+        `go looking for another project's.`,
     );
   }
   mkdirSync(dirname(path), { recursive: true });

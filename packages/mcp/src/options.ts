@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { z } from "zod";
 import type { ActorSchema, StorageKind } from "@wayblink/using-kanban-core";
 
@@ -35,7 +36,9 @@ export function resolveMcpOptions(
   const parsed = McpOptionsSchema.parse(parseArgv(argv));
 
   const agent = parsed.agent ?? env.UKB_AGENT ?? DEFAULT_AGENT_NAME;
-  const dir = parsed.dir ?? env.UKB_DIR ?? process.cwd();
+  // Centralised store: one board per machine, projects separated by the
+  // `project` field on cards rather than by directory.
+  const dir = parsed.dir ?? env.UKB_DIR ?? homedir();
   const storage = (parsed.storage ??
     env.UKB_STORAGE ??
     "sqlite") as StorageKind;
