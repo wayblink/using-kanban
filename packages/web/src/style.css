@@ -310,6 +310,34 @@ button.primary:hover {
   gap: 8px;
   padding: 10px;
   min-height: 40px;
+  /* Columns scroll inside themselves rather than stretching the page. With a
+     centralised board the done column alone can hold hundreds of cards, and a
+     page that grows to fit them buries the other three columns below the fold.
+     The board chrome is 72px of topbar plus the controls strip. */
+  max-height: calc(100vh - 72px - 68px - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* The "show the rest" affordance at the foot of a collapsed column. */
+.column-more {
+  align-self: stretch;
+  margin: 2px 0 0;
+  padding: 7px 10px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.column-more:hover {
+  color: var(--text);
+  border-color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .card {

@@ -8,6 +8,30 @@
  * Pure helpers
  * ------------------------------------------------------------------ */
 
+/** How many finished cards a collapsed `done` column shows before "show the rest". */
+export const DONE_PREVIEW = 8;
+
+/**
+ * Which cards a column renders, and whether it is showing a preview.
+ *
+ * `done` is history rather than current focus, so it is previewed by default:
+ * on a centralised board it can hold hundreds of cards, and rendering all of
+ * them pushes the three live columns off the screen. The live columns are never
+ * previewed — a long review queue is exactly what someone needs to see.
+ */
+export function previewCards(cards, columnId, expanded = false) {
+  const all = [...cards];
+  if (columnId !== "done" || all.length <= DONE_PREVIEW || expanded) {
+    return { cards: all, shown: all.length, hidden: 0, collapsed: false };
+  }
+  return {
+    cards: all.slice(0, DONE_PREVIEW),
+    shown: DONE_PREVIEW,
+    hidden: all.length - DONE_PREVIEW,
+    collapsed: true,
+  };
+}
+
 export const COLUMNS = [
   { id: "todo", label: "Todo" },
   { id: "doing", label: "Doing" },
@@ -151,6 +175,8 @@ export const I18N = {
     "column.doing": "Doing",
     "column.review": "Review",
     "column.done": "Done",
+    "column.showRest": "show the other {n}",
+    "column.showLess": "show less",
     "column.empty": "nothing here",
     "card.project": "project:",
     "filter.anyProject": "any project",
@@ -221,6 +247,8 @@ export const I18N = {
     "column.doing": "进行中",
     "column.review": "审查中",
     "column.done": "已完成",
+    "column.showRest": "显示其余 {n} 张",
+    "column.showLess": "收起",
     "column.empty": "暂无卡片",
     "card.project": "项目：",
     "filter.anyProject": "全部项目",
@@ -1065,6 +1093,8 @@ function startApp() {
     cards: [],
     actor: { name: "me", type: "human" },
     filter: { q: "", project: "", assignee: "", reviewer: "" },
+    /** Columns the user has expanded past their collapsed preview. */
+    expanded: new Set(),
     openCardId: null,
     dragCardId: null,
     route: currentRoute(),
@@ -1361,9 +1391,15 @@ function startApp() {
 
       const list = document.createElement("div");
       list.className = "card-list";
-      const cards = sortCards(
+      const sorted = sortCards(
         visible.filter((card) => card.state === column.id),
       );
+      const preview = previewCards(
+        sorted,
+        column.id,
+        state.expanded.has(column.id),
+      );
+      const cards = preview.cards;
       if (cards.length === 0) {
         const empty = document.createElement("div");
         empty.className = "empty";
@@ -1372,6 +1408,31 @@ function startApp() {
       }
       for (const card of cards) {
         list.append(renderCard(card, blocked.has(card.id)));
+      }
+      if (preview.collapsed) {
+        const more = document.createElement("button");
+        more.type = "button";
+        more.className = "column-more";
+        more.textContent = t("column.showRest", { n: preview.hidden });
+        more.addEventListener("click", () => {
+          state.expanded.add(column.id);
+          renderBoard();
+        });
+        list.append(more);
+      } else if (
+        column.id === "done" &&
+        preview.hidden === 0 &&
+        sorted.length > DONE_PREVIEW
+      ) {
+        const fewer = document.createElement("button");
+        fewer.type = "button";
+        fewer.className = "column-more";
+        fewer.textContent = t("column.showLess");
+        fewer.addEventListener("click", () => {
+          state.expanded.delete(column.id);
+          renderBoard();
+        });
+        list.append(fewer);
       }
 
       section.append(header, list);

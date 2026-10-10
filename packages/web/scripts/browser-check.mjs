@@ -208,6 +208,29 @@ async function main() {
         body: JSON.stringify(card),
       });
     }
+    // Enough finished cards to exercise the done-column preview, which is what
+    // keeps a centralised board (dozens or hundreds of done cards) on one screen.
+    for (let index = 0; index < 11; index += 1) {
+      const created = await fetch(`${base}/api/cards?token=browser-check`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Actor-Name": "jyxc" },
+        body: JSON.stringify({
+          title: `finished card ${index + 1}`,
+          project: index % 2 === 0 ? "web" : "api",
+        }),
+      }).then((response) => response.json());
+      await fetch(
+        `${base}/api/cards/${created.card.id}/done?token=browser-check`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Actor-Name": "jyxc",
+          },
+          body: "{}",
+        },
+      );
+    }
     url = `${base}/?token=browser-check`;
   }
 
@@ -426,11 +449,11 @@ async function main() {
     const all = await projectUi();
     report.push([
       "project badges and filter options render",
-      all.cards.length === 4 &&
-        all.badges.length === 2 &&
+      all.cards.length === 12 &&
+        all.badges.length === 10 &&
         all.options.includes("web") &&
         all.options.includes("api"),
-      `${all.cards.length} cards · badges=${all.badges.join("/")} · options=${all.options.join("/")}`,
+      `${all.cards.length} cards · ${all.badges.length} badges · options=${all.options.join("/")}`,
     ]);
 
     await cdp.evaluate(`(() => {
@@ -442,7 +465,10 @@ async function main() {
     const webOnly = await projectUi();
     report.push([
       "project filter narrows the board",
-      webOnly.cards.length === 1 && webOnly.cards[0] === "project: web card",
+      // every surviving card is a web card, and nothing from api survives
+      webOnly.cards.length > 1 &&
+        webOnly.cards.every((title) => !title.includes("project: api")) &&
+        webOnly.badges.every((badge) => badge === "project:web"),
       `cards=${webOnly.cards.join("/")}`,
     ]);
 
@@ -460,6 +486,51 @@ async function main() {
       s.dispatchEvent(new Event("change", { bubbles: true }));
     })()`);
     await new Promise((resolve) => setTimeout(resolve, 700));
+
+    /* --------------------- column height and preview ---------------------- */
+
+    const columnLayout = JSON.parse(
+      await cdp.evaluate(`JSON.stringify({
+        pageScrolls: document.documentElement.scrollHeight > window.innerHeight + 50,
+        columns: [...document.querySelectorAll(".column")].map((c) => ({
+          id: c.dataset.column,
+          height: Math.round(c.getBoundingClientRect().height),
+          scrolls: c.querySelector(".card-list").scrollHeight > c.querySelector(".card-list").clientHeight,
+        })),
+        donePreview: document.querySelector('[data-column="done"] .column-more')?.textContent ?? null,
+        doneRendered: document.querySelectorAll('[data-column="done"] .card').length,
+      })`),
+    );
+    report.push([
+      "the board fits the viewport without scrolling the page",
+      columnLayout.pageScrolls === false,
+      `pageScrolls=${columnLayout.pageScrolls} · columns=${columnLayout.columns.map((c) => `${c.id}:${c.height}px`).join(" ")}`,
+    ]);
+
+    report.push([
+      "the done column is previewed with a way to see the rest",
+      /show the other \d+/.test(columnLayout.donePreview ?? "") &&
+        columnLayout.doneRendered === 8,
+      `preview="${columnLayout.donePreview}" · rendered=${columnLayout.doneRendered}`,
+    ]);
+
+    // expanding must reveal everything, including cards from another project
+    await cdp.evaluate(
+      `document.querySelector('[data-column="done"] .column-more')?.click()`,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    const expanded = JSON.parse(
+      await cdp.evaluate(`JSON.stringify({
+        rendered: document.querySelectorAll('[data-column="done"] .card').length,
+        projects: [...new Set([...document.querySelectorAll('[data-column="done"] .badge.project')].map((b) => b.textContent))],
+        collapse: document.querySelector('[data-column="done"] .column-more')?.textContent ?? null,
+      })`),
+    );
+    report.push([
+      "expanding the done column reveals every project's cards",
+      expanded.rendered > 8 && expanded.projects.length >= 1,
+      `rendered=${expanded.rendered} · projects=${expanded.projects.join("/")} · control="${expanded.collapse}"`,
+    ]);
 
     /* ------------------------------ docs page ----------------------------- */
 

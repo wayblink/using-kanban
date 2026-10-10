@@ -3,6 +3,7 @@ import {
   COLUMNS,
   DOCS,
   DOCS_SECTIONS,
+  DONE_PREVIEW,
   I18N,
   LANGUAGES,
   actionForColumn,
@@ -12,6 +13,7 @@ import {
   filterCards,
   formatRelativeTime,
   parseActor,
+  previewCards,
   sortCards,
 } from "../src/app.js";
 
@@ -474,5 +476,97 @@ describe("project filtering", () => {
     expect(
       filterCards(cards, { project: "web", assignee: "codex" }),
     ).toHaveLength(0);
+  });
+});
+
+describe("column preview and expansion", () => {
+  const doneCards = (count) =>
+    Array.from({ length: count }, (_, index) => ({
+      id: index + 1,
+      title: `finished ${index + 1}`,
+      state: "done",
+    }));
+
+  it("previews the done column instead of rendering all of it", () => {
+    // The constant is exported so the UI and the test agree on the preview size.
+    // previewCards takes the column's own cards — renderBoard filters by state
+    // first — so only done cards are passed here.
+    const cards = doneCards(DONE_PREVIEW + 20).map((card) => ({
+      ...card,
+      project: null,
+      body: null,
+      assignee: null,
+      reviewer: null,
+      blockedBy: [],
+      createdBy: "jyxc",
+      createdAt: "",
+      updatedAt: "",
+      revision: 1,
+    }));
+
+    const preview = previewCards(cards, "done", false);
+    expect(preview.shown).toBe(DONE_PREVIEW);
+    expect(preview.hidden).toBe(20);
+    expect(preview.collapsed).toBe(true);
+  });
+
+  it("shows everything once the column is expanded", () => {
+    const cards = doneCards(DONE_PREVIEW + 5).map((card) => ({
+      ...card,
+      project: null,
+      body: null,
+      assignee: null,
+      reviewer: null,
+      blockedBy: [],
+      createdBy: "jyxc",
+      createdAt: "",
+      updatedAt: "",
+      revision: 1,
+    }));
+
+    const all = previewCards(cards, "done", true);
+    expect(all.shown).toBe(DONE_PREVIEW + 5);
+    expect(all.hidden).toBe(0);
+    expect(all.collapsed).toBe(false);
+  });
+
+  it("never collapses a column that fits in the preview", () => {
+    const cards = doneCards(3).map((card) => ({
+      ...card,
+      project: null,
+      body: null,
+      assignee: null,
+      reviewer: null,
+      blockedBy: [],
+      createdBy: "jyxc",
+      createdAt: "",
+      updatedAt: "",
+      revision: 1,
+    }));
+
+    const result = previewCards(cards, "done", false);
+    expect(result.shown).toBe(3);
+    expect(result.collapsed).toBe(false);
+  });
+
+  it("leaves the live columns alone", () => {
+    const cards = Array.from({ length: 40 }, (_, index) => ({
+      id: index + 1,
+      title: `card ${index}`,
+      state: "review",
+      project: null,
+      body: null,
+      assignee: null,
+      reviewer: null,
+      blockedBy: [],
+      createdBy: "jyxc",
+      createdAt: "",
+      updatedAt: "",
+      revision: 1,
+    }));
+
+    // review is a live column: 40 cards must all render, preview or not
+    expect(previewCards(cards, "review", false).shown).toBe(40);
+    expect(previewCards(cards, "review", false).collapsed).toBe(false);
   });
 });
