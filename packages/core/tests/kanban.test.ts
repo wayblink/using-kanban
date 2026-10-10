@@ -11,6 +11,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { KanbanError } from "../src/errors.js";
 import { MemoryEventLog } from "../src/event-log.js";
 import { Kanban } from "../src/kanban.js";
+import { Projection } from "../src/projection.js";
 import { openKanban, DEFAULT_STORAGE_DIR } from "../src/open.js";
 import type { Actor } from "../src/types.js";
 
@@ -543,5 +544,277 @@ describe("blockers gate starting work", () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
     const card = kanban.add({ title: "free" }, human).card;
     expect(kanban.claim(card.id, agent).card.state).toBe("doing");
+  });
+});
+
+describe("relations", () => {
+  function pair() {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    const upstream = kanban.add({ title: "design the API" }, human).card;
+    const downstream = kanban.add(
+      { title: "implement the API", assignee: "claude-code" },
+      human,
+    ).card;
+    return { kanban, upstream, downstream };
+  }
+
+  it("links from either side onto the same single edge", () => {
+    const { kanban, upstream, downstream } = pair();
+
+    kanban.relate(downstream.id, upstream.id, "upstream", human);
+    expect(kanban.card(downstream.id)?.blockedBy).toEqual([upstream.id]);
+    expect(kanban.card(upstream.id)?.blocks).toEqual([downstream.id]);
+
+    // saying it the other way round is the same edge, not a second one
+    const again = kanban.relate(
+      upstream.id,
+      downstream.id,
+      "downstream",
+      human,
+    );
+    expect(again.events).toHaveLength(0);
+    expect(kanban.card(downstream.id)?.blockedBy).toEqual([upstream.id]);
+    expect(kanban.card(upstream.id)?.blocks).toEqual([downstream.id]);
+  });
+
+  it("is many-to-many in both directions", () => {
+    const { kanban, upstream, downstream } = pair();
+    const third = kanban.add({ title: "docs" }, human).card;
+
+    kanban.relate(downstream.id, upstream.id, "upstream", human);
+    kanban.relate(third.id, upstream.id, "upstream", human);
+    kanban.relate(third.id, downstream.id, "upstream", human);
+    // saying it from the other end changes nothing — it is the same edge
+    kanban.relate(upstream.id, third.id, "downstream", human);
+
+    expect(kanban.card(third.id)?.blockedBy).toEqual([
+      upstream.id,
+      downstream.id,
+    ]);
+    expect(kanban.card(upstream.id)?.blocks).toEqual([downstream.id, third.id]);
+    expect(kanban.card(downstream.id)?.blocks).toEqual([third.id]);
+  });
+
+  it("still gates claiming on the upstream side", () => {
+    const { kanban, upstream, downstream } = pair();
+    kanban.relate(downstream.id, upstream.id, "upstream", human);
+    expectKanbanError(
+      () => kanban.claim(downstream.id, agent),
+      "invalid_state",
+    );
+    kanban.done(upstream.id, human);
+    expect(kanban.claim(downstream.id, agent).card.state).toBe("doing");
+  });
+
+  it("rejects cycles whichever side you start from", () => {
+    const { kanban, upstream, downstream } = pair();
+    kanban.relate(downstream.id, upstream.id, "upstream", human);
+    expectKanbanError(
+      () => kanban.relate(upstream.id, downstream.id, "upstream", human),
+      "invalid_input",
+    );
+  });
+
+  it("rejects relating a card to itself", () => {
+    const { kanban, upstream } = pair();
+    expectKanbanError(
+      () => kanban.relate(upstream.id, upstream.id, "upstream", human),
+      "invalid_input",
+    );
+  });
+
+  it("unrelates in whichever direction the edge runs", () => {
+    const { kanban, upstream, downstream } = pair();
+    kanban.relate(downstream.id, upstream.id, "upstream", human);
+
+    // start from the upstream card — the direction does not have to be known
+    kanban.unrelate(upstream.id, downstream.id, human);
+    expect(kanban.card(downstream.id)?.blockedBy).toEqual([]);
+    expect(kanban.card(upstream.id)?.blocks).toEqual([]);
+
+    // unrelated cards are a no-op, not an error
+    expect(kanban.unrelate(upstream.id, downstream.id, human).events).toEqual(
+      [],
+    );
+  });
+
+  it("keeps block/unblock working as the upstream spelling", () => {
+    const { kanban, upstream, downstream } = pair();
+    kanban.block(downstream.id, upstream.id, human);
+    expect(kanban.card(upstream.id)?.blocks).toEqual([downstream.id]);
+    kanban.unblock(downstream.id, upstream.id, human);
+    expect(kanban.card(upstream.id)?.blocks).toEqual([]);
+  });
+
+  it("drops both ends of the edge when a card is deleted", () => {
+    const { kanban, upstream, downstream } = pair();
+    kanban.relate(downstream.id, upstream.id, "upstream", human);
+    kanban.remove(upstream.id, human);
+    expect(kanban.card(downstream.id)?.blockedBy).toEqual([]);
+
+    const other = kanban.add({ title: "other" }, human).card;
+    kanban.relate(downstream.id, other.id, "downstream", human);
+    expect(kanban.card(other.id)?.blockedBy).toEqual([downstream.id]);
+    kanban.remove(other.id, human);
+    expect(kanban.card(downstream.id)?.blocks).toEqual([]);
+  });
+
+  it("mirrors blockers given at creation time", () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    const upstream = kanban.add({ title: "up" }, human).card;
+    const downstream = kanban.add(
+      { title: "down", blockedBy: [upstream.id] },
+      human,
+    ).card;
+    expect(kanban.card(upstream.id)?.blocks).toEqual([downstream.id]);
+  });
+
+  it("is creator-or-assignee on the card that gains the wait", () => {
+    const { kanban, upstream, downstream } = pair();
+    expectKanbanError(
+      () => kanban.relate(downstream.id, upstream.id, "upstream", otherAgent),
+      "forbidden",
+    );
+  });
+});
+
+describe("notes", () => {
+  function card() {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    return {
+      kanban,
+      card: kanban.add({ title: "ship the thing" }, human).card,
+    };
+  }
+
+  it("starts with no notes", () => {
+    const { kanban, card: created } = card();
+    expect(kanban.card(created.id)?.notes).toEqual([]);
+  });
+
+  it("adds a note with a document link", () => {
+    const { kanban, card: created } = card();
+    const { card: updated } = kanban.addNote(
+      created.id,
+      { text: "design doc", url: "docs/design.md" },
+      human,
+    );
+
+    expect(updated.notes).toHaveLength(1);
+    const note = updated.notes[0];
+    expect(note?.text).toBe("design doc");
+    expect(note?.url).toBe("docs/design.md");
+    expect(note?.createdBy).toBe("jyxc");
+    expect(note?.id).toBeGreaterThan(0);
+  });
+
+  it("keeps notes in order and bumps the revision", () => {
+    const { kanban, card: created } = card();
+    kanban.edit(created.id, { assignee: "claude-code" }, human);
+    const before = kanban.card(created.id)?.revision ?? 0;
+    kanban.addNote(created.id, { text: "first" }, human);
+    const second = kanban.addNote(created.id, { text: "second" }, agent).card;
+    expect(second.notes.map((note) => note.text)).toEqual(["first", "second"]);
+    expect(second.revision).toBe(before + 2);
+  });
+
+  it("edits a note's text and link", () => {
+    const { kanban, card: created } = card();
+    const added = kanban.addNote(created.id, { text: "draft" }, human).card;
+    const noteId = added.notes[0]?.id ?? 0;
+
+    const updated = kanban.updateNote(
+      created.id,
+      noteId,
+      { text: "design doc", url: "https://example.com/doc" },
+      human,
+    ).card;
+    expect(updated.notes[0]?.text).toBe("design doc");
+    expect(updated.notes[0]?.url).toBe("https://example.com/doc");
+
+    // a null url clears the link without touching the text
+    const cleared = kanban.updateNote(
+      created.id,
+      noteId,
+      { url: null },
+      human,
+    ).card;
+    expect(cleared.notes[0]?.url).toBeNull();
+    expect(cleared.notes[0]?.text).toBe("design doc");
+  });
+
+  it("removes a note by id", () => {
+    const { kanban, card: created } = card();
+    const added = kanban.addNote(created.id, { text: "keep" }, human).card;
+    const noteId = added.notes[0]?.id ?? 0;
+    kanban.addNote(created.id, { text: "drop" }, human);
+
+    const removed = kanban.removeNote(created.id, noteId, human).card;
+    expect(removed.notes.map((note) => note.text)).toEqual(["drop"]);
+  });
+
+  it("rejects an unknown note id, an empty note, and strangers", () => {
+    const { kanban, card: created } = card();
+    expectKanbanError(
+      () => kanban.removeNote(created.id, 99, human),
+      "card_not_found",
+    );
+    expectKanbanError(
+      () => kanban.addNote(created.id, { text: "   " }, human),
+      "invalid_input",
+    );
+    expectKanbanError(
+      () => kanban.addNote(created.id, { text: "hi" }, otherAgent),
+      "forbidden",
+    );
+  });
+
+  it("is creator-or-assignee, like every other edit", () => {
+    const { kanban, card: created } = card();
+    kanban.edit(created.id, { assignee: "claude-code" }, human);
+    const by = kanban.addNote(
+      created.id,
+      { text: "from the assignee" },
+      agent,
+    ).card;
+    expect(by.notes[0]?.createdBy).toBe("claude-code");
+  });
+
+  it("honours expectedRevision", () => {
+    const { kanban, card: created } = card();
+    expectKanbanError(
+      () =>
+        kanban.addNote(created.id, { text: "x" }, human, "cli", {
+          expectedRevision: 99,
+        }),
+      "revision_conflict",
+    );
+  });
+
+  it("survives a replay of the log", () => {
+    const log = new MemoryEventLog();
+    const kanban = new Kanban({ log });
+    const created = kanban.add({ title: "notes" }, human).card;
+    const added = kanban.addNote(
+      created.id,
+      { text: "design", url: "docs/design.md" },
+      human,
+    ).card;
+    kanban.updateNote(
+      created.id,
+      added.notes[0]?.id ?? 0,
+      { text: "design v2" },
+      human,
+    );
+    kanban.removeNote(created.id, added.notes[0]?.id ?? 0, human);
+    const other = kanban.add({ title: "other" }, human).card;
+    kanban.relate(created.id, other.id, "downstream", human);
+
+    const replayed = new Projection();
+    for (const event of log.since(0)) replayed.apply(event);
+    expect(replayed.card(created.id)?.notes).toEqual(
+      kanban.card(created.id)?.notes,
+    );
+    expect(replayed.board()).toEqual(kanban.board());
   });
 });

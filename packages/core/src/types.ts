@@ -31,8 +31,23 @@ export const EVENT_TYPES = [
   "card.deleted",
   "card.dependency_added",
   "card.dependency_removed",
+  "card.note_added",
+  "card.note_updated",
+  "card.note_removed",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
+
+/**
+ * Which side of a relation the other card sits on.
+ *
+ * The relation itself is one edge stored once (`card.dependency_*`):
+ * `upstream` means the other card is a predecessor this card waits on,
+ * `downstream` means it is a successor waiting on this card. Both directions
+ * are read back off every card, so a card is many cards' predecessor and many
+ * cards' successor at the same time.
+ */
+export const RELATION_DIRECTIONS = ["upstream", "downstream"] as const;
+export type RelationDirection = (typeof RELATION_DIRECTIONS)[number];
 
 export interface Card {
   readonly id: number;
@@ -45,13 +60,35 @@ export interface Card {
   readonly reviewer: string | null;
   /** Project slug this card belongs to, or null for "no project". */
   readonly project: string | null;
-  /** Card ids this card is waiting on. */
+  /**
+   * Card ids this card is waiting on — its predecessors. Mirrored as `blocks`
+   * on those cards, so the relation can be managed from either side.
+   */
   readonly blockedBy: readonly number[];
+  /** Card ids waiting on this card — its successors. */
+  readonly blocks: readonly number[];
+  /**
+   * Free-form remarks, oldest first. The intended use is links to documents
+   * (a design doc for the requirement, say) that a card cannot carry in its
+   * body. A note's id is the id of the event that added it.
+   */
+  readonly notes: readonly CardNote[];
   readonly createdBy: string;
   readonly createdAt: string;
   readonly updatedAt: string;
   /** Bumped on every mutation; used for optimistic concurrency. */
   readonly revision: number;
+}
+
+/** A remark attached to a card — text plus an optional document link. */
+export interface CardNote {
+  /** The id of the `card.note_added` event, so it is stable across replays. */
+  readonly id: number;
+  readonly text: string;
+  /** A document link: http(s) URL, or a path to a local file. */
+  readonly url: string | null;
+  readonly createdBy: string;
+  readonly createdAt: string;
 }
 
 export interface Board {

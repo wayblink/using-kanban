@@ -4,6 +4,9 @@ import {
   CardDependencyPayloadSchema,
   CardMovedPayloadSchema,
   CardUpdatedPayloadSchema,
+  NoteAddedPayloadSchema,
+  NoteRemovedPayloadSchema,
+  NoteUpdatedPayloadSchema,
 } from "./schemas.js";
 import type { Card, Event } from "./types.js";
 import type { EventLog } from "./event-log.js";
@@ -42,11 +45,18 @@ export class Projection {
           reviewer: payload.reviewer,
           project: payload.project,
           blockedBy: payload.blockedBy,
+          blocks: [],
+          notes: payload.notes,
           createdBy: payload.createdBy,
           createdAt: event.ts,
           updatedAt: event.ts,
           revision: 1,
         });
+        // A card created with blockers is the successor end of those edges, so
+        // the predecessors have to learn about it too.
+        for (const upstreamId of payload.blockedBy) {
+          this.link(event.id, upstreamId, event.ts);
+        }
         return;
       }
 
@@ -69,17 +79,90 @@ export class Projection {
 
       case "card.deleted": {
         this.cards.delete(event.cardId);
-        // Drop dangling dependency references.
+        // Drop dangling dependency references on both sides of the edge: the
+        // deleted card's own blockedBy goes with it, and every card that was
+        // waiting on it (or that it was waiting on) loses the reference.
         for (const card of this.cards.values()) {
-          if (card.blockedBy.includes(event.cardId)) {
-            this.cards.set(card.id, {
-              ...card,
-              blockedBy: card.blockedBy.filter((id) => id !== event.cardId),
-              updatedAt: event.ts,
-              revision: card.revision + 1,
-            });
+          const blockedBy = card.blockedBy.filter((id) => id !== event.cardId);
+          const blocks = card.blocks.filter((id) => id !== event.cardId);
+          if (
+            blockedBy.length === card.blockedBy.length &&
+            blocks.length === card.blocks.length
+          ) {
+            continue;
           }
+          this.cards.set(card.id, {
+            ...card,
+            blockedBy,
+            blocks,
+            updatedAt: event.ts,
+            revision: card.revision + 1,
+          });
         }
+        return;
+      }
+
+      case "card.note_added": {
+        const payload = NoteAddedPayloadSchema.parse(event.payload);
+        const card = this.cards.get(event.cardId);
+        if (!card) return;
+        this.cards.set(event.cardId, {
+          ...card,
+          notes: [
+            ...card.notes,
+            {
+              id: event.id,
+              text: payload.text,
+              url: payload.url,
+              createdBy: event.actor.name,
+              createdAt: event.ts,
+            },
+          ],
+          updatedAt: event.ts,
+          revision: card.revision + 1,
+        });
+        return;
+      }
+
+      case "card.note_updated": {
+        const payload = NoteUpdatedPayloadSchema.parse(event.payload);
+        const card = this.cards.get(event.cardId);
+        if (!card) return;
+        const index = card.notes.findIndex((note) => note.id === payload.note);
+        if (index === -1) return;
+        const current = card.notes[index];
+        if (current === undefined) return;
+        const notes = [...card.notes];
+        notes[index] = {
+          ...current,
+          ...(payload.patch.text !== undefined
+            ? { text: payload.patch.text }
+            : {}),
+          ...(payload.patch.url !== undefined
+            ? { url: payload.patch.url }
+            : {}),
+        };
+        this.cards.set(event.cardId, {
+          ...card,
+          notes,
+          updatedAt: event.ts,
+          revision: card.revision + 1,
+        });
+        return;
+      }
+
+      case "card.note_removed": {
+        const payload = NoteRemovedPayloadSchema.parse(event.payload);
+        const card = this.cards.get(event.cardId);
+        if (!card) return;
+        const notes = card.notes.filter((note) => note.id !== payload.note);
+        if (notes.length === card.notes.length) return;
+        this.cards.set(event.cardId, {
+          ...card,
+          notes,
+          updatedAt: event.ts,
+          revision: card.revision + 1,
+        });
         return;
       }
 
@@ -93,6 +176,7 @@ export class Projection {
           updatedAt: event.ts,
           revision: card.revision + 1,
         });
+        this.link(event.cardId, blockedBy, event.ts);
         return;
       }
 
@@ -100,12 +184,14 @@ export class Projection {
         const { blockedBy } = CardDependencyPayloadSchema.parse(event.payload);
         const card = this.cards.get(event.cardId);
         if (!card) return;
+        if (!card.blockedBy.includes(blockedBy)) return;
         this.cards.set(event.cardId, {
           ...card,
           blockedBy: card.blockedBy.filter((id) => id !== blockedBy),
           updatedAt: event.ts,
           revision: card.revision + 1,
         });
+        this.unlink(event.cardId, blockedBy, event.ts);
         return;
       }
     }
@@ -193,6 +279,35 @@ export class Projection {
     const card = this.cards.get(cardId);
     if (!card) return;
     this.cards.set(cardId, this.touch(card, patch, ts));
+  }
+
+  /**
+   * Records the successor side of an edge: `successorId` waits on `upstreamId`,
+   * so `upstreamId` gains `successorId` in its `blocks` list. The event that
+   * created the edge already bumped the successor's revision; the predecessor
+   * only gets its derived list, so its revision is bumped too — its snapshot
+   * really did change.
+   */
+  private link(successorId: number, upstreamId: number, ts: string): void {
+    const upstream = this.cards.get(upstreamId);
+    if (!upstream || upstream.blocks.includes(successorId)) return;
+    this.cards.set(upstreamId, {
+      ...upstream,
+      blocks: [...upstream.blocks, successorId],
+      updatedAt: ts,
+      revision: upstream.revision + 1,
+    });
+  }
+
+  private unlink(successorId: number, upstreamId: number, ts: string): void {
+    const upstream = this.cards.get(upstreamId);
+    if (!upstream || !upstream.blocks.includes(successorId)) return;
+    this.cards.set(upstreamId, {
+      ...upstream,
+      blocks: upstream.blocks.filter((id) => id !== successorId),
+      updatedAt: ts,
+      revision: upstream.revision + 1,
+    });
   }
 
   private touch(card: Card, patch: CardPatch | undefined, ts: string): Card {

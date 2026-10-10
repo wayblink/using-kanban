@@ -4,23 +4,30 @@ import type { EventLog } from "./event-log.js";
 import { Projection } from "./projection.js";
 import {
   AddCardInputSchema,
+  AddNoteInputSchema,
   CardStateSchema,
   EditCardInputSchema,
   MutationOptionsSchema,
+  RelationDirectionSchema,
+  UpdateNoteInputSchema,
 } from "./schemas.js";
 import type {
   AddCardInput,
+  AddNoteInput,
   EditCardInput,
   MutationOptions,
+  UpdateNoteInput,
 } from "./schemas.js";
 import type {
   Actor,
   Board,
   Card,
+  CardNote,
   CardState,
   Event,
   EventSource,
   NewEvent,
+  RelationDirection,
 } from "./types.js";
 
 export interface MutationResult {
@@ -131,6 +138,7 @@ export class Kanban {
         reviewer: parsed.reviewer ?? null,
         project: parsed.project?.trim() || null,
         blockedBy: parsed.blockedBy ?? [],
+        notes: [],
         createdBy: actor.name,
       },
     });
@@ -297,26 +305,9 @@ export class Kanban {
     source: EventSource = "cli",
   ): MutationResult {
     this.projection.sync(this.log);
-    const card = this.mustCard(id);
+    this.mustCard(id);
     this.mustCard(blockedById);
-    this.assertCanModify(card, actor);
-    if (id === blockedById) {
-      throw new KanbanError("invalid_input", `card ${id} cannot block itself`);
-    }
-    if (card.blockedBy.includes(blockedById)) return { card, events: [] };
-    if (this.projection.isBlockedTransitively(blockedById, id)) {
-      throw new KanbanError(
-        "invalid_input",
-        `blocking card ${id} on card ${blockedById} would create a circular dependency`,
-      );
-    }
-    return this.emit({
-      actor,
-      source,
-      type: "card.dependency_added",
-      cardId: id,
-      payload: { blockedBy: blockedById },
-    });
+    return this.addEdge(id, blockedById, actor, source);
   }
 
   /** Remove a dependency between two cards. */
@@ -327,15 +318,128 @@ export class Kanban {
     source: EventSource = "cli",
   ): MutationResult {
     this.projection.sync(this.log);
+    this.mustCard(id);
+    return this.removeEdge(id, blockedById, actor, source);
+  }
+
+  /**
+   * Relate two cards. `direction` is the side `otherId` sits on relative to
+   * `id`: `upstream` makes this card wait on it, `downstream` makes it wait on
+   * this card. Both directions land on the same edge, so relating twice in
+   * opposite orders cannot create two edges.
+   */
+  relate(
+    id: number,
+    otherId: number,
+    direction: RelationDirection,
+    actor: Actor,
+    source: EventSource = "cli",
+  ): MutationResult {
+    const side = this.parseInput(RelationDirectionSchema, direction);
+    this.projection.sync(this.log);
     const card = this.mustCard(id);
+    const other = this.mustCard(otherId);
+    if (id === otherId) {
+      throw new KanbanError(
+        "invalid_input",
+        `card ${id} cannot be related to itself`,
+      );
+    }
+    const successorId = side === "upstream" ? card.id : other.id;
+    const upstreamId = side === "upstream" ? other.id : card.id;
+    return this.addEdge(successorId, upstreamId, actor, source);
+  }
+
+  /** Remove the relation between two cards, whichever way round it is. */
+  unrelate(
+    id: number,
+    otherId: number,
+    actor: Actor,
+    source: EventSource = "cli",
+  ): MutationResult {
+    this.projection.sync(this.log);
+    const card = this.mustCard(id);
+    const other = this.mustCard(otherId);
+    if (card.blockedBy.includes(otherId)) {
+      return this.removeEdge(card.id, other.id, actor, source);
+    }
+    if (other.blockedBy.includes(card.id)) {
+      return this.removeEdge(other.id, card.id, actor, source);
+    }
+    return { card, events: [] };
+  }
+
+  /** Attach a remark — text plus an optional document link — to a card. */
+  addNote(
+    id: number,
+    input: AddNoteInput,
+    actor: Actor,
+    source: EventSource = "cli",
+    options?: MutationOptions,
+  ): MutationResult {
+    const parsed = this.parseInput(AddNoteInputSchema, input);
+    this.projection.sync(this.log);
+    const card = this.mustCard(id);
+    this.checkRevision(card, options);
     this.assertCanModify(card, actor);
-    if (!card.blockedBy.includes(blockedById)) return { card, events: [] };
     return this.emit({
       actor,
       source,
-      type: "card.dependency_removed",
+      type: "card.note_added",
       cardId: id,
-      payload: { blockedBy: blockedById },
+      payload: { text: parsed.text, url: parsed.url ?? null },
+    });
+  }
+
+  /** Edit a note's text and/or link. The note id is its `card.note_added` id. */
+  updateNote(
+    id: number,
+    noteId: number,
+    input: UpdateNoteInput,
+    actor: Actor,
+    source: EventSource = "cli",
+    options?: MutationOptions,
+  ): MutationResult {
+    const parsed = this.parseInput(UpdateNoteInputSchema, input);
+    this.projection.sync(this.log);
+    const card = this.mustCard(id);
+    this.checkRevision(card, options);
+    this.assertCanModify(card, actor);
+    this.mustNote(card, noteId);
+    return this.emit({
+      actor,
+      source,
+      type: "card.note_updated",
+      cardId: id,
+      payload: {
+        note: noteId,
+        patch: {
+          ...(parsed.text !== undefined ? { text: parsed.text } : {}),
+          ...(parsed.url !== undefined ? { url: parsed.url } : {}),
+        },
+      },
+    });
+  }
+
+  /** Remove a note from a card. */
+  removeNote(
+    id: number,
+    noteId: number,
+    actor: Actor,
+    source: EventSource = "cli",
+    options?: MutationOptions,
+  ): MutationResult {
+    this.projection.sync(this.log);
+    const card = this.mustCard(id);
+    this.checkRevision(card, options);
+    this.assertCanModify(card, actor);
+    this.mustNote(card, noteId);
+    return this.emit({
+      actor,
+      source,
+      type: "card.note_removed",
+      cardId: id,
+      payload: { note: noteId },
     });
   }
 
@@ -345,6 +449,59 @@ export class Kanban {
 
   /* ------------------------------ internals ----------------------------- */
 
+  /**
+   * The one place an edge is written: `successorId` waits on `upstreamId`.
+   * Both `block` and `relate` funnel through here, so a relation is stored
+   * exactly once no matter which card you started from.
+   */
+  private addEdge(
+    successorId: number,
+    upstreamId: number,
+    actor: Actor,
+    source: EventSource,
+  ): MutationResult {
+    const card = this.mustCard(successorId);
+    this.mustCard(upstreamId);
+    this.assertCanModify(card, actor);
+    if (successorId === upstreamId) {
+      throw new KanbanError(
+        "invalid_input",
+        `card ${successorId} cannot be related to itself`,
+      );
+    }
+    if (card.blockedBy.includes(upstreamId)) return { card, events: [] };
+    if (this.projection.isBlockedTransitively(upstreamId, successorId)) {
+      throw new KanbanError(
+        "invalid_input",
+        `making card ${successorId} wait on card ${upstreamId} would create a circular dependency`,
+      );
+    }
+    return this.emit({
+      actor,
+      source,
+      type: "card.dependency_added",
+      cardId: successorId,
+      payload: { blockedBy: upstreamId },
+    });
+  }
+
+  private removeEdge(
+    successorId: number,
+    upstreamId: number,
+    actor: Actor,
+    source: EventSource,
+  ): MutationResult {
+    const card = this.mustCard(successorId);
+    this.assertCanModify(card, actor);
+    if (!card.blockedBy.includes(upstreamId)) return { card, events: [] };
+    return this.emit({
+      actor,
+      source,
+      type: "card.dependency_removed",
+      cardId: successorId,
+      payload: { blockedBy: upstreamId },
+    });
+  }
   private transition(
     id: number,
     to: CardState,
@@ -438,6 +595,17 @@ export class Kanban {
       "forbidden",
       `only the creator (${card.createdBy}) or assignee (${card.assignee ?? "unassigned"}) can modify card ${card.id}`,
     );
+  }
+
+  private mustNote(card: Card, noteId: number): CardNote {
+    const note = card.notes.find((entry) => entry.id === noteId);
+    if (!note) {
+      throw new KanbanError(
+        "card_not_found",
+        `note ${noteId} is not on card ${card.id}`,
+      );
+    }
+    return note;
   }
 
   private checkRevision(card: Card, options?: MutationOptions): void {
