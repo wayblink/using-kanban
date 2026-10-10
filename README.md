@@ -16,7 +16,7 @@ opencode, Pi, …) share one board. No team concept, no message bus, no daemon.
 | ------------------------------- | ------ | -------------------------------------------------------------------- |
 | `@wayblink/using-kanban-core`   | ✅     | Event-sourced engine: event log, projection, transition guards       |
 | `@wayblink/using-kanban-server` | ✅     | REST + SSE API, token auth, OpenAPI, static UI hosting, `ukb-server` |
-| `@wayblink/using-kanban-mcp`    | ✅     | MCP stdio server, 19 tools — the multi-framework front door          |
+| `@wayblink/using-kanban-mcp`    | ✅     | MCP stdio server, 20 tools — the multi-framework front door          |
 | `@wayblink/using-kanban-web`    | ✅     | Default Web UI: drag & drop, live over SSE, one self-contained file  |
 | `@wayblink/using-kanban-cli`    | ✅     | `ukb` binary + `ukb init --for <framework>` installers               |
 
