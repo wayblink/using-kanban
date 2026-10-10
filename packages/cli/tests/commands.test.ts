@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
+import type { Card } from "@wayblink/using-kanban-core";
 import { runCommand, type Io } from "../src/commands.js";
 import { resolveActor } from "../src/identity.js";
 import { UsageError } from "../src/argv.js";
@@ -202,13 +203,14 @@ describe("identity", () => {
 });
 
 describe("render", () => {
-  const card = {
+  const card: Card = {
     id: 3,
     title: "ship it",
     body: null,
-    state: "todo" as const,
+    state: "todo",
     assignee: "codex",
     reviewer: "jyxc",
+    project: null,
     blockedBy: [1],
     createdBy: "jyxc",
     createdAt: "2026-01-01T00:00:00.000Z",
