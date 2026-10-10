@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
-import { runCommand, type Io } from "../src/commands.js";
+import { CLI_COMMANDS, runCommand, type Io } from "../src/commands.js";
 import { FRAMEWORKS } from "../src/init.js";
 
 const tempDirs: string[] = [];
@@ -422,13 +422,15 @@ describe("ukb init --for pi", () => {
 
     expect(manifest.pi.extensions).toEqual(["./extensions"]);
     expect(manifest.pi.skills).toEqual(["./skills"]);
-    // the extension must exist and register the MCP server with direct exposure
+    // the extension must exist and register the board as a native tool the
+    // model can actually see (plus a /ukb slash command for the human)
     const extension = readFileSync(
       join(pkg, "extensions/using-kanban/index.ts"),
       "utf8",
     );
-    expect(extension).toContain('exposure: "direct"');
-    expect(extension).toContain("registerMcpServer");
+    expect(extension).toContain("registerTool");
+    expect(extension).toContain('name: "ukb"');
+    expect(extension).toContain('registerCommand("ukb"');
     // and the skill must carry the workflow
     const skill = readFileSync(
       join(pkg, "skills/using-kanban/SKILL.md"),
@@ -477,9 +479,62 @@ describe("the pi package's skill", () => {
       "ukb review",
       "claim_conflict",
       "board_not_found",
-      "Blockers are enforced",
+      "Relations run both ways",
+      "Notes carry the paperwork",
     ]) {
       expect(text, `skill lost "${fragment}"`).toContain(fragment);
+    }
+  });
+
+  it("documents every board verb the tool exposes", () => {
+    const text = skill();
+    for (const verb of [
+      "ukb relate",
+      "ukb unrelate",
+      "ukb note",
+      "ukb note-edit",
+      "ukb note-remove",
+    ]) {
+      expect(text, `skill lost "${verb}"`).toContain(verb);
+    }
+  });
+});
+
+describe("the pi extension stays in step with the CLI", () => {
+  const extension = () =>
+    readFileSync(
+      join(resolveLocalPackageForTest(), "extensions/using-kanban/index.ts"),
+      "utf8",
+    );
+
+  /** The ACTIONS array the tool's schema is built from. */
+  const actions = (): string[] => {
+    const block =
+      /const ACTIONS = \[([^\]]*)\] as const;/.exec(extension())?.[1] ?? "";
+    return [...block.matchAll(/"([^"]+)"/g)].map((match) => match[1] ?? "");
+  };
+
+  it("exposes every board verb the CLI has, and nothing it does not", () => {
+    // setup verbs are not the agent's business
+    const notForTheTool = new Set(["web", "init", "doctor", "help"]);
+    const cliVerbs = CLI_COMMANDS.filter((verb) => !notForTheTool.has(verb));
+    expect(actions().sort()).toEqual([...cliVerbs].sort());
+  });
+
+  it("carries the arguments the new verbs need", () => {
+    const source = extension();
+    for (const fragment of [
+      '"relate"',
+      '"unrelate"',
+      '"note"',
+      '"note-edit"',
+      '"note-remove"',
+      'flag("--with", params.other)',
+      'flag("--as", params.direction)',
+      "noteId",
+      'flag("--url", params.url)',
+    ]) {
+      expect(source, `extension lost "${fragment}"`).toContain(fragment);
     }
   });
 });

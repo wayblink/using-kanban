@@ -501,3 +501,5 @@ function requireId(value: string | undefined, command: string): number {
 }
 
 export { formatCardBrief, resolveDefaultUiDir };
+/** Every subcommand the CLI accepts — other front doors check themselves against it. */
+export const CLI_COMMANDS = COMMANDS;

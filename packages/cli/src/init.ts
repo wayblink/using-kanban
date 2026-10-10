@@ -119,7 +119,9 @@ This project shares a kanban board (\`.ukb/\`) between you and the human.
 - Always claim before starting: \`ukb claim <id>\` — it moves the card to doing and marks you as the owner.
 - When the work is ready: \`ukb review <id>\`. As the reviewer, approve with \`ukb done <id>\`.
 - If work has to go back: \`ukb reopen <id>\` and say why via \`ukb edit <id> --body "..."\`.
-- Prefer the \`kanban_*\` MCP tools when they are available; fall back to the CLI.
+- Wire up what a card depends on: \`ukb relate <id> --with <other> --as upstream\` (or \`downstream\`). Unfinished upstream work blocks a claim.
+- Put the paperwork on the card, not in the body: \`ukb note <id> "design doc" --url docs/design.md\`. Local markdown and HTML render in the Web UI.
+- Prefer the structured tools when they are available — the \`ukb\` tool on Pi, the \`kanban_*\` MCP tools elsewhere — and fall back to the CLI.
 
 \`ukb board\` shows everything. \`ukb web\` opens the board in a browser.
 ${DOCS_END}`;
@@ -354,9 +356,10 @@ function upsertToml(
  * array in ~/.pi/agent/settings.json.
  *
  * A plain mcp.json entry is not enough: it defaults to `exposure: "codemode"`,
- * so the tools stay invisible to the model. The package registers the same
- * server as an extension with `exposure: "direct"`, which is what puts the
- * tools in the agent's context.
+ * so the tools stay invisible to the model. The package instead registers a
+ * native `ukb` tool (and a `/ukb` slash command) as a Pi extension, which lands
+ * the board directly in the agent's tool list — the difference between an agent
+ * using the board and never touching it.
  */
 function registerPiPackage(home: string, dryRun: boolean): void {
   const settingsPath = join(home, ".pi", "agent", "settings.json");

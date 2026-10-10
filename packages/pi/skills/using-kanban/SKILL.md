@@ -67,9 +67,16 @@ ukb mine --project web                      # my work in one project
 A card with no project is in **no** project — a project filter is a partition,
 not an overlay. Slugs are lowercased and limited to `[a-z0-9._-]`.
 
-## Blockers are enforced
+## Relations run both ways
 
-A card with an unfinished blocker **cannot be claimed or moved into `doing`** —
+`ukb relate <id> --with <other> --as upstream|downstream` wires two cards
+together. `--as upstream` says the other card is a **predecessor** this one waits
+on; `--as downstream` says it is a **successor** waiting on this one. Both
+spellings write the same single edge, so you can relate from whichever card you
+are holding, and `ukb show` prints both ends — what a card waits on, and what
+waits on it. `ukb unrelate <id> --with <other>` drops the edge from either side.
+
+A card with unfinished upstream work **cannot be claimed or moved into `doing`** —
 the point is that nobody picks up work that is not actually ready. The error
 names the blockers and their states:
 
@@ -82,6 +89,22 @@ satisfied, otherwise deleting a card could block another one forever; and
 `done` is never gated, so an irrelevant blocker cannot become a dead end.
 `review` is not gated either — by then the work is already finished, and
 refusing would only create friction.
+
+## Notes carry the paperwork
+
+A card's body is for the work. When there is a document behind it — the design
+doc for the requirement, a runbook, a mockup — put it on the card as a note:
+
+```bash
+ukb note 4 "requirement design doc" --url docs/design.md
+ukb note-edit 4 12 --url docs/design-v2.md
+ukb note-remove 4 12
+```
+
+The link is either `https://…` or a path to a file on this machine. Local
+markdown and HTML are rendered in the human's Web UI, so a doc that lives in the
+repo does not have to be pasted anywhere. Use it rather than growing a body into
+an essay: one link, one line of what it is.
 
 ## One board, not one per directory
 
@@ -108,16 +131,28 @@ ukb move <id> <todo|doing|review|done>
 ukb reopen <id>                  # back to todo
 ukb block <id> --by <other>      # make a card wait on another
 ukb unblock <id> --by <other>
+ukb relate <id> --with <other> --as upstream    # or downstream
+ukb unrelate <id> --with <other>
+ukb note <id> "design doc" --url docs/design.md # a remark + document link
+ukb note-edit <id> <noteId> [--url …]
+ukb note-remove <id> <noteId>
 ukb delete <id>                  # creator only
 ukb web                          # API + Web UI for a human to watch
 ```
 
-If MCP tools named `kanban_*` are available, prefer them: they are always in
-context, take structured arguments, and avoid shell quoting problems.
+A `ukb` tool is registered in your context (and a `/ukb` slash command for the human).
+Prefer the tool over shelling out yourself: it takes structured arguments, avoids
+quoting problems, and draws each result as a colour-coded block — green on
+success, red on error. It maps one-to-one onto the commands above — `ukb add
+"…"` is `{ action: "add", title: "…" }`, `ukb claim 3` is `{ action: "claim",
+id: 3 }`, `ukb move 3 doing` is `{ action: "move", id: 3, column: "doing" }`,
+`ukb relate 2 --with 1 --as upstream` is `{ action: "relate", id: 2, other: 1,
+direction: "upstream" }`, and `ukb note 4 "design doc" --url docs/design.md` is
+`{ action: "note", id: 4, text: "design doc", url: "docs/design.md" }`.
 
 ## Permissions and failures
 
-Cooperative, not enforced: `delete` is creator-only, `edit`/`block` are
+Cooperative, not enforced: `delete` is creator-only, `edit`/`block`/`note` are
 creator-or-assignee. Failures exit non-zero with a stable code:
 
 - `claim_conflict` — someone else owns it; move on
