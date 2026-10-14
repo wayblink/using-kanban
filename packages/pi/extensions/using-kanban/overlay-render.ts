@@ -1,0 +1,646 @@
+/**
+ * overlay-render.ts — pure rendering for the ukb board overlay.
+ *
+ * Nothing here imports a Pi module at runtime: the theme, the width truncator,
+ * and the visible-width measurer are injected. That keeps the layout a pure
+ * function of `(snapshot, options)` and unit-testable without a Pi host.
+ * `overlay.ts` owns the widget lifecycle; `index.ts` owns wiring.
+ *
+ * The overlay shows what the reader can act on first — `doing`, then the `todo`
+ * backlog — and the `review` queue last, because a review row is work the reader
+ * is *waiting* on rather than work they can pick up. `done` never occupies a
+ * row; it is a count in the heading. That is what keeps the widget bounded on a
+ * board with a hundred cards in it.
+ *
+ * Inside a state, priority orders the rows: `high`, `normal`, `low`, `pending`.
+ * Without it a board with a long backlog interleaves shelved ideas with live
+ * work, and the panel stops answering "what should I do next".
+ *
+ * The order matters more than it looks. On a board where one project has eleven
+ * review cards and fourteen todo cards, putting review first hid every piece of
+ * available work behind a queue the reader cannot clear — the panel read as
+ * "nothing to do" when the opposite was true.
+ */
+
+import type { OverlayGroup, OverlayScope } from "./config.js";
+
+/** Widget key registered with Pi's `setWidget`. Rename = the widget disappears. */
+export const OVERLAY_WIDGET_KEY = "ukb-board";
+
+export type CardState = "todo" | "doing" | "review" | "done";
+
+/**
+ * How urgently a card wants attention. In sort order, so the index difference
+ * is the priority difference.
+ *
+ * `low` is minor but still wanted; `pending` is deliberately shelved until
+ * something outside the card changes. Two different intents, which is why they
+ * are not one value.
+ */
+export const CARD_PRIORITIES = ["high", "normal", "low", "pending"] as const;
+export type CardPriority = (typeof CARD_PRIORITIES)[number];
+
+/** The subset of a card the overlay renders. */
+export interface CardLite {
+  readonly id: number;
+  readonly title: string;
+  readonly state: CardState;
+  readonly assignee: string | null;
+  readonly reviewer: string | null;
+  readonly project: string | null;
+  readonly blockedBy: readonly number[];
+  /** Absent on brief JSON written before priorities existed. */
+  readonly priority?: CardPriority;
+}
+
+/** The board as `ukb board --json` writes it. */
+export interface BoardSnapshot {
+  readonly projects: readonly string[];
+  readonly todo: readonly CardLite[];
+  readonly doing: readonly CardLite[];
+  readonly review: readonly CardLite[];
+  readonly done: readonly CardLite[];
+}
+
+/**
+ * The theme surface the renderer uses. Structural on purpose — Pi's `Theme`
+ * satisfies it, and a test can pass an identity theme.
+ */
+export interface OverlayTheme {
+  fg(color: string, text: string): string;
+  bold(text: string): string;
+  strikethrough(text: string): string;
+}
+
+export interface OverlayRenderOptions {
+  readonly theme: OverlayTheme;
+  readonly truncate: (line: string, width: number) => string;
+  readonly visibleWidth: (text: string) => number;
+  readonly width: number;
+  /** Row budget including the heading but excluding the trailing spacer. */
+  readonly budget: number;
+  readonly collapsed: boolean;
+  /** Resolved collapse key, or `"off"` when no shortcut is bound. */
+  readonly collapseKey: string;
+  /** Visible scope in the heading (`using-kanban`, `mine:pi`, or `all`). */
+  readonly scopeLabel?: string;
+  /** Row ordering and optional inline group column. */
+  readonly groupBy?: OverlayGroup;
+}
+
+const CARD_STATES: readonly CardState[] = ["todo", "doing", "review", "done"];
+
+/**
+ * State marker spelled out in front of every row.
+ *
+ * An icon-only marker (`○ ◐ ◆ ●`) reads as decoration: a reader has to learn a
+ * private legend to know whether a card is being worked on or waiting for
+ * review, and the legend is nowhere else in the board. `[doing]` says it in the
+ * same words the board's own columns use, so the row is self-describing and a
+ * screenshot of the terminal carries its own legend. The cost is six
+ * characters of width, which the row budget absorbs — see `renderRow`.
+ */
+const STATE_TAG: Record<CardState, string> = {
+  todo: "[todo]",
+  doing: "[doing]",
+  review: "[review]",
+  done: "[done]",
+};
+
+/** Label used when a column's name is spelled out in the overflow summary. */
+const STATE_LABEL: Record<CardState, string> = {
+  todo: "todo",
+  doing: "doing",
+  review: "review",
+  done: "done",
+};
+
+/* ------------------------------- sanitize -------------------------------- */
+
+/**
+ * Remove terminal control characters from model-authored card text before it
+ * reaches Pi's renderer. Complete CSI/OSC sequences are dropped whole (no
+ * printable `[31m` remnants), newlines and tabs become spaces so a field cannot
+ * change the layout, and bidi controls are removed so a title cannot reorder
+ * how neighbouring output reads.
+ *
+ * A card title is untrusted input — any agent that can `ukb add` can write it.
+ *
+ * This is a deliberate copy of the canonical implementation in
+ * `packages/core/src/sanitize.ts` (which the CLI's renderer uses). Sharing it
+ * would need a subpath export on core plus a core dependency here, and any
+ * dependency on this package makes pnpm resolve its host-provided peers — a
+ * churned lockfile that installs a second copy of pi-tui/typebox in CI. See
+ * packages/cli/tests/pi-overlay-parity.test.ts: the two are asserted equal
+ * byte-for-byte, so they cannot drift.
+ */
+/* eslint-disable no-control-regex -- matching control characters is exactly what
+   this function is for; the rule guards against accidental ones. */
+export function sanitizeTerminalText(value: string): string {
+  return (
+    value
+      // CSI sequences, via both ESC-[ and the C1 single-byte introducer.
+      .replace(/(?:\u001b\[|\u009b)[0-?]*[ -/]*[@-~]/g, "")
+      // OSC sequences with their payload; an unterminated OSC swallows the rest
+      // of the string, matching how a real terminal would treat it.
+      .replace(
+        /(?:\u001b\]|\u009d)[^\u0007\u009c\u001b]*(?:\u0007|\u009c|\u001b\\)?/g,
+        "",
+      )
+      // Any remaining two-character ESC sequence.
+      .replace(/\u001b./g, "")
+      // Unicode line/paragraph separators join lines like \n does below.
+      .replace(/[\u2028\u2029]/g, " ")
+      .replace(/[\u0000-\u001f\u007f-\u009f]/g, (character) =>
+        character === "\n" || character === "\r" || character === "\t"
+          ? " "
+          : "",
+      )
+      // Bidi embedding/override/isolate controls and LRM/RLM marks.
+      .replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, "")
+  );
+}
+/* eslint-enable no-control-regex */
+
+/* -------------------------------- parsing -------------------------------- */
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function toCardLite(value: unknown, state: CardState): CardLite | null {
+  if (!isRecord(value)) return null;
+  const id = value.id;
+  const title = value.title;
+  if (typeof id !== "number" || !Number.isInteger(id) || id <= 0) return null;
+  if (typeof title !== "string") return null;
+  const priority = stringOrNull(value.priority);
+  return {
+    id,
+    title,
+    state,
+    assignee: stringOrNull(value.assignee),
+    reviewer: stringOrNull(value.reviewer),
+    project: stringOrNull(value.project),
+    blockedBy: Array.isArray(value.blockedBy)
+      ? value.blockedBy.filter(
+          (entry): entry is number => typeof entry === "number",
+        )
+      : [],
+    priority:
+      priority !== null &&
+      (CARD_PRIORITIES as readonly string[]).includes(priority)
+        ? (priority as CardPriority)
+        : "normal",
+  };
+}
+
+/**
+ * Decode `ukb board --json`. Returns `null` for anything we cannot trust —
+ * empty output, an error message, a shape missing a column — so the caller can
+ * hide the widget instead of rendering a half-board.
+ *
+ * A single malformed card is skipped rather than failing the whole snapshot:
+ * one bad row should not blank the overlay.
+ */
+export function parseBoardJson(text: string): BoardSnapshot | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!isRecord(parsed)) return null;
+
+  const columns: Record<CardState, CardLite[]> = {
+    todo: [],
+    doing: [],
+    review: [],
+    done: [],
+  };
+  for (const state of CARD_STATES) {
+    const raw = parsed[state];
+    if (!Array.isArray(raw)) return null;
+    columns[state] = raw
+      .map((entry) => toCardLite(entry, state))
+      .filter((card): card is CardLite => card !== null);
+  }
+
+  const projects = Array.isArray(parsed.projects)
+    ? parsed.projects.filter(
+        (entry): entry is string => typeof entry === "string",
+      )
+    : [];
+
+  return {
+    projects,
+    todo: columns.todo,
+    doing: columns.doing,
+    review: columns.review,
+    done: columns.done,
+  };
+}
+
+/* ------------------------------- selectors ------------------------------- */
+
+export interface OverlayCounts {
+  readonly todo: number;
+  readonly doing: number;
+  readonly review: number;
+  readonly done: number;
+}
+
+export interface OverlayView {
+  readonly scope: OverlayScope;
+  readonly project: string | null;
+  readonly agent: string;
+  readonly groupBy: OverlayGroup;
+  /**
+   * Content-row budget including the heading. Part of the view rather than a
+   * separate setting so `/ukb gui show lines=30` can raise it for one
+   * session without touching the configured default.
+   */
+  readonly maxLines: number;
+}
+
+export interface ScopedBoard {
+  readonly snapshot: BoardSnapshot;
+  readonly label: string;
+}
+
+/** Apply the view before counts, overflow and auto-hide are calculated. */
+export function scopeBoard(
+  snapshot: BoardSnapshot,
+  view: OverlayView,
+): ScopedBoard {
+  let include: (card: CardLite) => boolean;
+  let label: string;
+  if (view.scope === "all") {
+    include = () => true;
+    label = "all";
+  } else if (view.scope === "mine") {
+    include = (card) =>
+      card.assignee === view.agent || card.reviewer === view.agent;
+    label = `mine:${view.agent}`;
+  } else if (view.project) {
+    include = (card) => card.project === view.project;
+    label = view.project;
+  } else {
+    // Git-less / anonymous cwd: do not turn a healthy board into an invisible
+    // empty widget. The heading says `all`, making the fallback explicit.
+    include = () => true;
+    label = "all";
+  }
+
+  return {
+    label,
+    snapshot: {
+      projects: snapshot.projects,
+      todo: snapshot.todo.filter(include),
+      doing: snapshot.doing.filter(include),
+      review: snapshot.review.filter(include),
+      done: snapshot.done.filter(include),
+    },
+  };
+}
+
+export function countCards(snapshot: BoardSnapshot): OverlayCounts {
+  return {
+    todo: snapshot.todo.length,
+    doing: snapshot.doing.length,
+    review: snapshot.review.length,
+    done: snapshot.done.length,
+  };
+}
+
+/** Open work: everything not in `done`. Zero means there is nothing to watch. */
+export function openCardCount(snapshot: BoardSnapshot): number {
+  return snapshot.todo.length + snapshot.doing.length + snapshot.review.length;
+}
+
+export interface OverlayRow {
+  readonly card: CardLite;
+  readonly state: CardState;
+  /** Inline group column. Only the first row in a group prints the label. */
+  readonly groupLabel: string | null;
+  readonly groupStart: boolean;
+}
+
+export interface OverlayLayout {
+  readonly rows: readonly OverlayRow[];
+  readonly hidden: readonly OverlayRow[];
+}
+
+function byId(cards: readonly CardLite[]): readonly CardLite[] {
+  return [...cards].sort(compareByPriority);
+}
+
+/**
+ * Reading order inside one state: priority, then id.
+ *
+ * A deliberate copy of `compareByPriority` in `packages/core`, for the same
+ * reason the sanitizer is a copy — see the note on `sanitizeTerminalText`.
+ * `packages/cli/tests/pi-overlay-parity.test.ts` keeps the two honest.
+ */
+function compareByPriority(a: CardLite, b: CardLite): number {
+  return (
+    CARD_PRIORITIES.indexOf(a.priority ?? "normal") -
+      CARD_PRIORITIES.indexOf(b.priority ?? "normal") || a.id - b.id
+  );
+}
+
+/** Row order: what you can act on, then what you are waiting on. */
+const STATE_ORDER: Record<CardState, number> = {
+  doing: 0,
+  todo: 1,
+  review: 2,
+  done: 3,
+};
+
+function ownerGroup(card: CardLite): string {
+  if (card.state === "review")
+    return card.reviewer ? `@${card.reviewer}` : "review queue";
+  return card.assignee ? `@${card.assignee}` : "unassigned";
+}
+
+function groupedRows(
+  cards: readonly CardLite[],
+  groupBy: "project" | "owner",
+): OverlayRow[] {
+  const keyed = cards.map((card) => ({
+    card,
+    label:
+      groupBy === "project" ? (card.project ?? "no project") : ownerGroup(card),
+  }));
+  keyed.sort(
+    (a, b) =>
+      a.label.localeCompare(b.label) ||
+      STATE_ORDER[a.card.state] - STATE_ORDER[b.card.state] ||
+      compareByPriority(a.card, b.card),
+  );
+  let previous: string | null = null;
+  return keyed.map(({ card, label }) => {
+    const row: OverlayRow = {
+      card,
+      state: card.state,
+      groupLabel: label,
+      groupStart: label !== previous,
+    };
+    previous = label;
+    return row;
+  });
+}
+
+/**
+ * Rows in display order — doing, then todo, then review — trimmed to fit
+ * `bodyBudget`. When anything is trimmed one row is reserved for the overflow
+ * summary, so `rows.length + 1 <= bodyBudget` on the overflow path.
+ *
+ * Doing rows come first and are therefore only ever dropped when they alone
+ * exceed the budget; a card someone is working on is the last thing to vanish.
+ * Review rows are the first to go: they are the part of the board the reader
+ * cannot act on from here.
+ */
+export function selectOverlayRows(
+  snapshot: BoardSnapshot,
+  bodyBudget: number,
+  groupBy: OverlayGroup = "state",
+): OverlayLayout {
+  // The column is authoritative. Tests deliberately reuse a card fixture with
+  // a stale `state`, and old JSON producers may do the same.
+  const cards: CardLite[] = [
+    ...snapshot.doing.map((card) => ({ ...card, state: "doing" as const })),
+    ...snapshot.review.map((card) => ({ ...card, state: "review" as const })),
+    ...snapshot.todo.map((card) => ({ ...card, state: "todo" as const })),
+  ];
+  const all: OverlayRow[] =
+    groupBy === "project" || groupBy === "owner"
+      ? groupedRows(cards, groupBy)
+      : (groupBy === "none"
+          ? byId(cards)
+          : [
+              ...byId(cards.filter((card) => card.state === "doing")),
+              ...byId(cards.filter((card) => card.state === "todo")),
+              ...byId(cards.filter((card) => card.state === "review")),
+            ]
+        ).map((card) => ({
+          card,
+          state: card.state,
+          groupLabel: null,
+          groupStart: false,
+        }));
+
+  if (all.length <= bodyBudget) return { rows: all, hidden: [] };
+
+  const visibleCount = Math.max(0, bodyBudget - 1);
+  return {
+    rows: all.slice(0, visibleCount),
+    hidden: all.slice(visibleCount),
+  };
+}
+
+/* ------------------------------- rendering ------------------------------- */
+
+/** Counts in the same order as the rows, so the panel reads top to bottom. */
+function headingSegments(counts: OverlayCounts): string {
+  const parts: string[] = [];
+  if (counts.doing > 0) parts.push(`${counts.doing} doing`);
+  if (counts.todo > 0) parts.push(`${counts.todo} todo`);
+  if (counts.review > 0) parts.push(`${counts.review} review`);
+  if (counts.done > 0) parts.push(`${counts.done} done`);
+  return parts.length > 0 ? parts.join(" · ") : "empty";
+}
+
+/**
+ * The priority as a bracketed tag, always printed.
+ *
+ * It sits immediately after the state tag, so the two attributes read as a pair
+ * (`[todo][high]`) and the eye takes them in before the id.
+ *
+ * `normal` prints too. Suppressing it would save six characters on most rows,
+ * but a row without the tag reads as malformed next to rows that have one, and
+ * the reader cannot tell "normal" from "this card predates priorities" — which
+ * matters, because the two sort differently against a `low` card.
+ */
+function priorityTag(card: CardLite): string {
+  return `[${card.priority ?? "normal"}]`;
+}
+
+/**
+ * Who the row is waiting on: the assignee while doing, the reviewer in review.
+ *
+ * A review row with no reviewer prints nothing. `[review]` at the front already
+ * says the card is sitting in the review column, so `→ review` would repeat the
+ * tag without naming anybody; the suffix only earns its width when it points at
+ * a person who can be chased.
+ */
+function ownerSuffix(row: OverlayRow): string {
+  if (row.state === "doing") return `@${row.card.assignee ?? "unassigned"}`;
+  if (row.state === "review" && row.card.reviewer)
+    return `→ ${row.card.reviewer}`;
+  if (row.state === "todo" && row.card.assignee) return `@${row.card.assignee}`;
+  return "";
+}
+
+function summarizeHidden(hidden: readonly OverlayRow[]): string {
+  const counts: Record<CardState, number> = {
+    todo: 0,
+    doing: 0,
+    review: 0,
+    done: 0,
+  };
+  for (const row of hidden) counts[row.state] += 1;
+  const parts: string[] = [];
+  for (const state of CARD_STATES) {
+    if (counts[state] > 0) parts.push(`${counts[state]} ${STATE_LABEL[state]}`);
+  }
+  // The command is on the line that needs it. A count of hidden rows with no
+  // way to see them is a dead end, and the affordance is one short command.
+  return `+${hidden.length} more (${parts.join(", ")}) — /ukb gui more`;
+}
+
+/**
+ * Render one visible row, padded so the owner column lines up. The card text is
+ * sanitized and the whole line is width-truncated by the injected `truncate`.
+ */
+function renderRow(
+  row: OverlayRow,
+  theme: OverlayTheme,
+  truncate: (line: string, width: number) => string,
+  visibleWidth: (text: string) => number,
+  width: number,
+  groupColumn: number,
+  ownerColumn: number,
+  last: boolean,
+): string {
+  const connector = theme.fg("dim", last ? "└─" : "├─");
+  const stateColor =
+    row.state === "doing"
+      ? "warning"
+      : row.state === "review"
+        ? "accent"
+        : row.state === "done"
+          ? "muted"
+          : "dim";
+  const title = sanitizeTerminalText(row.card.title);
+  const rawGroup = row.groupStart
+    ? sanitizeTerminalText(row.groupLabel ?? "")
+    : "";
+  const groupPad =
+    groupColumn > 0
+      ? " ".repeat(Math.max(0, groupColumn - visibleWidth(rawGroup)))
+      : "";
+  const plainGroup = groupColumn > 0 ? `${rawGroup}${groupPad} ` : "";
+  const coloredGroup =
+    groupColumn > 0
+      ? `${rawGroup ? theme.fg("muted", rawGroup) : ""}${groupPad} `
+      : "";
+  const priority = priorityTag(row.card);
+  const frozen = `${plainGroup}${STATE_TAG[row.state]}${priority ? priority : ""} #${row.card.id} ${title}`;
+  const titleColor = row.state === "doing" ? "text" : "dim";
+  const colored = `${coloredGroup}${theme.fg(stateColor, STATE_TAG[row.state])}${priority ? theme.fg("warning", priority) : ""} ${theme.fg("accent", `#${row.card.id}`)} ${theme.fg(titleColor, title)}`;
+
+  const owner = ownerSuffix(row);
+  const gap =
+    owner && ownerColumn > 0
+      ? " ".repeat(Math.max(2, ownerColumn - visibleWidth(frozen) + 2))
+      : "";
+  const suffix = owner ? `${gap}${theme.fg("muted", owner)}` : "";
+  return truncate(`${connector} ${colored}${suffix}`, width);
+}
+
+/**
+ * The widget body. Returns `[]` when the board has no open work — the caller
+ * unregisters the widget rather than leaving an idle banner above the editor.
+ */
+export function renderOverlay(
+  snapshot: BoardSnapshot,
+  options: OverlayRenderOptions,
+): string[] {
+  // Nothing open means nothing to watch — the caller unregisters the widget.
+  if (openCardCount(snapshot) === 0) return [];
+
+  const counts = countCards(snapshot);
+  const inFlight = counts.doing + counts.review;
+  const active = inFlight > 0;
+  const accent = active ? "accent" : "dim";
+  const icon = active ? "●" : "○";
+  const scope = options.scopeLabel ? ` · ${options.scopeLabel}` : "";
+  const heading = options.truncate(
+    `${options.theme.fg(accent, icon)} ${options.theme.fg(accent, options.theme.bold("ukb"))}${options.theme.fg("dim", `${scope} · ${headingSegments(counts)}`)}`,
+    options.width,
+  );
+
+  if (options.collapsed) {
+    const hint =
+      options.collapseKey === "off"
+        ? "collapsed"
+        : `${options.collapseKey} to expand`;
+    return [
+      heading,
+      options.truncate(options.theme.fg("dim", `└─ ${hint}`), options.width),
+      "",
+    ];
+  }
+
+  const bodyBudget = Math.max(0, options.budget - 1);
+  const { rows, hidden } = selectOverlayRows(
+    snapshot,
+    bodyBudget,
+    options.groupBy,
+  );
+
+  const groupColumn = rows.reduce(
+    (widest, row) =>
+      Math.max(
+        widest,
+        row.groupLabel
+          ? options.visibleWidth(sanitizeTerminalText(row.groupLabel))
+          : 0,
+      ),
+    0,
+  );
+  const ownerColumn = rows.reduce((widest, row) => {
+    if (!ownerSuffix(row)) return widest;
+    const groupWidth = groupColumn > 0 ? groupColumn + 1 : 0;
+    return Math.max(
+      widest,
+      groupWidth +
+        options.visibleWidth(
+          `${STATE_TAG[row.state]}${priorityTag(row.card)} #${row.card.id} ${sanitizeTerminalText(row.card.title)}`,
+        ),
+    );
+  }, 0);
+
+  const lines: string[] = [heading];
+  const summary = hidden.length > 0 ? summarizeHidden(hidden) : "";
+  const showSummary = summary !== "" && bodyBudget >= 1;
+  rows.forEach((row, index) => {
+    const last = index === rows.length - 1 && !showSummary;
+    lines.push(
+      renderRow(
+        row,
+        options.theme,
+        options.truncate,
+        options.visibleWidth,
+        options.width,
+        groupColumn,
+        ownerColumn,
+        last,
+      ),
+    );
+  });
+  if (showSummary) {
+    lines.push(
+      options.truncate(options.theme.fg("dim", `└─ ${summary}`), options.width),
+    );
+  }
+
+  // Trailing blank row so the panel is not flush against the input box.
+  lines.push("");
+  return lines;
+}

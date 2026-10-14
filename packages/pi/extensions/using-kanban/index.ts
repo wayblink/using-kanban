@@ -1,10 +1,31 @@
 import { existsSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
-import { Text } from "@earendil-works/pi-tui";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Text, type KeyId } from "@earendil-works/pi-tui";
+import type {
+  ExtensionAPI,
+  ExtensionCommandContext,
+} from "@earendil-works/pi-coding-agent";
+import { loadConfig } from "./config.js";
+import { resolveGuidance } from "./guidance.js";
+import { OVERLAY_LINES_STEP, parseOverlayCommand } from "./overlay-command.js";
+import { shouldRefreshAfterCommand } from "./overlay-refresh.js";
+import {
+  COLLAPSE_KEY_OFF,
+  MIN_MAX_LINES,
+  isOverlayDisabled,
+  normalizeOverlayProject,
+  resolveCollapseKey,
+  resolveMaxLines,
+  resolveOverlayDisplay,
+  resolveOverlayGroup,
+  resolveOverlayProject,
+  resolveOverlayScope,
+} from "./overlay-config.js";
+import { BoardOverlay } from "./overlay.js";
+import type { OverlayView } from "./overlay-render.js";
 
 /**
  * Registers `ukb` as a native Pi tool (and a `/ukb` slash command) that drives
@@ -26,6 +47,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const ACTIONS = [
   "mine",
+  "list",
   "board",
   "show",
   "add",
@@ -47,6 +69,27 @@ const ACTIONS = [
 
 const COLUMNS = ["todo", "doing", "review", "done"] as const;
 
+/** Mirrors core's CARD_PRIORITIES, in sort order. */
+const PRIORITIES = ["high", "normal", "low", "pending"] as const;
+
+/**
+ * Verbs whose card ids are all positionals, so several can be given at once.
+ *
+ * `claim` is in this set only so the CLI receives every id and can refuse with
+ * the message that explains the one-card-in-`doing` rule. Silently dropping the
+ * extra ids would turn a contradiction into a half-executed command.
+ *
+ * `move` is absent because `<id> <column>` is positional and `move 1 2 doing`
+ * cannot be read unambiguously.
+ */
+const BATCH_ACTIONS: ReadonlySet<string> = new Set([
+  "review",
+  "done",
+  "reopen",
+  "delete",
+  "claim",
+]);
+
 /** Which side of a relation the other card sits on. */
 const DIRECTIONS = ["upstream", "downstream"] as const;
 
@@ -57,6 +100,9 @@ type Direction = (typeof DIRECTIONS)[number];
 interface UkbParams {
   action: Action;
   id?: number | undefined;
+  /** Several ids for the batch verbs; `id` stays the single-card form. */
+  ids?: number[] | undefined;
+  priority?: (typeof PRIORITIES)[number] | undefined;
   title?: string | undefined;
   body?: string | undefined;
   column?: Column | undefined;
@@ -95,6 +141,12 @@ const ID_ACTIONS: ReadonlySet<Action> = new Set([
   "note-remove",
 ]);
 
+/** `ids` when several were given, else the single `id`, else nothing. */
+function cardIds(params: UkbParams): number[] {
+  if (params.ids !== undefined) return params.ids;
+  return params.id === undefined ? [] : [params.id];
+}
+
 /**
  * Maps structured params to `ukb` CLI argv, e.g. `{ action: "claim", id: 3 }`
  * → `["claim", "3"]`. Validation is left to the CLI on purpose: a missing id or
@@ -107,7 +159,12 @@ function buildArgs(params: UkbParams): string[] {
     if (value !== undefined) args.push(name, String(value));
   };
 
-  if (ID_ACTIONS.has(params.action) && params.id !== undefined) {
+  // Batch verbs take every id as a positional, exactly as on the command line.
+  // `id` alone still works: one card is the common case and must not need a
+  // different shape.
+  if (BATCH_ACTIONS.has(params.action)) {
+    for (const id of cardIds(params)) args.push(String(id));
+  } else if (ID_ACTIONS.has(params.action) && params.id !== undefined) {
     args.push(String(params.id));
   }
 
@@ -122,6 +179,7 @@ function buildArgs(params: UkbParams): string[] {
       flag("--assignee", params.assignee);
       flag("--reviewer", params.reviewer);
       flag("--project", params.project);
+      flag("--priority", params.priority);
       flag("--blocked-by", params.blockedBy);
       break;
     case "edit":
@@ -130,6 +188,7 @@ function buildArgs(params: UkbParams): string[] {
       flag("--assignee", params.assignee);
       flag("--reviewer", params.reviewer);
       flag("--project", params.project);
+      flag("--priority", params.priority);
       break;
     case "move":
       if (params.column !== undefined) args.push(params.column);
@@ -173,11 +232,24 @@ function buildArgs(params: UkbParams): string[] {
 function summarizeCall(params: UkbParams): string {
   const parts: string[] = [params.action];
 
-  if (ID_ACTIONS.has(params.action) && params.id !== undefined) {
+  if (BATCH_ACTIONS.has(params.action)) {
+    // `done #1 #2 #3` reads as one command; `#1,#2,#3` reads as a set of
+    // arguments and hides that the CLI takes them positionally.
+    parts.push(...cardIds(params).map((id) => `#${id}`));
+  } else if (ID_ACTIONS.has(params.action) && params.id !== undefined) {
     parts.push(`#${params.id}`);
   }
   if (params.action === "add" && params.title !== undefined) {
     parts.push(quote(params.title));
+  }
+  // Only when it is not the default, matching how the CLI renders it — the
+  // header stays quiet in the common case.
+  if (
+    (params.action === "add" || params.action === "edit") &&
+    params.priority !== undefined &&
+    params.priority !== "normal"
+  ) {
+    parts.push(`--priority ${params.priority}`);
   }
   if (params.action === "move" && params.column !== undefined) {
     parts.push(params.column);
@@ -264,13 +336,44 @@ function quote(value: string): string {
 
 /* -------------------------------- extension ------------------------------ */
 
-/** Who this front door acts as on the board (overridable via UKB_AGENT). */
-const AGENT = process.env.UKB_AGENT ?? "pi";
+/**
+ * `~/.config/ukb/config.json`, read once at extension load. Changing it needs
+ * `/reload`: the guidance is copied into the tool definition at registration,
+ * and the overlay's key is bound at registration too.
+ */
+const CONFIG = loadConfig();
+
+/**
+ * The one word that names the panel rather than a card: `/ukb gui …`.
+ *
+ * `gui` and not `overlay` because it is three characters against seven, and
+ * this is a command typed by hand. There is no second spelling — an alias that
+ * exists to be retired is just two names for one thing, and the reader has to
+ * learn which one is current.
+ *
+ * The namespace cannot simply be dropped: `/ukb` alone is "my open cards" and
+ * `/ukb show <id>` is card detail, so a bare `/ukb show` would be ambiguous.
+ */
+const GUI_NAMESPACE = "gui";
+
+function isGuiNamespace(token: string | undefined): boolean {
+  return token?.toLowerCase() === GUI_NAMESPACE;
+}
+
+/** Who this front door acts as on the board (UKB_AGENT > config > "pi"). */
+const AGENT = process.env.UKB_AGENT?.trim() || CONFIG.agent || "pi";
 const IDENTITY = ["--agent", AGENT, "--agent-type", "agent"] as const;
+
+const TOOL_NAME = "ukb";
+
+/** Prompt copy resolved once — see guidance.ts for why it is its own module. */
+const GUIDANCE = resolveGuidance(CONFIG);
 
 const DESCRIPTION = [
   "Your shared kanban board — the todo list you and the human both see.",
   "Start each turn with `mine`: your open cards, a call to act rather than a status report.",
+  "`list` names every project on the board with its counts; `board --project <slug>` narrows any",
+  "read to one project.",
   "For each card: `show` it to read the body (target files + acceptance criteria), `claim` any",
   "todo card BEFORE starting work on it, do the work, then `review` (or `done` if you are the",
   "reviewer). Never work an unclaimed card; if `claim` fails with claim_conflict someone else got",
@@ -288,9 +391,10 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
   const bin = resolve(here, "../../../cli/dist/bin.js");
   const ready = existsSync(bin);
 
+  // Said once at load rather than per call: an unbuilt CLI is a setup problem,
+  // and the overlay now surfaces the same fact through `notify` when it is the
+  // reason the panel is missing.
   if (!ready) {
-    // Never throw during startup — that would take the whole agent down. The
-    // tool reports the missing binary when it is called instead.
     process.stderr.write(
       `[using-kanban] ukb CLI not built at ${bin} — run \`pnpm -r build\` in the using-kanban repo.\n`,
     );
@@ -313,17 +417,253 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
     return { code: result.code, output: output || "(no output)" };
   };
 
+  /* -------------------------------- panel --------------------------------- */
+
+  // The board, above the editor. Read through the CLI's own `--json` door so
+  // storage resolution stays in one place, and refreshed on triggers — session
+  // start, the end of a `ukb` call, the start of each turn — never polled.
+  const overlayEnabled = !isOverlayDisabled(process.env, CONFIG);
+  const configuredProject = resolveOverlayProject(process.env, CONFIG);
+  const overlayDisplay = resolveOverlayDisplay(process.env, CONFIG);
+  let overlayView: OverlayView = {
+    scope: resolveOverlayScope(process.env, CONFIG),
+    project: configuredProject,
+    agent: AGENT,
+    groupBy: resolveOverlayGroup(process.env, CONFIG),
+    maxLines: resolveMaxLines(process.env, CONFIG),
+  };
+
+  /** Current project = current Git root basename, falling back to cwd basename. */
+  const inferCurrentProject = async (cwd: string): Promise<string | null> => {
+    let root = cwd;
+    try {
+      const result = await pi.exec(
+        "git",
+        ["-C", cwd, "rev-parse", "--show-toplevel"],
+        { timeout: 1500 },
+      );
+      if (result.code === 0 && result.stdout.trim())
+        root = result.stdout.trim();
+    } catch {
+      // A non-Git cwd still has a useful basename.
+    }
+    return normalizeOverlayProject(basename(root));
+  };
+
+  /**
+   * One-shot latch so a repeating refresh failure does not flood stderr. Cleared
+   * by the next successful refresh.
+   */
+  let overlayRefreshFailed = false;
+
+  const overlay = new BoardOverlay(
+    async () => {
+      if (!ready) {
+        return {
+          stdout: null,
+          error: `ukb CLI not built at ${bin} — run \`pnpm -r build\` in the using-kanban repo`,
+        };
+      }
+      try {
+        const result = await pi.exec(process.execPath, [
+          bin,
+          "board",
+          "--json",
+          "--brief",
+        ]);
+        if (result.code !== 0) {
+          const detail = result.stderr.trim().slice(0, 300);
+          return {
+            stdout: null,
+            error: `ukb board --json --brief exited ${result.code}${detail ? `: ${detail}` : " (no stderr)"}`,
+          };
+        }
+        return { stdout: result.stdout, error: null };
+      } catch (error) {
+        return {
+          stdout: null,
+          error: `could not run the CLI — ${error instanceof Error ? error.message : String(error)}`,
+        };
+      }
+    },
+    {
+      collapseKey: resolveCollapseKey(process.env, CONFIG),
+      view: overlayView,
+      initiallyVisible: overlayDisplay === "always",
+    },
+  );
+
+  /**
+   * Repaint the overlay. A refresh must never take the session down — the
+   * widget is a side view — but it must not fail silently either: the whole
+   * point of the diagnostics work was that a stale panel and a missing panel
+   * look identical from the outside.
+   */
+  const refreshOverlay = async (): Promise<void> => {
+    if (!overlayEnabled) return;
+    try {
+      await overlay.refresh();
+      overlayRefreshFailed = false;
+    } catch (error) {
+      if (!overlayRefreshFailed) {
+        overlayRefreshFailed = true;
+        try {
+          process.stderr.write(
+            `[using-kanban] overlay refresh failed — ${error instanceof Error ? error.message : String(error)}\n`,
+          );
+        } catch {
+          // stderr is best-effort too.
+        }
+      }
+    }
+  };
+
+  if (overlayEnabled) {
+    pi.on("session_start", async (_event, ctx) => {
+      // RPC can expose dialogs/notifications (`hasUI`) but not terminal
+      // components. Widgets are a TUI-only surface.
+      if (ctx.mode !== "tui") return;
+      overlay.setUICtx(ctx.ui);
+      if (overlayView.scope === "current-project") {
+        overlayView = {
+          ...overlayView,
+          project: configuredProject ?? (await inferCurrentProject(ctx.cwd)),
+        };
+        overlay.setView(overlayView);
+      }
+      if (overlayDisplay === "always") await refreshOverlay();
+    });
+    pi.on("tool_execution_end", async (event) => {
+      if (event.toolName !== TOOL_NAME || !overlay.status().visible) return;
+      await refreshOverlay();
+    });
+    pi.on("turn_start", async () => {
+      if (overlay.status().visible) await refreshOverlay();
+    });
+    pi.on("session_shutdown", async () => {
+      // Teardown touches a possibly-stale UI ctx (disposal can race a session
+      // replacement); a failed unhook must not reject the shutdown handler.
+      try {
+        overlay.dispose();
+      } catch {
+        // Nothing to do — the widget goes away with the session anyway.
+      }
+    });
+
+    const collapseKey = resolveCollapseKey(process.env, CONFIG);
+    if (collapseKey !== COLLAPSE_KEY_OFF) {
+      try {
+        pi.registerShortcut(collapseKey as KeyId, {
+          description: "Collapse or expand the visible ukb board overlay",
+          handler: (ctx) => {
+            if (ctx.mode === "tui" && overlay.status().visible) {
+              overlay.toggleCollapse();
+            }
+          },
+        });
+      } catch {
+        // A key the host refuses must not take the extension down.
+      }
+    }
+  }
+
+  const overlayHelp = [
+    "ukb gui — the on-demand board panel",
+    "/ukb gui [show] [scope=…] [group=…] [project=…] [lines=<n>]",
+    "/ukb gui more | less              # grow / shrink the row budget",
+    "/ukb gui hide",
+    "/ukb gui collapse | expand        # one line / full height",
+    "/ukb gui help",
+    "scope: current-project | mine | all | project:<slug>",
+    "group: state | project | owner | none",
+    "rows: doing, then todo, then review — review is what you are waiting on",
+    "default: current Git project, grouped by state",
+    "persistent settings: ~/.config/ukb/config.json → overlay",
+  ].join("\n");
+
+  const handleOverlayCommand = async (
+    input: string,
+    ctx: ExtensionCommandContext,
+  ): Promise<void> => {
+    const command = parseOverlayCommand(input, overlayView);
+    if (command.error) {
+      ctx.ui.notify(command.error, "warning");
+      return;
+    }
+    if (command.action === "help") {
+      ctx.ui.notify(overlayHelp, "info");
+      return;
+    }
+    if (!overlayEnabled) {
+      ctx.ui.notify(
+        "ukb gui is disabled by UKB_OVERLAY or config.overlay.enabled",
+        "warning",
+      );
+      return;
+    }
+    if (ctx.mode !== "tui") {
+      ctx.ui.notify("ukb gui requires Pi's interactive TUI", "warning");
+      return;
+    }
+
+    // Bind the command's current context explicitly. This both diagnoses and
+    // repairs a missed/stale session_start binding after reload.
+    overlay.setUICtx(ctx.ui);
+    overlayView = command.view;
+    if (
+      overlayView.scope === "current-project" &&
+      overlayView.project === null
+    ) {
+      overlayView = {
+        ...overlayView,
+        project: configuredProject ?? (await inferCurrentProject(ctx.cwd)),
+      };
+    }
+    // `more` / `less` step the budget, so the reader who sees "+15 more" can
+    // get the rest of their board without naming a number or editing config.
+    if (command.action === "more" || command.action === "less") {
+      const step =
+        command.action === "more" ? OVERLAY_LINES_STEP : -OVERLAY_LINES_STEP;
+      overlayView = {
+        ...overlayView,
+        maxLines: Math.max(MIN_MAX_LINES, overlayView.maxLines + step),
+      };
+    }
+    overlay.setView(overlayView);
+    if (command.action === "hide") {
+      overlay.hide();
+    } else {
+      overlay.show();
+      await refreshOverlay();
+      if (command.action === "collapse") overlay.collapse();
+      if (command.action === "expand") overlay.expand();
+    }
+
+    const status = overlay.status();
+    const counts = status.counts;
+    const board = counts
+      ? `${counts.doing} doing · ${counts.todo} todo · ${counts.review} review · ${counts.done} done`
+      : "board unreadable";
+    const state = !status.visible
+      ? "hidden"
+      : status.registered
+        ? status.collapsed
+          ? "registered, collapsed"
+          : "registered, expanded"
+        : "not registered";
+    const detail = status.error ? ` — ${status.error}` : "";
+    ctx.ui.notify(
+      `ukb gui: ${state}; scope=${status.scopeLabel || status.scope}; group=${status.groupBy}; lines=${status.maxLines}; ui=${status.uiBound ? "bound" : "missing"}; ${board}${detail}`,
+      status.error ? "warning" : "info",
+    );
+  };
+
   pi.registerTool({
-    name: "ukb",
+    name: TOOL_NAME,
     label: "Kanban board",
     description: DESCRIPTION,
-    promptSnippet:
-      "Shared kanban board: see your cards, claim work before starting it, hand it off for review.",
-    promptGuidelines: [
-      "Use the ukb board as your todo list for anything another agent or a human may need to see.",
-      "Claim a card before working it and move it to review when ready; read a card's body before acting on it.",
-      "Link a card to what it depends on with relate, and put its design doc on it as a note.",
-    ],
+    promptSnippet: GUIDANCE.promptSnippet,
+    promptGuidelines: [...GUIDANCE.promptGuidelines],
     parameters: Type.Object({
       action: StringEnum(ACTIONS),
       id: Type.Optional(Type.Integer({ minimum: 1, description: "Card id" })),
@@ -351,10 +691,22 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
       project: Type.Optional(
         Type.String({ description: "Project slug (e.g. web, api-core)" }),
       ),
+      priority: Type.Optional(
+        StringEnum(PRIORITIES, {
+          description:
+            "How urgently the card wants attention. normal is the default; low is minor but still wanted; pending is deliberately shelved. Lower priorities sort after higher ones.",
+        }),
+      ),
       other: Type.Optional(
         Type.Integer({
           minimum: 1,
           description: "Card on the other end of a relation (relate/unrelate)",
+        }),
+      ),
+      ids: Type.Optional(
+        Type.Array(Type.Integer({ minimum: 1 }), {
+          description:
+            "Several card ids for one action — done/review/reopen/delete. Use this to clear a queue in one call; it stops at the first card the board refuses, so what it printed before that is what was applied.",
         }),
       ),
       direction: Type.Optional(
@@ -416,19 +768,30 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
     },
   });
 
-  pi.registerCommand("ukb", {
+  pi.registerCommand(TOOL_NAME, {
     description:
-      "using-kanban board — run without arguments to see your open cards",
+      "using-kanban board — no args: open cards; gui help: panel commands",
     handler: async (input, ctx) => {
+      const tokens = splitTokens(input.trim());
+      if (isGuiNamespace(tokens[0])) {
+        await handleOverlayCommand(tokens.slice(1).join(" "), ctx);
+        return;
+      }
       if (!ready) {
         ctx.ui.notify(`ukb CLI not built at ${bin}`, "error");
         return;
       }
-      const tokens = splitTokens(input.trim());
       const argv = tokens.length > 0 ? tokens : ["mine"];
       try {
         const { code, output } = await run([...IDENTITY, ...argv], ctx.signal);
         ctx.ui.notify(output, code === 0 ? "info" : "error");
+        // A slash command is a human driving the board directly, which bypasses
+        // the `ukb` tool — so `tool_execution_end` never fires for it. Without
+        // this the panel kept showing the pre-`done` board until the next agent
+        // turn, which reads exactly like a broken panel.
+        if (shouldRefreshAfterCommand(argv, code)) {
+          await refreshOverlay();
+        }
       } catch (error) {
         ctx.ui.notify(
           error instanceof Error ? error.message : String(error),

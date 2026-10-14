@@ -137,6 +137,48 @@ describe("the agent workflow", () => {
     await human.client.close();
   });
 
+  it("byte-pins the mutation reply, tuple included", async () => {
+    // Same tuple as the CLI door: if one door regresses to a hand-written
+    // sentence, this or the CLI's equivalent fails.
+    const added = await call("kanban_add", {
+      title: "ship it",
+      reviewer: "jyxc",
+    });
+    expect(added.isError).toBeFalsy();
+
+    const claimed = await call("kanban_claim", { id: 1 });
+    expect(claimed.content[0]?.text).toBe(
+      "claimed #1 [doing] ship it @claude-code reviewer:jyxc \u00b7 todo \u2192 doing \u00b7 now assigned to claude-code",
+    );
+
+    const reviewed = await call("kanban_review", { id: 1 });
+    expect(reviewed.content[0]?.text).toBe(
+      "moved to review #1 [review] ship it @claude-code reviewer:jyxc \u00b7 doing \u2192 review (jyxc)",
+    );
+  });
+
+  it("does not send a card with no reviewer to a named person", async () => {
+    await call("kanban_add", { title: "ship it" });
+    await call("kanban_claim", { id: 1 });
+    const reviewed = await call("kanban_review", { id: 1 });
+    expect(reviewed.content[0]?.text).toBe(
+      "moved to review #1 [review] ship it @claude-code \u00b7 doing \u2192 review queue",
+    );
+  });
+
+  it("claims a card that move left doing with nobody owning it", async () => {
+    await call("kanban_add", { title: "queued" });
+    await call("kanban_move", { id: 1, to: "doing" });
+    const shown = await call("kanban_show", { id: 1 });
+    expect(shown.content[0]?.text).toContain("assignee: \u2014");
+
+    const claimed = await call("kanban_claim", { id: 1 });
+    expect(claimed.isError).toBeFalsy();
+    expect(claimed.content[0]?.text).toBe(
+      "claimed #1 [doing] queued @claude-code \u00b7 doing \u2192 doing \u00b7 now assigned to claude-code",
+    );
+  });
+
   it("reports claim conflicts and missing cards as tool errors with stable codes", async () => {
     await call("kanban_add", { title: "contested", assignee: "claude-code" });
     await call("kanban_claim", { id: 1 });
@@ -375,8 +417,13 @@ describe("projects", () => {
     await call("kanban_add", { title: "api card", project: "api" });
     await call("kanban_add", { title: "untagged" });
 
-    // discovery first — this is the call that keeps agents from guessing
-    expect(textOf(await call("kanban_projects"))).toContain("api, web");
+    // discovery first — this is the call that keeps agents from guessing.
+    // Counts come with the names, and the untagged bucket is named too, so an
+    // agent can see that "untagged" will match no project filter.
+    const projects = textOf(await call("kanban_projects"));
+    expect(projects).toContain("api: 0 doing, 0 review, 1 todo, 0 done");
+    expect(projects).toContain("web: 0 doing, 0 review, 1 todo, 0 done");
+    expect(projects).toContain("(none): 0 doing, 0 review, 1 todo, 0 done");
 
     const webBoard = textOf(await call("kanban_board", { project: "web" }));
     expect(webBoard).toContain("web card");
@@ -404,7 +451,7 @@ describe("projects", () => {
     await call("kanban_add", { title: "b", project: "web" });
 
     expect(textOf(await call("kanban_projects"))).toContain(
-      "1 project(s): web",
+      "web: 0 doing, 0 review, 2 todo, 0 done",
     );
   });
 

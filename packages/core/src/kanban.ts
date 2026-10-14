@@ -27,6 +27,7 @@ import type {
   Event,
   EventSource,
   NewEvent,
+  ProjectSummary,
   RelationDirection,
 } from "./types.js";
 
@@ -114,6 +115,43 @@ export class Kanban {
     return [...names].sort();
   }
 
+  /**
+   * Per-project card counts, for `ukb list`.
+   *
+   * Named projects come first alphabetically; the no-project bucket is last so
+   * it cannot sort into the middle of the list. Counts include `done`, so the
+   * numbers reconcile against the whole board rather than only open work.
+   */
+  projectSummary(): ProjectSummary[] {
+    this.projection.sync(this.log);
+    const summaries = new Map<string | null, ProjectSummary>();
+    const bucket = (project: string | null): ProjectSummary => {
+      const existing = summaries.get(project);
+      if (existing) return existing;
+      const created: ProjectSummary = {
+        project,
+        todo: 0,
+        doing: 0,
+        review: 0,
+        done: 0,
+      };
+      summaries.set(project, created);
+      return created;
+    };
+    for (const card of this.projection.all()) {
+      const entry = bucket(card.project ?? null);
+      summaries.set(entry.project, {
+        ...entry,
+        [card.state]: entry[card.state] + 1,
+      });
+    }
+    return [...summaries.values()].sort((a, b) => {
+      if (a.project === null) return b.project === null ? 0 : 1;
+      if (b.project === null) return -1;
+      return a.project.localeCompare(b.project);
+    });
+  }
+
   /* ----------------------------- mutations ----------------------------- */
 
   add(
@@ -137,6 +175,7 @@ export class Kanban {
         assignee: parsed.assignee ?? null,
         reviewer: parsed.reviewer ?? null,
         project: parsed.project?.trim() || null,
+        priority: parsed.priority,
         blockedBy: parsed.blockedBy ?? [],
         notes: [],
         createdBy: actor.name,
@@ -166,6 +205,7 @@ export class Kanban {
       patch.reviewer = parsed.reviewer?.trim() || null;
     if (parsed.project !== undefined)
       patch.project = parsed.project?.trim() || null;
+    if (parsed.priority !== undefined) patch.priority = parsed.priority;
     if (Object.keys(patch).length === 0) {
       return { card, events: [] };
     }
@@ -197,10 +237,20 @@ export class Kanban {
     }
     if (card.state === "doing") {
       if (card.assignee === actor.name) return { card, events: [] };
-      throw new KanbanError(
-        "claim_conflict",
-        `card ${id} is already being worked by ${card.assignee ?? "someone else"}`,
-      );
+      if (card.assignee !== null) {
+        throw new KanbanError(
+          "claim_conflict",
+          `card ${id} is already being worked by ${card.assignee}`,
+        );
+      }
+      // `move <id> doing` can park a card in the working column with nobody
+      // owning it. Claiming it is the fix, not a conflict: `claim` is the verb
+      // that means "this is mine", and refusing here would report a phantom
+      // owner and send the caller off to "pick another card" over work that
+      // is genuinely up for grabs.
+      return this.transition(id, "doing", "claim", actor, source, {
+        assignee: actor.name,
+      });
     }
     if (card.state === "review") {
       throw new KanbanError(

@@ -78,9 +78,29 @@ function cardHaystack(card) {
   return `${card.title} ${card.body ?? ""} ${notes}`.toLowerCase();
 }
 
-/** Most recently touched first — the top of a column is where work is happening. */
+/** Priority bands, in the order the board's other doors use. */
+const PRIORITY_ORDER = ["high", "normal", "low", "pending"];
+
+/** The closed set, in sort order — the drawer and the modal both use it. */
+const PRIORITY_OPTIONS = [...PRIORITY_ORDER];
+
+function priorityRank(card) {
+  const index = PRIORITY_ORDER.indexOf(card.priority ?? "normal");
+  return index === -1 ? PRIORITY_ORDER.indexOf("normal") : index;
+}
+
+/**
+ * Priority first, then most recently touched.
+ *
+ * Recency alone was the right rule when every card was equally wanted. With
+ * priorities it puts a shelved idea above live work just because someone
+ * touched it last week, which is the same complaint the overlay's ordering
+ * fixes. Within a band, the top of a column is still where work is happening.
+ */
 export function sortCards(cards) {
   return [...cards].sort((a, b) => {
+    const byPriority = priorityRank(a) - priorityRank(b);
+    if (byPriority !== 0) return byPriority;
     if (a.updatedAt === b.updatedAt) return b.id - a.id;
     return a.updatedAt < b.updatedAt ? 1 : -1;
   });
@@ -542,6 +562,11 @@ export const I18N = {
     "column.showLess": "show less",
     "column.empty": "nothing here",
     "card.project": "project:",
+    "card.priority": "priority:",
+    "priority.high": "high",
+    "priority.normal": "normal",
+    "priority.low": "low",
+    "priority.pending": "pending",
     "filter.anyProject": "any project",
     "filter.anyAssignee": "any assignee",
     "filter.anyReviewer": "any reviewer",
@@ -558,6 +583,7 @@ export const I18N = {
     "drawer.assignee": "Assignee",
     "drawer.reviewer": "Reviewer",
     "drawer.project": "Project",
+    "drawer.priority": "Priority",
     "drawer.blockedBy": "Upstream — waits on",
     "drawer.blocks": "Downstream — waits for this",
     "drawer.addUpstream": "add upstream card #",
@@ -633,6 +659,11 @@ export const I18N = {
     "column.showLess": "收起",
     "column.empty": "暂无卡片",
     "card.project": "项目：",
+    "card.priority": "优先级：",
+    "priority.high": "高",
+    "priority.normal": "普通",
+    "priority.low": "低",
+    "priority.pending": "暂缓",
     "filter.anyProject": "全部项目",
     "filter.anyAssignee": "全部负责人",
     "filter.anyReviewer": "全部审查者",
@@ -649,6 +680,7 @@ export const I18N = {
     "drawer.assignee": "负责人",
     "drawer.reviewer": "审查者",
     "drawer.project": "项目",
+    "drawer.priority": "优先级",
     "drawer.blockedBy": "上游 — 本卡片等待",
     "drawer.blocks": "下游 — 等待本卡片",
     "drawer.addUpstream": "添加上游卡片 #",
@@ -1938,6 +1970,15 @@ function startApp() {
         ),
       );
     }
+    // Only when it is not the default, so the common case stays quiet and the
+    // badge means something when it appears.
+    if (card.priority && card.priority !== "normal")
+      meta.append(
+        badge(
+          `${t("card.priority")}${t(`priority.${card.priority}`)}`,
+          `priority priority-${card.priority}`,
+        ),
+      );
     if (card.project)
       meta.append(badge(`${t("card.project")}${card.project}`, "project"));
     if (card.reviewer)
@@ -2168,6 +2209,19 @@ function startApp() {
         textInput(card.project ?? "", async (value) => {
           await saveCard(id, { project: value });
         }),
+      ),
+      field(
+        t("drawer.priority"),
+        selectInput(
+          card.priority ?? "normal",
+          PRIORITY_OPTIONS.map((value) => ({
+            value,
+            label: t(`priority.${value}`),
+          })),
+          async (value) => {
+            await saveCard(id, { priority: value });
+          },
+        ),
       ),
     );
     body.append(assignee);
@@ -2549,6 +2603,14 @@ function startApp() {
     const assignee = textInput(state.actor.name, () => {});
     const reviewer = textInput("", () => {});
     const project = textInput("", () => {});
+    const priority = selectInput(
+      "normal",
+      PRIORITY_OPTIONS.map((value) => ({
+        value,
+        label: t(`priority.${value}`),
+      })),
+      () => {},
+    );
 
     const row = document.createElement("div");
     row.className = "row";
@@ -2556,6 +2618,7 @@ function startApp() {
       field(t("drawer.assignee"), assignee),
       field(t("drawer.reviewer"), reviewer),
       field(t("drawer.project"), project),
+      field(t("drawer.priority"), priority),
     );
 
     const form = document.createElement("div");
@@ -2590,6 +2653,7 @@ function startApp() {
             assignee: assignee.value.trim() || undefined,
             reviewer: reviewer.value.trim() || undefined,
             project: project.value.trim() || undefined,
+            priority: priority.value,
           },
         });
         closeModal();
@@ -2842,6 +2906,20 @@ function field(label, ...controls) {
   labelEl.textContent = label;
   wrapper.append(labelEl, ...controls);
   return wrapper;
+}
+
+/** A dropdown. Used where the value is a closed set, like priority. */
+function selectInput(value, options, onChange) {
+  const select = document.createElement("select");
+  for (const option of options) {
+    const element = document.createElement("option");
+    element.value = option.value;
+    element.textContent = option.label;
+    element.selected = option.value === value;
+    select.append(element);
+  }
+  select.addEventListener("change", () => onChange(select.value));
+  return select;
 }
 
 function textInput(value, onChange) {

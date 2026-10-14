@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { KanbanError } from "../src/errors.js";
+import { compareByPriority } from "../src/projection.js";
 import { MemoryEventLog } from "../src/event-log.js";
 import { Kanban } from "../src/kanban.js";
 import { Projection } from "../src/projection.js";
@@ -108,6 +109,40 @@ describe("claim", () => {
       () => kanban.claim(card.id, otherAgent),
       "claim_conflict",
     );
+  });
+
+  it("claims a card that move left doing with nobody owning it", () => {
+    // `move <id> doing` does not assign, so the card sits in the working
+    // column unowned. Claiming it is the fix, not a conflict: refusing here
+    // reported a phantom owner and sent the caller off to "pick another card"
+    // over work that was genuinely up for grabs.
+    const kanban = makeKanban();
+    const { card } = kanban.add({ title: "queued" }, human);
+    kanban.move(card.id, "doing", otherAgent);
+    expect(kanban.card(card.id)?.assignee).toBeNull();
+
+    const claimed = kanban.claim(card.id, agent);
+    expect(claimed.card.assignee).toBe(agent.name);
+    expect(claimed.card.state).toBe("doing");
+    expect(claimed.events).toHaveLength(1);
+  });
+
+  it("still conflicts when the doing card has a real owner", () => {
+    const kanban = makeKanban();
+    const { card } = kanban.add({ title: "mine" }, human);
+    kanban.claim(card.id, otherAgent);
+
+    // The message must name the owner: there is no "someone else" case left to
+    // fall back to, so an unowned doing card can no longer produce that string.
+    expectKanbanError(() => kanban.claim(card.id, agent), "claim_conflict");
+    try {
+      kanban.claim(card.id, agent);
+      expect.unreachable("should have thrown");
+    } catch (error) {
+      expect((error as Error).message).toBe(
+        `card ${card.id} is already being worked by ${otherAgent.name}`,
+      );
+    }
   });
 
   it("refuses cards in review or done", () => {
@@ -337,6 +372,78 @@ describe("shared stores (no daemon)", () => {
   });
 });
 
+describe("priority", () => {
+  it("defaults to normal and can be set at creation", () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    const plain = kanban.add({ title: "plain" }, human).card;
+    const shelved = kanban.add(
+      { title: "shelved", priority: "pending" },
+      human,
+    ).card;
+
+    expect(plain.priority).toBe("normal");
+    expect(shelved.priority).toBe("pending");
+  });
+
+  it("can be changed by edit, including back to normal", () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    const { card } = kanban.add({ title: "x" }, human);
+
+    const low = kanban.edit(card.id, { priority: "low" }, human).card;
+    expect(low.priority).toBe("low");
+
+    const reset = kanban.edit(card.id, { priority: "normal" }, human).card;
+    expect(reset.priority).toBe("normal");
+  });
+
+  it("rejects a priority outside the scale", () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    expect(() =>
+      kanban.add(
+        { title: "x", priority: "urgent" as unknown as "high" },
+        human,
+      ),
+    ).toThrow();
+  });
+
+  it("treats an event written before priorities existed as normal", () => {
+    // The backward-compatibility contract: an old log replays unchanged, with
+    // no migration step and no null to special-case at every read.
+    const log = new MemoryEventLog();
+    const kanban = new Kanban({ log });
+    const { card, events } = kanban.add({ title: "old card" }, human);
+    const created = events[0]!;
+    // Rewrite the event the way a pre-priority writer would have left it.
+    const { priority: _dropped, ...payload } = created.payload as Record<
+      string,
+      unknown
+    >;
+    void _dropped;
+    const legacy: typeof created = { ...created, payload };
+    const legacyLog = new MemoryEventLog();
+    legacyLog.append([legacy]);
+
+    const replayed = new Kanban({ log: legacyLog });
+    expect(replayed.card(card.id)?.priority).toBe("normal");
+  });
+
+  it("orders cards high → normal → low → pending, then by id", () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    kanban.add({ title: "p", priority: "pending" }, human);
+    kanban.add({ title: "n1" }, human);
+    kanban.add({ title: "h", priority: "high" }, human);
+    kanban.add({ title: "l", priority: "low" }, human);
+    kanban.add({ title: "n2" }, human);
+
+    const order = kanban
+      .cards()
+      .slice()
+      .sort(compareByPriority)
+      .map((card) => card.title);
+    expect(order).toEqual(["h", "n1", "n2", "l", "p"]);
+  });
+});
+
 describe("projects", () => {
   const web = { title: "web card", project: "web" };
   const api = { title: "api card", project: "api" };
@@ -353,6 +460,24 @@ describe("projects", () => {
       null,
     ]);
     expect(kanban.projects()).toEqual(["api", "web"]);
+  });
+
+  it("summarises every project, with the untagged bucket last", () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    kanban.add(web, human);
+    kanban.add(api, human);
+    kanban.add({ title: "no project" }, human);
+    const apiCard = kanban.add(api, human).card;
+    kanban.claim(apiCard.id, human, "cli");
+    kanban.done(apiCard.id, human, "cli");
+
+    expect(kanban.projectSummary()).toEqual([
+      { project: "api", todo: 1, doing: 0, review: 0, done: 1 },
+      { project: "web", todo: 1, doing: 0, review: 0, done: 0 },
+      // A card with no project is in no project, but it still has to be
+      // counted — otherwise the rows do not add up to the board.
+      { project: null, todo: 1, doing: 0, review: 0, done: 0 },
+    ]);
   });
 
   it("filters the board to one project", () => {

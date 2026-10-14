@@ -8,7 +8,7 @@ import {
   NoteRemovedPayloadSchema,
   NoteUpdatedPayloadSchema,
 } from "./schemas.js";
-import type { Card, Event } from "./types.js";
+import { CARD_PRIORITIES, type Card, type Event } from "./types.js";
 import type { EventLog } from "./event-log.js";
 
 /**
@@ -44,6 +44,7 @@ export class Projection {
           assignee: payload.assignee,
           reviewer: payload.reviewer,
           project: payload.project,
+          priority: payload.priority,
           blockedBy: payload.blockedBy,
           blocks: [],
           notes: payload.notes,
@@ -318,9 +319,28 @@ export class Projection {
       ...(patch?.assignee !== undefined ? { assignee: patch.assignee } : {}),
       ...(patch?.reviewer !== undefined ? { reviewer: patch.reviewer } : {}),
       ...(patch?.project !== undefined ? { project: patch.project } : {}),
+      ...(patch?.priority !== undefined ? { priority: patch.priority } : {}),
       updatedAt: ts,
       revision: card.revision + 1,
     };
     return next;
   }
+}
+
+/**
+ * Reading order within one state: priority, then id.
+ *
+ * Every door sorts with this so the CLI, the overlay and the Web UI cannot
+ * disagree about which card comes first. State is deliberately *not* part of
+ * the comparator — a caller that has already split by column wants priority
+ * order within it, and a caller that has not layers its own state order on top.
+ *
+ * `CARD_PRIORITIES` is declared in sort order, so the index difference *is* the
+ * priority difference.
+ */
+export function compareByPriority(a: Card, b: Card): number {
+  return (
+    CARD_PRIORITIES.indexOf(a.priority) - CARD_PRIORITIES.indexOf(b.priority) ||
+    a.id - b.id
+  );
 }

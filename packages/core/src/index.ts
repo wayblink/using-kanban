@@ -5,5 +5,7 @@ export * from "./event-log.js";
 export * from "./event-log-sqlite.js";
 export * from "./event-log-jsonl.js";
 export * from "./projection.js";
+export * from "./sanitize.js";
+export * from "./mutation.js";
 export * from "./kanban.js";
 export * from "./open.js";

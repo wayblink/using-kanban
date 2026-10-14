@@ -60,12 +60,33 @@ Cards carry an optional project slug so one board holds several projects:
 
 ```bash
 ukb add "Fix the login bug" --project web   # set at creation
+ukb list                                   # every project + its card counts
 ukb board --project web                     # just that project
 ukb mine --project web                      # my work in one project
 ```
 
 A card with no project is in **no** project — a project filter is a partition,
 not an overlay. Slugs are lowercased and limited to `[a-z0-9._-]`.
+
+## Priority
+
+Every card has a priority: `high`, `normal` (default), `low`, or `pending`.
+
+```bash
+ukb add "Fix the login bug" --priority high   # set at creation
+ukb edit 7 --priority pending                 # shelve it
+```
+
+`low` means minor but still wanted. `pending` means deliberately shelved until
+something outside the card changes — they are different intents, not two
+spellings of "later". Rows sort `high → normal → low → pending` inside each
+column, so a shelved idea stops sitting above live work. Use `pending` rather
+than deleting an idea you may want back, and rather than leaving it at `normal`
+where it competes for attention it is not asking for.
+
+`ukb list` is how you discover a slug before filtering, and it counts `done`
+so the rows add up to the whole board. The `(none)` row is the cards with no
+project: they exist, and they will never match a `--project` filter.
 
 ## Relations run both ways
 
@@ -113,6 +134,14 @@ machine, so **the directory you run `ukb` from does not matter** — `ukb board`
 from anywhere shows the same cards. Projects are separated by the `project`
 field on cards, which is what you filter on.
 
+## The human is watching
+
+In Pi the board is also mounted above the editor as a live panel: every `doing`
+and `review` card, and who each one is waiting on. It repaints after every `ukb`
+call, so a card you claimed and never moved is visibly stuck, and a card left in
+`review` is visibly waiting on someone. Keep the board current as you work — the
+panel is the difference between the human trusting the board and ignoring it.
+
 ## If there is no board yet
 
 Reads never create a board. With no `~/.ukb/`, `ukb board` / `ukb mine` /
@@ -125,8 +154,19 @@ no setup step and no per-project initialisation.
 
 ```bash
 ukb board                        # the whole board + the projects in use
+ukb list                         # every project with its card counts
+ukb board --project <slug>       # one project's slice
+/ukb gui show                   # the panel, scoped to this Git project
+/ukb gui more                   # +10 rows when the summary says more are hidden
+/ukb gui hide
+ukb board --json                 # the same board as JSON, for scripts
+ukb board --json --brief         # list fields only; skips bodies/notes/audit metadata
 ukb add "<title>" [--body B] [--assignee X] [--reviewer Y] [--project p]
+                        [--priority high|normal|low|pending]
 ukb edit <id> [--title T] [--body B] [--assignee X] [--reviewer Y] [--project p]
+ukb done <id> [<id> …]  # several cards in one call; it stops at the first
+                        # card the board refuses, so what it printed is what
+                        # was applied
 ukb move <id> <todo|doing|review|done>
 ukb reopen <id>                  # back to todo
 ukb block <id> --by <other>      # make a card wait on another
@@ -149,6 +189,12 @@ id: 3 }`, `ukb move 3 doing` is `{ action: "move", id: 3, column: "doing" }`,
 `ukb relate 2 --with 1 --as upstream` is `{ action: "relate", id: 2, other: 1,
 direction: "upstream" }`, and `ukb note 4 "design doc" --url docs/design.md` is
 `{ action: "note", id: 4, text: "design doc", url: "docs/design.md" }`.
+
+`done`, `review`, `reopen` and `delete` take several cards at once —
+`ukb done 1 2 3` is `{ action: "done", ids: [1, 2, 3] }`. Use it to clear a review
+queue in one call rather than one call per card. `claim` deliberately does not:
+the board allows exactly one card in `doing`, so batch-claiming is refused with
+that reason rather than quietly claimed.
 
 ## Permissions and failures
 

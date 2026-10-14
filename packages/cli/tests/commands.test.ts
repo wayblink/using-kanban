@@ -1,14 +1,34 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 import type { Card } from "@wayblink/using-kanban-core";
 import { runCommand, type Io } from "../src/commands.js";
 import { resolveActor } from "../src/identity.js";
 import { UsageError } from "../src/argv.js";
-import { formatBoard, formatCard, formatMine } from "../src/render.js";
+import {
+  formatBoard,
+  formatCard,
+  formatMine,
+  formatProjects,
+} from "../src/render.js";
 
 const tempDirs: string[] = [];
+
+/** The package `ukb init --for pi` points at, resolved from this file. */
+function resolveLocalPackageForTest(): string {
+  const url = new URL(import.meta.url);
+  let dir = dirname(fileURLToPath(url));
+  for (let depth = 0; depth < 6; depth += 1) {
+    const candidate = join(dir, "packages", "pi", "package.json");
+    if (existsSync(candidate)) return dirname(candidate);
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  throw new Error("packages/pi not found");
+}
 
 function tempDir(): string {
   const dir = mkdtempSync(join(tmpdir(), "ukb-cli-test-"));
@@ -51,6 +71,167 @@ async function run(
   expect(code).toBe(0);
   return io;
 }
+
+describe("priority", () => {
+  it("sets it at creation and changes it by edit", async () => {
+    const dir = tempDir();
+    const added = await run(["add", "shelve me", "--priority", "pending"], dir);
+    expect(added.out.join("\n")).toContain("#1 [todo] shelve me pending");
+
+    const edited = await run(["edit", "1", "--priority", "high"], dir);
+    expect(edited.out.join("\n")).toContain("#1 [todo] shelve me high");
+
+    const reset = await run(["edit", "1", "--priority", "normal"], dir);
+    // normal prints nothing, so the line goes quiet again
+    expect(reset.out.join("\n")).not.toContain("high");
+    expect(reset.out.join("\n")).not.toContain("pending");
+  });
+
+  it("names the accepted values when given a bad one", async () => {
+    const dir = tempDir();
+    await expect(
+      runCommand(["add", "x", "--priority", "urgent"], makeIo(dir)),
+    ).rejects.toThrow(/--priority expects high \| normal \| low \| pending/);
+  });
+
+  it("orders a column high → normal → low → pending", async () => {
+    const dir = tempDir();
+    await run(["add", "shelved", "--priority", "pending"], dir);
+    await run(["add", "plain"], dir);
+    await run(["add", "urgent", "--priority", "high"], dir);
+    await run(["add", "minor", "--priority", "low"], dir);
+
+    const board = await run(["board"], dir);
+    const titles = board.out
+      .join("\n")
+      .split("\n")
+      .filter((line) => line.includes("[todo]"))
+      .map((line) => line.replace(/^\s*#\d+ \[todo\] /, "").split(" ")[0]);
+    expect(titles).toEqual(["urgent", "plain", "minor", "shelved"]);
+  });
+
+  it("puts the highest-priority todo card in the call to act", async () => {
+    const dir = tempDir();
+    await run(
+      ["add", "background", "--priority", "pending", "--assignee", "tester"],
+      dir,
+    );
+    await run(
+      ["add", "the real one", "--priority", "high", "--assignee", "tester"],
+      dir,
+    );
+
+    const mine = await run(["mine", "--agent", "tester"], dir);
+    expect(mine.out.join("\n")).toContain("ukb claim 2");
+  });
+});
+
+describe("batch card verbs", () => {
+  /** A board with three todo cards, all in one project. */
+  async function threeCards(dir: string): Promise<void> {
+    for (const title of ["one", "two", "three"]) {
+      await run(["add", title], dir);
+    }
+  }
+
+  it("retires several cards in one command, one line each", async () => {
+    const dir = tempDir();
+    await threeCards(dir);
+
+    const io = makeIo(dir);
+    expect(await runCommand(["done", "1", "2", "3"], io)).toBe(0);
+    expect(io.out).toEqual([
+      "done #1 [done] one · todo → done",
+      "done #2 [done] two · todo → done",
+      "done #3 [done] three · todo → done",
+    ]);
+  });
+
+  it("still takes a single id, unchanged", async () => {
+    const dir = tempDir();
+    await threeCards(dir);
+
+    const io = makeIo(dir);
+    expect(await runCommand(["done", "2"], io)).toBe(0);
+    expect(io.out).toEqual(["done #2 [done] two · todo → done"]);
+  });
+
+  it("batches review and reopen too, and delete", async () => {
+    const dir = tempDir();
+    await threeCards(dir);
+
+    const io = makeIo(dir);
+    expect(
+      await runCommand(
+        ["claim", "1", "--agent", "pi", "--agent-type", "agent"],
+        io,
+      ),
+    ).toBe(0);
+    io.out.length = 0;
+    expect(await runCommand(["review", "1"], io)).toBe(0);
+    expect(io.out).toEqual([
+      "moved to review #1 [review] one @pi · doing → review queue",
+    ]);
+    io.out.length = 0;
+    expect(await runCommand(["reopen", "1", "2", "3"], io)).toBe(0);
+    expect(io.out).toHaveLength(3);
+
+    io.out.length = 0;
+    expect(await runCommand(["delete", "1", "2", "3"], io)).toBe(0);
+    expect(io.out).toEqual(["deleted #1", "deleted #2", "deleted #3"]);
+  });
+
+  it("stops at the first card the board refuses, after applying the rest", async () => {
+    const dir = tempDir();
+    await threeCards(dir);
+
+    const io = makeIo(dir);
+    // #1 is applied and printed; #999 stops the run, so #3 is never touched.
+    await expect(
+      runCommand(["done", "1", "999", "3"], io),
+    ).rejects.toMatchObject({ code: "card_not_found" });
+    expect(io.out).toEqual(["done #1 [done] one · todo → done"]);
+
+    const board = await run(["board"], dir);
+    expect(board.out.join("\n")).toContain("#3 [todo] three");
+    expect(board.out.join("\n")).toContain("#1 [done] one");
+  });
+
+  it("rejects a non-numeric id instead of skipping it", async () => {
+    const dir = tempDir();
+    await threeCards(dir);
+
+    const io = makeIo(dir);
+    // Silently dropping `abc` would leave the caller believing three cards
+    // were retired when two were.
+    await expect(runCommand(["done", "1", "abc", "3"], io)).rejects.toThrow(
+      /positive card ids/,
+    );
+    expect(io.out).toEqual([]);
+  });
+
+  it("refuses a batch claim, and says why", async () => {
+    const dir = tempDir();
+    await threeCards(dir);
+
+    const io = makeIo(dir);
+    // The board allows exactly one card in `doing`, so this is a
+    // contradiction rather than a convenience.
+    await expect(runCommand(["claim", "1", "2"], io)).rejects.toThrow(
+      /exactly one card in doing/,
+    );
+    const board = await run(["board"], dir);
+    expect(board.out.join("\n")).toContain("#1 [todo] one");
+  });
+
+  it("requires at least one id", async () => {
+    const dir = tempDir();
+    await threeCards(dir);
+    await expect(runCommand(["done"], makeIo(dir))).rejects.toThrow(
+      /at least one card id/,
+    );
+  });
+});
 
 describe("board commands", () => {
   it("adds, lists, and transitions cards", async () => {
@@ -148,6 +329,58 @@ describe("board commands", () => {
 
     const help = await run(["help"], dir);
     expect(help.out.join("\n")).toContain("ukb — using-kanban command line");
+  });
+
+  it("documents the Pi panel in its own gui section", async () => {
+    // A panel you cannot discover is a panel you never use, and `ukb help` is
+    // the one reference surface an operator already knows to look at.
+    const help = await run(["help"], tempDir());
+    const text = help.out.join("\n");
+    const section = text.slice(text.indexOf("gui (the Pi panel"));
+
+    expect(section).toContain("/ukb gui [show]");
+    expect(section).toContain("/ukb gui more | less");
+    expect(section).toContain("/ukb gui hide");
+    expect(section).toContain("/ukb gui collapse | expand");
+    expect(section).toContain("/ukb gui help");
+    expect(section).toContain("scope: current-project | mine | all");
+    expect(section).toContain("group: state | project | owner | none");
+    // The retired spelling is deliberately absent: a deprecation belongs in the
+    // runtime warning you get for using it, not in the help everyone reads.
+    expect(section).not.toContain("ukb overlay");
+  });
+
+  it("keeps the gui section in step with the Pi extension's own help", async () => {
+    // The CLI's section and the extension's `/ukb gui help` are two hand-written
+    // copies of one vocabulary. This is the cheapest thing that stops them
+    // drifting: every accepted value must appear in both.
+    const extension = readFileSync(
+      join(resolveLocalPackageForTest(), "extensions/using-kanban/index.ts"),
+      "utf8",
+    );
+    const help = await run(["help"], tempDir());
+    const cliSection = help.out
+      .join("\n")
+      .slice(help.out.join("\n").indexOf("gui (the Pi panel"));
+
+    for (const value of [
+      "current-project",
+      "mine",
+      "all",
+      "project:<slug>",
+      "state",
+      "project",
+      "owner",
+      "none",
+      "more",
+      "less",
+      "collapse",
+      "expand",
+      "hide",
+    ]) {
+      expect(cliSection, `ukb help lost "${value}"`).toContain(value);
+      expect(extension, `extension help lost "${value}"`).toContain(value);
+    }
   });
 
   it("refuses to read a board that does not exist, instead of inventing one", async () => {
@@ -292,6 +525,7 @@ describe("render", () => {
     assignee: "codex",
     reviewer: "jyxc",
     project: null,
+    priority: "normal",
     blockedBy: [1],
     blocks: [4],
     notes: [
@@ -314,6 +548,38 @@ describe("render", () => {
       "no open cards assigned to codex",
     );
     expect(formatMine([], "codex")).toContain("ukb board");
+  });
+
+  it("byte-pins the mutation reply, tuple included", async () => {
+    // The tuple is derived from the emitted event, so this is the assertion
+    // that catches a door drifting back to a hand-written sentence.
+    const dir = tempDir();
+
+    const added = await run(
+      ["add", "ship it", "--reviewer", "jyxc", "--agent", "pi"],
+      dir,
+    );
+    expect(added.out.join("\n")).toContain("#1 [todo] ship it");
+
+    const claimed = await run(["claim", "1", "--agent", "pi"], dir);
+    expect(claimed.out.join("\n")).toBe(
+      "claimed #1 [doing] ship it @pi reviewer:jyxc · todo → doing · now assigned to pi",
+    );
+
+    const reviewed = await run(["review", "1", "--agent", "pi"], dir);
+    expect(reviewed.out.join("\n")).toBe(
+      "moved to review #1 [review] ship it @pi reviewer:jyxc · doing → review (jyxc)",
+    );
+  });
+
+  it("does not send a card with no reviewer to a named person", async () => {
+    const dir = tempDir();
+    await run(["add", "ship it", "--agent", "pi"], dir);
+    await run(["claim", "1", "--agent", "pi"], dir);
+    const reviewed = await run(["review", "1", "--agent", "pi"], dir);
+    expect(reviewed.out.join("\n")).toBe(
+      "moved to review #1 [review] ship it @pi · doing → review queue",
+    );
   });
 
   it("tells the actor exactly what to do next", () => {
@@ -343,6 +609,30 @@ describe("render", () => {
     expect(output).toContain("(empty)");
   });
 
+  it("renders the project list, untagged bucket last", () => {
+    const output = formatProjects([
+      { project: "web", todo: 2, doing: 1, review: 0, done: 3 },
+      { project: "api", todo: 0, doing: 0, review: 1, done: 2 },
+      { project: null, todo: 4, doing: 0, review: 0, done: 0 },
+    ]);
+    expect(output).toContain("projects (3):");
+    const rows = output.split("\n").slice(1, 4);
+    // The counts column starts at the same offset on every row, so the numbers
+    // are scannable down the page rather than ragged.
+    const offsets = rows.map((row) => row.indexOf("doing"));
+    expect(new Set(offsets).size).toBe(1);
+    expect(output).toContain("1 doing · 0 review · 2 todo · 3 done");
+    expect(output).toContain("0 doing · 1 review · 0 todo · 2 done");
+    // The untagged bucket is named, not dropped: those cards match no filter.
+    expect(output).toContain("(none)");
+    expect(output).toContain("0 doing · 0 review · 4 todo · 0 done");
+    expect(output).toContain("ukb board --project <slug>");
+  });
+
+  it("tells a new board how to get its first project", () => {
+    expect(formatProjects([])).toContain("no projects yet");
+  });
+
   it("renders a card with body and history", () => {
     const output = formatCard(card, [
       {
@@ -358,5 +648,131 @@ describe("render", () => {
     expect(output).toContain("assignee: codex");
     expect(output).toContain("blocked by: #1");
     expect(output).toContain("created by human/jyxc via cli");
+  });
+});
+
+describe("list", () => {
+  it("counts every project, and the untagged bucket", async () => {
+    const dir = tempDir();
+    await run(["add", "web one", "--project", "web"], dir);
+    await run(["add", "api one", "--project", "api"], dir);
+    await run(["add", "untagged"], dir);
+    await run(["claim", "1", "--agent", "pi", "--agent-type", "agent"], dir);
+
+    const io = await run(["list"], dir);
+    const out = io.out.join("\n");
+    expect(out).toContain("projects (3):");
+    expect(out).toContain("0 doing · 0 review · 1 todo · 0 done");
+    expect(out).toContain("1 doing · 0 review · 0 todo · 0 done");
+    expect(out).toContain("(none)");
+    expect(out).toContain("ukb board --project <slug>");
+  });
+
+  it("is a read: it never creates a board", async () => {
+    const dir = tempDir();
+    await expect(runCommand(["list"], makeIo(dir))).rejects.toMatchObject({
+      code: "board_not_found",
+    });
+  });
+
+  it("emits machine-readable summaries with --json", async () => {
+    const dir = tempDir();
+    await run(["add", "web one", "--project", "web"], dir);
+    await run(["add", "untagged"], dir);
+
+    const io = await run(["list", "--json"], dir);
+    expect(JSON.parse(io.out.join("\n"))).toEqual({
+      projects: [
+        { project: "web", todo: 1, doing: 0, review: 0, done: 0 },
+        { project: null, todo: 1, doing: 0, review: 0, done: 0 },
+      ],
+    });
+  });
+});
+
+describe("board --json", () => {
+  it("emits every column and the projects in use as one JSON document", async () => {
+    const dir = tempDir();
+    await run(["add", "ship it", "--assignee", "pi", "--project", "web"], dir);
+    await run(["add", "later", "--project", "api"], dir);
+    await run(["claim", "1", "--agent", "pi", "--agent-type", "agent"], dir);
+
+    const io = await run(["board", "--json"], dir);
+    const parsed = JSON.parse(io.out.join("\n")) as {
+      todo: { id: number; title: string }[];
+      doing: { id: number; title: string; assignee: string | null }[];
+      review: unknown[];
+      done: unknown[];
+      projects: string[];
+    };
+
+    expect(parsed.todo.map((card) => card.title)).toEqual(["later"]);
+    expect(parsed.doing).toHaveLength(1);
+    expect(parsed.doing[0]?.title).toBe("ship it");
+    expect(parsed.doing[0]?.assignee).toBe("pi");
+    expect(parsed.review).toEqual([]);
+    expect(parsed.done).toEqual([]);
+    expect(parsed.projects).toEqual(["api", "web"]);
+  });
+
+  it("emits a compact list projection with --brief", async () => {
+    const dir = tempDir();
+    await run(
+      [
+        "add",
+        "ship it",
+        "--body",
+        "large private body",
+        "--assignee",
+        "pi",
+        "--reviewer",
+        "jyxc",
+        "--project",
+        "web",
+      ],
+      dir,
+    );
+
+    const raw = await run(["board", "--json"], dir);
+    expect(raw.out.join("\n")).toContain("large private body");
+
+    const brief = await run(["board", "--json", "--brief"], dir);
+    const parsed = JSON.parse(brief.out.join("\n")) as {
+      todo: Record<string, unknown>[];
+    };
+    expect(parsed.todo[0]).toEqual({
+      id: 1,
+      title: "ship it",
+      state: "todo",
+      assignee: "pi",
+      reviewer: "jyxc",
+      project: "web",
+      priority: "normal",
+      blockedBy: [],
+    });
+    expect(brief.out.join("\n")).not.toContain("large private body");
+    expect(parsed.todo[0]).not.toHaveProperty("notes");
+    expect(parsed.todo[0]).not.toHaveProperty("createdBy");
+  });
+
+  it("scopes the JSON to --project", async () => {
+    const dir = tempDir();
+    await run(["add", "web card", "--project", "web"], dir);
+    await run(["add", "api card", "--project", "api"], dir);
+
+    const io = await run(["board", "--json", "--project", "web"], dir);
+    const parsed = JSON.parse(io.out.join("\n")) as {
+      todo: { title: string }[];
+    };
+    expect(parsed.todo.map((card) => card.title)).toEqual(["web card"]);
+  });
+
+  it("keeps the text board as the default", async () => {
+    const dir = tempDir();
+    await run(["add", "plain"], dir);
+    const io = await run(["board"], dir);
+    // The text renderer's column headers, not a JSON document.
+    expect(io.out.join("\n")).toContain("todo (1):");
+    expect(() => JSON.parse(io.out.join("\n"))).toThrow();
   });
 });

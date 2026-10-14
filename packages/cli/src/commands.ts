@@ -4,9 +4,13 @@ import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
+  CARD_PRIORITIES,
   KanbanError,
+  describeMutation,
   openKanban,
   type Actor,
+  type Card,
+  type CardPriority,
   type CardState,
   type Kanban,
 } from "@wayblink/using-kanban-core";
@@ -26,11 +30,17 @@ import {
   formatCardBrief,
   formatMine,
   formatMutation,
+  formatProjects,
 } from "./render.js";
 import { runInit } from "./init.js";
 import { runDoctor } from "./doctor.js";
 
-/** Each intent verb reports itself in its own words. */
+/**
+ * Each intent verb reports itself in its own words.
+ *
+ * Only the verb is per-door: the transition tuple itself comes from
+ * `describeMutation`, so no call site can claim a move that did not happen.
+ */
 const TRANSITION_VERBS = {
   claim: {
     verb: "claimed",
@@ -54,6 +64,34 @@ const TRANSITION_VERBS = {
   },
 } as const;
 
+/** The fields a list consumer needs; leaves bodies, notes and audit metadata out. */
+function briefCard(
+  card: Card,
+): Pick<
+  Card,
+  | "id"
+  | "title"
+  | "state"
+  | "assignee"
+  | "reviewer"
+  | "project"
+  | "priority"
+  | "blockedBy"
+> {
+  const { id, title, state, assignee, reviewer, project, priority, blockedBy } =
+    card;
+  return {
+    id,
+    title,
+    state,
+    assignee,
+    reviewer,
+    project,
+    priority,
+    blockedBy,
+  };
+}
+
 export interface Io {
   cwd: string;
   env: NodeJS.ProcessEnv;
@@ -65,6 +103,7 @@ export interface Io {
 
 const COMMANDS = [
   "mine",
+  "list",
   "board",
   "show",
   "add",
@@ -88,24 +127,39 @@ const COMMANDS = [
   "help",
 ] as const;
 
+/**
+ * `ukb help`.
+ *
+ * The `gui` section documents the Pi package's slash command rather than a CLI
+ * verb, because this is the one reference surface an operator already knows to
+ * look at — and a panel you cannot discover is a panel you never use. It mirrors
+ * the help text in packages/pi/extensions/using-kanban/index.ts; the two are
+ * pinned against each other by a test in packages/cli/tests/commands.test.ts.
+ */
 const USAGE = `ukb — using-kanban command line
 
 usage: ukb [command] [args]
 
 board:
   ukb                              your open cards (a call to act, not just a list)
-  ukb board [--project p]          the whole board, or one project's slice
+  ukb list                         every project on the board with its counts
+  ukb board [--project p] [--json [--brief]]
+                                     the whole board, or one project's slice
+                                     (--json emits { projects, todo, doing,
+                                     review, done } for scripts and the overlay)
   ukb show <id>                    card detail + event history
 
 work:
   ukb add "<title>" [--body "..."] [--assignee X] [--reviewer Y] [--project p]
+                                     [--priority high|normal|low|pending]
   ukb claim <id>                   todo → doing, assigned to you (do this first!)
-  ukb review <id>                  → review
-  ukb done <id>                    → done
-  ukb reopen <id>                  → todo
+  ukb review <id> [<id> …]         → review, one line per card
+  ukb done <id> [<id> …]           → done
+  ukb reopen <id> [<id> …]         → todo
   ukb move <id> <todo|doing|review|done>
   ukb edit <id> [--title T] [--body B] [--assignee X] [--reviewer Y] [--project p]
-  ukb delete <id>                  creator only
+                                     [--priority high|normal|low|pending]
+  ukb delete <id> [<id> …]         creator only
   ukb block <id> --by <id>         make a card wait on another
   ukb unblock <id> --by <id>
   ukb relate <id> --with <id> --as upstream|downstream
@@ -118,6 +172,20 @@ work:
   ukb note-edit <id> <noteId> ["…"] [--url …]
   ukb note-remove <id> <noteId>
 
+gui (the Pi panel — /ukb gui, not a CLI verb):
+  /ukb gui [show] [scope=…] [group=…] [project=…] [lines=<n>]
+                                     mount the panel above the editor. On demand
+                                     by default: the panel competes with the
+                                     latest conversation, so you ask for it.
+                                     Default scope is the current Git project.
+  /ukb gui more | less              grow / shrink the row budget
+  /ukb gui hide                     remove it
+  /ukb gui collapse | expand        one line / full height
+  /ukb gui help
+  scope: current-project | mine | all | project:<slug>
+  group: state | project | owner | none
+  rows: doing, then todo, then review — ordered by priority inside each state
+
 setup:
   ukb web [--port N] [--no-open]    start the API + Web UI
   ukb web --doc-root <dir>[,<dir>]  let card notes link docs from there
@@ -126,6 +194,17 @@ setup:
                                      (--browser also adds the Playwright MCP server)
                                      pi registers the extension + skill package
   ukb doctor                        check the environment
+
+priority:
+  high | normal | low | pending   normal is the default. low is minor, pending
+                                     is deliberately shelved — two different
+                                     intents, not two spellings of "later".
+                                     Rows sort high → normal → low → pending
+                                     inside each column. The Pi panel always
+                                     prints the tag; the CLI text prints it only
+                                     when it is not normal, because its lines
+                                     already carry six other markers and
+                                     ukb show states the priority outright.
 
 global flags:
   --dir <path>       board directory (default: home; the store is <dir>/.ukb)
@@ -139,7 +218,7 @@ frameworks for init: claude-code, codex, opencode (anything else gets the generi
 
 /** Runs one command. Returns the process exit code. */
 /** Commands that only look. Everything else may create the store. */
-const READ_ONLY_COMMANDS = new Set(["mine", "board", "show"]);
+const READ_ONLY_COMMANDS = new Set(["mine", "list", "board", "show"]);
 
 export async function runCommand(
   argv: readonly string[],
@@ -206,13 +285,35 @@ export async function runCommand(
         );
         return 0;
       }
+      case "list": {
+        const summaries = kanban.projectSummary();
+        if (flagBoolean(parsed.flags, "json")) {
+          io.stdout(JSON.stringify({ projects: summaries }));
+          return 0;
+        }
+        io.stdout(formatProjects(summaries));
+        return 0;
+      }
       case "board": {
-        io.stdout(
-          formatBoard(
-            kanban.board(flagString(parsed.flags, "project")),
-            kanban.projects(),
-          ),
-        );
+        const board = kanban.board(flagString(parsed.flags, "project"));
+        // `--json` is the raw machine door onto the same board the text
+        // renderer shows. `--brief` is its list projection: the Pi overlay only
+        // needs identity/ownership, not 100 KiB of bodies, notes and audit data.
+        if (flagBoolean(parsed.flags, "json")) {
+          const snapshot = flagBoolean(parsed.flags, "brief")
+            ? {
+                todo: board.todo.map(briefCard),
+                doing: board.doing.map(briefCard),
+                review: board.review.map(briefCard),
+                done: board.done.map(briefCard),
+              }
+            : board;
+          io.stdout(
+            JSON.stringify({ ...snapshot, projects: kanban.projects() }),
+          );
+          return 0;
+        }
+        io.stdout(formatBoard(board, kanban.projects()));
         return 0;
       }
       case "show": {
@@ -236,6 +337,7 @@ export async function runCommand(
             assignee: flagString(parsed.flags, "assignee") ?? null,
             reviewer: flagString(parsed.flags, "reviewer") ?? null,
             project: flagString(parsed.flags, "project"),
+            priority: flagPriority(parsed.flags),
             blockedBy: flagNumbers(parsed.flags, "blocked-by"),
           },
           actor,
@@ -254,6 +356,7 @@ export async function runCommand(
             assignee: flagString(parsed.flags, "assignee"),
             reviewer: flagString(parsed.flags, "reviewer"),
             project: flagString(parsed.flags, "project"),
+            priority: flagPriority(parsed.flags),
           },
           actor,
           "cli",
@@ -261,13 +364,44 @@ export async function runCommand(
         io.stdout(formatMutation(card, "updated"));
         return 0;
       }
-      case "claim":
+      case "claim": {
+        // Batch-claiming is refused rather than quietly ignored: the board's
+        // invariant is exactly one card in `doing`, so `claim 1 2` is a
+        // contradiction, not a convenience.
+        if (parsed.positionals.length > 1) {
+          throw new UsageError(
+            "ukb claim takes one card at a time — the board allows exactly one card in doing. Claim each in turn.",
+          );
+        }
+        const id = requireId(parsed.positionals[0], command);
+        const result = TRANSITION_VERBS[command].run(kanban, id, actor);
+        io.stdout(
+          describeMutation(
+            formatCardBrief(result.card),
+            result,
+            TRANSITION_VERBS[command].verb,
+          ),
+        );
+        return 0;
+      }
       case "review":
       case "done":
       case "reopen": {
-        const id = requireId(parsed.positionals[0], command);
-        const result = TRANSITION_VERBS[command].run(kanban, id, actor);
-        io.stdout(formatMutation(result.card, TRANSITION_VERBS[command].verb));
+        // Batch: one line per card, in the order given. A card the board
+        // refuses throws, so the run stops there — a later card is not
+        // transitioned on the strength of an earlier one that failed — and
+        // everything applied before the stop has already been printed.
+        const ids = requireIds(parsed.positionals, command);
+        for (const id of ids) {
+          const result = TRANSITION_VERBS[command].run(kanban, id, actor);
+          io.stdout(
+            describeMutation(
+              formatCardBrief(result.card),
+              result,
+              TRANSITION_VERBS[command].verb,
+            ),
+          );
+        }
         return 0;
       }
       case "move": {
@@ -278,14 +412,23 @@ export async function runCommand(
             "ukb move needs a column: ukb move <id> <todo|doing|review|done>",
           );
         }
-        const { card } = kanban.move(id, to as CardState, actor, "cli");
-        io.stdout(formatMutation(card, `moved to ${to}`));
+        const result = kanban.move(id, to as CardState, actor, "cli");
+        io.stdout(
+          describeMutation(
+            formatCardBrief(result.card),
+            result,
+            `moved to ${to}`,
+          ),
+        );
         return 0;
       }
       case "delete": {
-        const id = requireId(parsed.positionals[0], command);
-        kanban.remove(id, actor, "cli");
-        io.stdout(`deleted #${id}`);
+        // Batch, like the transition verbs above.
+        const ids = requireIds(parsed.positionals, command);
+        for (const id of ids) {
+          kanban.remove(id, actor, "cli");
+          io.stdout(`deleted #${id}`);
+        }
         return 0;
       }
       case "block":
@@ -492,12 +635,54 @@ function hereUrl(): string | undefined {
   return entry ? pathToFileURL(resolve(entry)).href : undefined;
 }
 
+/**
+ * `--priority`, validated here so the error names the accepted values rather
+ * than surfacing as a zod message from three layers down.
+ */
+function flagPriority(
+  flags: Record<string, string | true>,
+): CardPriority | undefined {
+  const value = flagString(flags, "priority");
+  if (value === undefined) return undefined;
+  if (!(CARD_PRIORITIES as readonly string[]).includes(value)) {
+    throw new UsageError(
+      `--priority expects ${CARD_PRIORITIES.join(" | ")} (got "${value}")`,
+    );
+  }
+  return value as CardPriority;
+}
+
 function requireId(value: string | undefined, command: string): number {
   const id = Number(value);
   if (!value || !Number.isInteger(id) || id <= 0) {
     throw new UsageError(`ukb ${command} needs a card id: ukb ${command} <id>`);
   }
   return id;
+}
+
+/**
+ * Every positional as a card id, for the batch verbs.
+ *
+ * One id is the common case and must stay valid, so `ukb done 1` and
+ * `ukb done 1 2` share this path. A bad id anywhere is a usage error rather than
+ * a skipped card: silently dropping `done 1 abc 3` would leave the caller
+ * believing three cards were retired.
+ */
+function requireIds(values: readonly string[], command: string): number[] {
+  if (values.length === 0) {
+    throw new UsageError(
+      `ukb ${command} needs at least one card id: ukb ${command} <id> [<id> …]`,
+    );
+  }
+  const ids = values.map((value) => Number(value));
+  for (const [index, id] of ids.entries()) {
+    if (!Number.isInteger(id) || id <= 0) {
+      throw new UsageError(
+        `ukb ${command} expects positive card ids (got "${values[index]}")`,
+      );
+    }
+  }
+  return ids;
 }
 
 export { formatCardBrief, resolveDefaultUiDir };

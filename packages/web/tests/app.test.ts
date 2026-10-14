@@ -128,6 +128,38 @@ describe("sortCards", () => {
     sortCards(cards);
     expect(cards.map((c) => c.id)).toEqual([1, 2]);
   });
+
+  it("orders by priority before recency", () => {
+    // The regression: recency alone put a shelved card above live work just
+    // because someone touched it last week.
+    const cards = [
+      card({ id: 1, updatedAt: "2026-01-01T00:00:00.000Z", priority: "high" }),
+      card({ id: 2, updatedAt: "2026-01-09T00:00:00.000Z" }),
+      card({
+        id: 3,
+        updatedAt: "2026-01-08T00:00:00.000Z",
+        priority: "pending",
+      }),
+      card({ id: 4, updatedAt: "2026-01-07T00:00:00.000Z", priority: "low" }),
+    ];
+    expect(sortCards(cards).map((c) => c.id)).toEqual([1, 2, 4, 3]);
+  });
+
+  it("keeps recency as the tiebreak inside one priority band", () => {
+    const cards = [
+      card({ id: 1, updatedAt: "2026-01-01T00:00:00.000Z", priority: "low" }),
+      card({ id: 2, updatedAt: "2026-01-05T00:00:00.000Z", priority: "low" }),
+    ];
+    expect(sortCards(cards).map((c) => c.id)).toEqual([2, 1]);
+  });
+
+  it("treats a card with no priority as normal", () => {
+    const cards = [
+      card({ id: 1, priority: "pending" }),
+      { ...card({ id: 2 }), priority: undefined },
+    ];
+    expect(sortCards(cards).map((c) => c.id)).toEqual([2, 1]);
+  });
 });
 
 describe("blockedCardIds", () => {

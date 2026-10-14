@@ -1,21 +1,93 @@
-import type { Board, Card, Event } from "@wayblink/using-kanban-core";
+import type {
+  Board,
+  Card,
+  Event,
+  ProjectSummary,
+} from "@wayblink/using-kanban-core";
+import {
+  compareByPriority,
+  sanitizeTerminalBlock,
+  sanitizeTerminalText,
+} from "@wayblink/using-kanban-core";
 
 /**
  * Text rendering for the terminal: compact, greppable, one fact per line.
  * (Each front door formats for its own medium — the Web UI and MCP server
  * have their own renderers.)
+ *
+ * Every field that came from a card goes through `sanitizeTerminalText` first.
+ * Card text is written by whoever ran `ukb add`/`edit`/`note` — any agent, and
+ * any human — and this module is where it meets a terminal. Sanitizing happens
+ * here and only here: `--json`, the Web UI and the event log keep the raw text.
+ * Fields are treated as single-line except `body`, which is split before
+ * sanitizing so its own line structure survives.
  */
 
+/**
+ * The priority, printed only when it is not the default.
+ *
+ * `normal` is silent so the common case stays quiet and the word means
+ * something when it appears. One style for all three — a bare word — because a
+ * line already carries `[state]`, `@assignee` and `project:` markers, and a
+ * fourth visual dialect would be one more thing to learn.
+ */
+function priorityMarker(card: Card): string | null {
+  return card.priority === "normal" ? null : card.priority;
+}
+
 export function formatCardBrief(card: Card): string {
-  const parts = [`#${card.id} [${card.state}]`, card.title];
-  if (card.assignee) parts.push(`@${card.assignee}`);
-  if (card.reviewer) parts.push(`reviewer:${card.reviewer}`);
-  if (card.project) parts.push(`project:${card.project}`);
+  const parts = [
+    `#${card.id} [${card.state}]`,
+    sanitizeTerminalText(card.title),
+  ];
+  const priority = priorityMarker(card);
+  if (priority) parts.push(priority);
+  if (card.assignee) parts.push(`@${sanitizeTerminalText(card.assignee)}`);
+  if (card.reviewer)
+    parts.push(`reviewer:${sanitizeTerminalText(card.reviewer)}`);
+  if (card.project) parts.push(`project:${sanitizeTerminalText(card.project)}`);
   if (card.blockedBy.length > 0)
     parts.push(`blocked-by:${card.blockedBy.join(",")}`);
   if (card.blocks.length > 0) parts.push(`blocks:${card.blocks.join(",")}`);
   if (card.notes.length > 0) parts.push(`notes:${card.notes.length}`);
   return parts.join(" ");
+}
+
+/**
+ * `ukb list` — every project on the board with its card counts.
+ *
+ * Ordering is the caller's: `Kanban.projectSummary()` sorts (named projects
+ * alphabetically, the no-project bucket last), and this renderer prints what it
+ * is handed so it stays a pure function of its argument.
+ *
+ * The counts include `done` so the numbers reconcile against the whole board
+ * rather than only open work, and the no-project bucket is printed as
+ * `(none)` rather than omitted: those cards exist, and an operator filtering by
+ * project needs to know they will never match one.
+ */
+export function formatProjects(summaries: readonly ProjectSummary[]): string {
+  if (summaries.length === 0) {
+    return 'no projects yet — ukb add "<title>" --project <slug>';
+  }
+  const label = (summary: ProjectSummary): string =>
+    summary.project === null ? "(none)" : sanitizeTerminalText(summary.project);
+  const width = summaries.reduce(
+    (widest, summary) => Math.max(widest, label(summary).length),
+    0,
+  );
+  const lines = [`projects (${summaries.length}):`];
+  for (const summary of summaries) {
+    const counts = [
+      `${summary.doing} doing`,
+      `${summary.review} review`,
+      `${summary.todo} todo`,
+      `${summary.done} done`,
+    ].join(" · ");
+    lines.push(`  ${label(summary).padEnd(width)}  ${counts}`);
+  }
+  lines.push("");
+  lines.push("ukb board --project <slug>   see one project");
+  return lines.join("\n");
 }
 
 export function formatBoard(
@@ -35,7 +107,9 @@ export function formatBoard(
       lines.push("  (empty)");
       continue;
     }
-    for (const card of cards) {
+    // Priority order within the column, so a shelved card does not sit above
+    // live work. The column itself is already the primary grouping.
+    for (const card of [...cards].sort(compareByPriority)) {
       lines.push(`  ${formatCardBrief(card)}`);
     }
   }
@@ -52,11 +126,13 @@ export function formatMine(cards: readonly Card[], actor: string): string {
     return `no open cards assigned to ${actor}.\n\nukb board — see the whole board`;
   }
   const lines = [`your open cards (${actor}):`, ""];
-  for (const card of cards) {
+  for (const card of [...cards].sort(compareByPriority)) {
     lines.push(`  ${formatCardBrief(card)}`);
   }
   lines.push("");
-  const claimable = cards.filter((card) => card.state === "todo");
+  const claimable = cards
+    .filter((card) => card.state === "todo")
+    .sort(compareByPriority);
   if (claimable.length > 0) {
     lines.push(
       `next: claim a todo card before working it — ukb claim ${claimable[0]?.id} — then ukb show ${claimable[0]?.id} for the details`,
@@ -69,22 +145,26 @@ export function formatMine(cards: readonly Card[], actor: string): string {
 
 export function formatCard(card: Card, events: readonly Event[]): string {
   const lines = [
-    `#${card.id} ${card.title} [${card.state}]`,
-    `assignee: ${card.assignee ?? "—"}`,
-    `reviewer: ${card.reviewer ?? "—"}`,
-    `project: ${card.project ?? "—"}`,
+    `#${card.id} ${sanitizeTerminalText(card.title)} [${card.state}]`,
+    `assignee: ${sanitizeTerminalText(card.assignee ?? "—")}`,
+    `reviewer: ${sanitizeTerminalText(card.reviewer ?? "—")}`,
+    `project: ${sanitizeTerminalText(card.project ?? "—")}`,
+    `priority: ${card.priority}`,
     `blocked by: ${card.blockedBy.length > 0 ? card.blockedBy.map((id) => `#${id}`).join(", ") : "—"}`,
     `blocks: ${card.blocks.length > 0 ? card.blocks.map((id) => `#${id}`).join(", ") : "—"}`,
-    `created by: ${card.createdBy} · revision ${card.revision} · updated ${card.updatedAt}`,
+    `created by: ${sanitizeTerminalText(card.createdBy)} · revision ${card.revision} · updated ${card.updatedAt}`,
   ];
   if (card.body) {
-    lines.push("body:", ...card.body.split("\n").map((line) => `  ${line}`));
+    lines.push(
+      "body:",
+      ...sanitizeTerminalBlock(card.body).map((bodyLine) => `  ${bodyLine}`),
+    );
   }
   if (card.notes.length > 0) {
     lines.push("notes:");
     for (const note of card.notes) {
       lines.push(
-        `  #${note.id} ${note.text}${note.url ? ` — ${note.url}` : ""} (${note.createdBy}, ${note.createdAt})`,
+        `  #${note.id} ${sanitizeTerminalText(note.text)}${note.url ? ` — ${sanitizeTerminalText(note.url)}` : ""} (${sanitizeTerminalText(note.createdBy)}, ${note.createdAt})`,
       );
     }
   }
@@ -98,7 +178,9 @@ export function formatCard(card: Card, events: readonly Event[]): string {
 }
 
 function describeEvent(event: Event): string {
-  const who = `${event.actor.type}/${event.actor.name} via ${event.source}`;
+  const who = sanitizeTerminalText(
+    `${event.actor.type}/${event.actor.name} via ${event.source}`,
+  );
   switch (event.type) {
     case "card.created":
       return `created by ${who}`;

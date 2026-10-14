@@ -1,7 +1,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import {
+  CARD_PRIORITIES,
   KanbanError,
+  describeMutation,
   openKanban,
   type Actor,
   type Card,
@@ -22,11 +24,27 @@ function projectSchemaOptional() {
       'Project slug, lowercase (e.g. "web", "api-core"). Omit to include every project.',
     );
 }
+
+/**
+ * The optional `priority` argument on add/edit.
+ *
+ * An enum rather than a free string: a typo becomes a readable tool error
+ * instead of a card silently created at `normal`.
+ */
+function prioritySchemaOptional() {
+  return z
+    .enum(CARD_PRIORITIES)
+    .optional()
+    .describe(
+      'How urgently the card wants attention: "high", "normal" (default), "low" (minor, still wanted), or "pending" (deliberately shelved). Lower priorities sort after higher ones.',
+    );
+}
 import {
   formatBoard,
   formatCard,
   formatCardBrief,
   formatCards,
+  formatProjects,
 } from "./format.js";
 import type { ResolvedMcpOptions } from "./options.js";
 
@@ -133,16 +151,12 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
     {
       title: "List projects",
       description:
-        "Every project slug in use on this board, sorted. Call this before filtering by project so you use a name that exists.",
+        "Every project on this board with its card counts. Call this before filtering by project so you use a name that exists.",
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     safe(() => {
-      const projects = read().projects();
-      return text(
-        projects.length === 0
-          ? "No projects in use yet — cards have no project until one is set."
-          : `${projects.length} project(s): ${projects.join(", ")}`,
-      );
+      const summaries = read().projectSummary();
+      return text(formatProjects(summaries));
     }),
   );
 
@@ -188,6 +202,7 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
           .optional()
           .describe("Card ids this card waits on"),
         project: projectSchemaOptional(),
+        priority: prioritySchemaOptional(),
       },
     },
     safe((input) => {
@@ -220,6 +235,7 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
         assignee: z.string().optional(),
         reviewer: z.string().optional(),
         project: projectSchemaOptional(),
+        priority: prioritySchemaOptional(),
       },
     },
     safe((input) => {
@@ -231,6 +247,7 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
           assignee: input.assignee,
           reviewer: input.reviewer,
           project: input.project,
+          priority: input.priority,
         },
         actor,
         "mcp",
@@ -251,8 +268,10 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
       inputSchema: { id: cardIdSchema },
     },
     safe(({ id }) => {
-      const { card } = write().claim(id, actor, "mcp");
-      return text(`claimed ${formatCardBrief(card)}`);
+      const result = write().claim(id, actor, "mcp");
+      return text(
+        describeMutation(formatCardBrief(result.card), result, "claimed"),
+      );
     }),
   );
 
@@ -265,8 +284,14 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
       inputSchema: { id: cardIdSchema },
     },
     safe(({ id }) => {
-      const { card } = write().review(id, actor, "mcp");
-      return text(`moved to review ${formatCardBrief(card)}`);
+      const result = write().review(id, actor, "mcp");
+      return text(
+        describeMutation(
+          formatCardBrief(result.card),
+          result,
+          "moved to review",
+        ),
+      );
     }),
   );
 
@@ -279,8 +304,10 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
       inputSchema: { id: cardIdSchema },
     },
     safe(({ id }) => {
-      const { card } = write().done(id, actor, "mcp");
-      return text(`done ${formatCardBrief(card)}`);
+      const result = write().done(id, actor, "mcp");
+      return text(
+        describeMutation(formatCardBrief(result.card), result, "done"),
+      );
     }),
   );
 
@@ -292,8 +319,10 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
       inputSchema: { id: cardIdSchema },
     },
     safe(({ id }) => {
-      const { card } = write().reopen(id, actor, "mcp");
-      return text(`reopened ${formatCardBrief(card)}`);
+      const result = write().reopen(id, actor, "mcp");
+      return text(
+        describeMutation(formatCardBrief(result.card), result, "reopened"),
+      );
     }),
   );
 
@@ -309,8 +338,14 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
       },
     },
     safe(({ id, to }) => {
-      const { card } = write().move(id, to, actor, "mcp");
-      return text(`moved to ${to} ${formatCardBrief(card)}`);
+      const result = write().move(id, to, actor, "mcp");
+      return text(
+        describeMutation(
+          formatCardBrief(result.card),
+          result,
+          `moved to ${to}`,
+        ),
+      );
     }),
   );
 

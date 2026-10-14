@@ -1,12 +1,15 @@
 import { z } from "zod";
 import {
+  CARD_PRIORITIES,
   CARD_STATES,
+  DEFAULT_CARD_PRIORITY,
   EVENT_SOURCES,
   EVENT_TYPES,
   RELATION_DIRECTIONS,
 } from "./types.js";
 
 export const CardStateSchema = z.enum(CARD_STATES);
+export const CardPrioritySchema = z.enum(CARD_PRIORITIES);
 export const EventSourceSchema = z.enum(EVENT_SOURCES);
 export const EventTypeSchema = z.enum(EVENT_TYPES);
 export const ActorTypeSchema = z.enum(["human", "agent"]);
@@ -49,6 +52,7 @@ export const AddCardInputSchema = z.object({
   assignee: ClearableTextSchema,
   reviewer: ClearableTextSchema,
   project: ClearableProjectSchema,
+  priority: CardPrioritySchema.default(DEFAULT_CARD_PRIORITY),
   blockedBy: z.array(z.number().int().positive()).default([]),
 });
 export type AddCardInput = z.input<typeof AddCardInputSchema>;
@@ -59,6 +63,7 @@ export const EditCardInputSchema = z.object({
   assignee: ClearableTextSchema,
   reviewer: ClearableTextSchema,
   project: ClearableProjectSchema,
+  priority: CardPrioritySchema.optional(),
 });
 export type EditCardInput = z.input<typeof EditCardInputSchema>;
 
@@ -126,6 +131,7 @@ export const CardPatchSchema = z.object({
   assignee: z.string().nullable().optional(),
   reviewer: z.string().nullable().optional(),
   project: z.string().nullable().optional(),
+  priority: CardPrioritySchema.optional(),
 });
 export type CardPatch = z.infer<typeof CardPatchSchema>;
 
@@ -145,6 +151,8 @@ export const CardCreatedPayloadSchema = z.object({
   reviewer: z.string().nullable(),
   /** Absent on events written before projects existed. */
   project: z.string().nullable().default(null),
+  /** Absent on events written before priorities existed. */
+  priority: CardPrioritySchema.default(DEFAULT_CARD_PRIORITY),
   blockedBy: z.array(z.number().int().positive()),
   /** Absent on events written before notes existed. */
   notes: z.array(CardNoteSchema).default([]),

@@ -14,20 +14,26 @@ async function main(): Promise<void> {
   };
 
   const code = await runCommand(argv, io);
-  process.exit(code);
+  // Do not call process.exit() here. When stdout is a pipe (as it is under the
+  // Pi extension), write() is asynchronous; forcing the process down can cut a
+  // large JSON document at the platform pipe buffer (64 KiB on macOS). Setting
+  // exitCode lets Node drain stdout/stderr before exiting naturally.
+  process.exitCode = code;
 }
 
 main().catch((error: unknown) => {
   if (error instanceof UsageError) {
     process.stderr.write(`ukb: ${error.message}\n`);
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
   if (error instanceof KanbanError) {
     process.stderr.write(`${error.code}: ${error.message}\n`);
-    process.exit(2);
+    process.exitCode = 2;
+    return;
   }
   process.stderr.write(
     `ukb: ${error instanceof Error ? error.message : String(error)}\n`,
   );
-  process.exit(1);
+  process.exitCode = 1;
 });

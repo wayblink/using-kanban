@@ -342,11 +342,15 @@ daemon and no server needed:
 ```bash
 ukb                                # your open cards — a call to act, not a list
 ukb board                          # the whole board
+ukb board --json                   # …as { projects, todo, doing, review, done }
+ukb board --json --brief           # list fields only; no bodies/notes/audit metadata
 ukb show 3                         # detail + event history
 ukb add "fix the flaky test" --body "AC: green on CI" --assignee codex --reviewer jyxc
 ukb claim 3                        # todo → doing, assigned to you
 ukb review 3                       # → review
 ukb done 3                         # → done
+ukb done 3 4 5                     # …or several at once
+ukb add "…" --priority pending     # high | normal | low | pending
 ukb reopen 3                       # → todo
 ukb move 3 doing
 ukb edit 3 --body "…"              # empty string clears a field
@@ -357,6 +361,22 @@ ukb note 4 "design doc" --url docs/design.md   # a remark with a document link
 ukb web                            # start the API + Web UI and open a browser
 ukb doctor                         # is this project wired up?
 ```
+
+`done`, `review`, `reopen` and `delete` take several ids, because clearing a
+review queue one card per invocation is the kind of friction that stops people
+using the board. Each card gets its own line, and the run stops at the first card
+the board refuses — a later card is never transitioned on the strength of an
+earlier one that failed, and everything printed before the stop is what was
+applied. `claim` is the deliberate exception: the board allows exactly one card
+in `doing`, so `ukb claim 3 4` is refused with that reason rather than quietly
+claiming one of them.
+
+`--priority` takes `high`, `normal` (the default), `low` or `pending`. `low` is
+minor but still wanted; `pending` is deliberately shelved until something outside
+the card changes — two different intents, which is why they are not one value.
+Rows sort `high → normal → low → pending` inside each column, so a board with a
+long backlog stops interleaving shelved ideas with live work. `normal` prints
+nothing, so the marker only appears when it says something.
 
 Agents pass `--agent <name> --agent-type agent` so cards are attributable
 (`UKB_AGENT` / `UKB_AGENT_TYPE` work too); `--dir` / `--storage` select the
@@ -372,15 +392,21 @@ project filter is a partition, not an overlay.
 ```bash
 ukb add "Fix the login bug" --project web   # set it at creation
 ukb edit 7 --project api                    # move it later
+ukb list                                   # every project + its card counts
 ukb board --project web                     # just that project
 ukb mine --project web                      # my work in one project
 ```
 
+`ukb list` counts `done` too, so the rows reconcile against the whole board, and
+it names the `(none)` bucket rather than hiding it — cards with no project match
+no filter, and an operator needs to see that before wondering where the missing
+cards went.
+
 The same three MCP verbs take a `project` argument (`kanban_board`,
-`kanban_my_cards`, `kanban_review_queue`), and `kanban_projects` lists the slugs
-in use so an agent never has to guess one. Over REST, `?project=` works on
-`/api/board` and `/api/cards`. Slugs are lowercased and restricted to
-`[a-z0-9._-]`, because they end up in URLs and CLI flags — "Web" and "web"
+`kanban_my_cards`, `kanban_review_queue`), and `kanban_projects` lists each slug
+with its counts. Over REST, `?project=` works on `/api/board` and `/api/cards`.
+Slugs are lowercased and restricted to `[a-z0-9._-]`, because they end up in
+URLs and CLI flags — "Web" and "web"
 cannot become two different projects by accident.
 
 ### Notes and documents
@@ -436,6 +462,113 @@ call in a colour-coded block (green on success, red on error) under a `ukb
 <action>` header, so the board reads like a first-class verb rather than a JSON
 argument dump. This is the difference between an agent using the board and never
 touching it.
+
+**Show the board when you need it.** Run `/ukb gui show` in Pi to mount a widget
+above the editor. It defaults to the current Git project's cards (repo-root
+basename → project slug), grouped by state, showing who each `doing`/`review`
+card is waiting on plus counts for the rest:
+
+```
+● ukb · using-kanban · 2 doing · 1 review · 2 todo · 1 done
+├─ [doing][high]    #1 Fix flaky retry backoff test        @pi
+├─ [doing][normal]  #2 Wire SSE replay for board events    @codex
+├─ [review][normal] #3 Overlay widget above the editor     → human
+├─ [todo][normal]   #4 Add terminal sanitizer to the CLI   @pi
+└─ [todo][pending]  #5 Hoist sanitize into a shared module
+```
+
+It reads `ukb board --json --brief` — the same board's compact list projection,
+without transferring every body, note and audit field. While visible it repaints
+after any `ukb` tool call, at the start of each turn, and after any successful
+`ukb` slash command that changed the board; there is no polling or daemon.
+`done` is a count and never a row, so the panel stays bounded however long the
+board grows.
+
+That last trigger is not redundant with the tool one. A human typing
+`/ukb done 319` drives the CLI directly and never goes through the tool, so
+`tool_execution_end` does not fire for it — without it the panel kept drawing the
+pre-`done` board until the next agent turn, which is indistinguishable from a
+broken panel. Reads are skipped rather than paying for a subprocess to redraw
+identical lines, and the read-only verb list is a denylist: a verb added later
+repaints by default instead of silently going stale.
+
+The default is **on demand**, because content above the editor competes with the
+latest conversation and reasoning. `/ukb gui hide` removes it; while visible,
+`ctrl+shift+k` collapses/expands it. Parameters are session-local previews:
+
+```text
+/ukb gui help                                    # commands and accepted values
+/ukb gui show                                    # current project, state order
+/ukb gui show scope=mine group=owner             # assigned to/reviewed by me
+/ukb gui show scope=all group=project            # whole board by project
+/ukb gui show scope=project:civil-forest         # an explicit project
+/ukb gui more                                    # +10 rows; `less` takes them back
+/ukb gui show lines=40                           # or name the budget outright
+/ukb gui hide
+```
+
+Rows are ordered `doing`, then `todo`, then `review` — what you can act on ahead
+of what you are waiting on — and by priority inside each state. Every row carries
+both tags, `[todo][normal]` included: a row missing one reads as malformed next
+to rows that have it, and `normal` has to be distinguishable from a card that
+predates priorities. The first cut put `review` second, and on a project
+with eleven review cards and fourteen todo cards that hid every piece of
+available work behind a queue the reader cannot clear, so the panel read as
+"nothing to do" when the opposite was true.
+
+When rows are trimmed the summary line names the command that reveals them, so a
+count of hidden cards is never a dead end. Raising the budget is a deliberate,
+session-local act: a panel taller than the terminal pushes the conversation out
+of view, which is the trade the whole on-demand default exists to avoid.
+
+Pi widgets only support `aboveEditor` / `belowEditor`. `setHeader()` would replace
+Pi's built-in header rather than append a top panel, so the package deliberately
+uses on-demand `aboveEditor` instead.
+
+**Tune the board's rules without forking it.** `~/.config/ukb/config.json` (or
+`$XDG_CONFIG_HOME/ukb/config.json`) carries the prompt copy the tool gives the
+model, the overlay's settings, and the default actor name. It is read at
+extension load, so a change needs a `/reload`:
+
+```json
+{
+  "agent": "pi",
+  "guidance": {
+    "promptSnippet": "Use the board for anything another agent may pick up.",
+    "promptGuidelines": [
+      "Keep exactly one card in doing.",
+      "Only create a card for work someone else could take over."
+    ]
+  },
+  "overlay": {
+    "enabled": true,
+    "display": "on-demand",
+    "scope": "current-project",
+    "groupBy": "state",
+    "maxLines": 12,
+    "collapseKey": "ctrl+shift+k"
+  }
+}
+```
+
+Set `overlay.project` when the repo basename and board slug differ; it overrides
+Git-root inference for `current-project`. `display: "always"` restores the
+original persistent panel.
+
+`guidance` replaces the built-in prompt copy — all-or-nothing per field, never
+merged item by item, so a half-edited list falls back cleanly instead of
+truncating the rules silently. The built-ins cover what the board depends on:
+**exactly one card in `doing`**, reading a card's body before claiming it, and
+not creating cards for trivial self-serve edits. These ship as tool
+`promptGuidelines`, which Pi injects into the system prompt — they are in front
+of the model whether or not it ever loads the skill.
+
+Environment overrides still beat the file: `UKB_OVERLAY` (`off` / `on`),
+`UKB_OVERLAY_DISPLAY` (`on-demand` / `always`), `UKB_OVERLAY_SCOPE`
+(`current-project` / `mine` / `all`), `UKB_OVERLAY_PROJECT`,
+`UKB_OVERLAY_GROUP` (`state` / `project` / `owner` / `none`),
+`UKB_OVERLAY_LINES`, and `UKB_OVERLAY_KEY`. Invalid values fall through to the
+next level, so a typo in a shell export does not silently discard the file.
 
 **Use `--local` before the packages are on npm.** The default config runs
 `npx -y @wayblink/using-kanban-mcp`, which only resolves once published.

@@ -24,6 +24,8 @@ const BOOLEAN_FLAGS = new Set([
   "dry-run",
   "yes",
   "force",
+  "json",
+  "brief",
 ]);
 
 /**

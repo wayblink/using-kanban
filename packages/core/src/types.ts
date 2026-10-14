@@ -8,6 +8,25 @@
 export const CARD_STATES = ["todo", "doing", "review", "done"] as const;
 export type CardState = (typeof CARD_STATES)[number];
 
+/**
+ * How urgently a card wants attention, and — for `pending` — whether it wants
+ * any at all right now.
+ *
+ * `low` and `pending` are different intents, not two spellings of the same
+ * thing: `low` means minor but still wanted eventually, `pending` means
+ * deliberately shelved until something outside the card changes. Collapsing
+ * them would lose the distinction between "do this later" and "do not do this
+ * yet", which is the one an operator acts on.
+ *
+ * The array is in sort order, so `CARD_PRIORITIES.indexOf(a) - indexOf(b)` is
+ * the whole comparator.
+ */
+export const CARD_PRIORITIES = ["high", "normal", "low", "pending"] as const;
+export type CardPriority = (typeof CARD_PRIORITIES)[number];
+
+/** The priority a card has when nothing says otherwise. */
+export const DEFAULT_CARD_PRIORITY: CardPriority = "normal";
+
 export const ACTOR_TYPES = ["human", "agent"] as const;
 export type ActorType = (typeof ACTOR_TYPES)[number];
 
@@ -61,6 +80,11 @@ export interface Card {
   /** Project slug this card belongs to, or null for "no project". */
   readonly project: string | null;
   /**
+   * How urgently this card wants attention. `normal` unless set, including on
+   * cards created before priorities existed — see `CardCreatedPayloadSchema`.
+   */
+  readonly priority: CardPriority;
+  /**
    * Card ids this card is waiting on — its predecessors. Mirrored as `blocks`
    * on those cards, so the relation can be managed from either side.
    */
@@ -96,6 +120,22 @@ export interface Board {
   readonly doing: readonly Card[];
   readonly review: readonly Card[];
   readonly done: readonly Card[];
+}
+
+/**
+ * One project's share of the board.
+ *
+ * `project` is `null` for cards that carry no slug. They are counted here
+ * rather than dropped, because a card with no project is invisible to every
+ * `--project` filter — an operator needs to see that bucket exists before they
+ * wonder where the missing cards went.
+ */
+export interface ProjectSummary {
+  readonly project: string | null;
+  readonly todo: number;
+  readonly doing: number;
+  readonly review: number;
+  readonly done: number;
 }
 
 export interface Event {

@@ -429,8 +429,21 @@ describe("ukb init --for pi", () => {
       "utf8",
     );
     expect(extension).toContain("registerTool");
-    expect(extension).toContain('name: "ukb"');
-    expect(extension).toContain('registerCommand("ukb"');
+    // the tool name is one constant so the registration and the overlay's
+    // tool_execution_end filter cannot drift apart
+    expect(extension).toContain('const TOOL_NAME = "ukb"');
+    expect(extension).toContain("name: TOOL_NAME");
+    expect(extension).toContain("registerCommand(TOOL_NAME");
+    // Overlay controls live under the same /ukb command rather than exposing a
+    // second slash-command namespace.
+    expect(extension).not.toContain('registerCommand("ukb-overlay"');
+    expect(extension).toContain("isGuiNamespace(tokens[0])");
+    expect(extension).toContain('const GUI_NAMESPACE = "gui";');
+    // One spelling only. An alias that exists in order to be retired is two
+    // names for one thing, and the reader has to learn which is current.
+    expect(extension).not.toContain("ukb overlay");
+    expect(extension).not.toContain("OVERLAY_NAMESPACES");
+    expect(extension).toContain("handleOverlayCommand");
     // and the skill must carry the workflow
     const skill = readFileSync(
       join(pkg, "skills/using-kanban/SKILL.md"),
@@ -533,9 +546,24 @@ describe("the pi extension stays in step with the CLI", () => {
       'flag("--as", params.direction)',
       "noteId",
       'flag("--url", params.url)',
+      // the batch verbs take several ids as positionals
+      "ids: Type.Optional(",
+      "cardIds(params)",
+      '"claim",',
     ]) {
       expect(source, `extension lost "${fragment}"`).toContain(fragment);
     }
+  });
+
+  it("refuses a batch claim at the CLI, not by dropping the extra ids", () => {
+    // The rule lives where it is enforced: the CLI knows one card may be in
+    // `doing`, so `claim 1 2` must reach it and be refused there.
+    const cli = readFileSync(
+      join(resolveLocalPackageForTest(), "../cli/src/commands.ts"),
+      "utf8",
+    );
+    expect(cli).toContain("the board allows exactly one card in doing");
+    expect(cli).toContain("requireIds");
   });
 });
 

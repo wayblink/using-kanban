@@ -392,6 +392,23 @@ button.primary:hover {
   color: var(--col-review);
 }
 
+/* Priority badges. `high` borrows the doing colour because it means "now";
+   `low` and `pending` are muted, because the point of both is to recede. */
+.badge.priority-high {
+  border-color: color-mix(in srgb, var(--col-doing) 40%, transparent);
+  color: var(--col-doing);
+}
+
+.badge.priority-low,
+.badge.priority-pending {
+  border-color: color-mix(in srgb, var(--text-dim) 45%, transparent);
+  color: var(--text-dim);
+}
+
+.badge.priority-pending {
+  border-style: dashed;
+}
+
 /* Project badge: a neutral accent, since a project is a grouping rather than
    a state. */
 .badge.project {
