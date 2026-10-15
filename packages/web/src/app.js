@@ -555,6 +555,14 @@ export const I18N = {
   en: {
     "nav.docs": "Docs",
     "nav.board": "Board",
+    "nav.events": "Events",
+    "events.title": "Events",
+    "events.subtitle":
+      "Every operation on the board, newest first — the audit trail.",
+    "events.filterPlaceholder": "Filter by card, actor, or action…",
+    "events.refresh": "Refresh",
+    "events.loadMore": "Load more",
+    "events.empty": "No events match.",
     "controls.actingAs": "acting as",
     "actor.human": "human",
     "actor.agent": "agent",
@@ -663,6 +671,13 @@ export const I18N = {
   zh: {
     "nav.docs": "文档",
     "nav.board": "看板",
+    "nav.events": "事件",
+    "events.title": "事件",
+    "events.subtitle": "看板上的所有操作，最新的在前——用于审计。",
+    "events.filterPlaceholder": "按卡片 / 操作者 / 动作筛选…",
+    "events.refresh": "刷新",
+    "events.loadMore": "加载更早",
+    "events.empty": "没有匹配的事件。",
     "controls.actingAs": "当前身份",
     "actor.human": "人类",
     "actor.agent": "智能体",
@@ -880,6 +895,14 @@ const DOCS_EN = [
         text:
           "If a claim fails — someone else is already working the card — you get the server's reason as a toast and " +
           "the board snaps back to server state. Nothing is ever silently overwritten.",
+      },
+      { t: "h", text: "Events — the audit trail" },
+      {
+        t: "p",
+        text:
+          "The Events page lists every operation on the board, newest first: who did it, through which door " +
+          "(cli, mcp, api, web), what changed, and which card it touched. Filter it, page back through the log, " +
+          "and click a row's card to open it. It is the same event log the board is built from, read straight.",
       },
       { t: "h", text: "Identity" },
       {
@@ -1302,6 +1325,11 @@ const DOCS_ZH = [
         t: "p",
         text: "如果认领失败——已经有别人在处理这张卡片——你会看到服务端返回的原因提示，看板也会回退到服务端状态。任何操作都不会被悄悄覆盖。",
       },
+      { t: "h", text: "事件 —— 审计流水" },
+      {
+        t: "p",
+        text: "事件页按时间倒序列出看板上的每一个操作：谁做的、通过哪个入口（cli / mcp / api / web）、改了什么、动了哪张卡。可过滤、可向更早翻页，点行里的卡片即可打开它。它就是看板据以构建的那份事件日志，直接读出来。",
+      },
       { t: "h", text: "身份" },
       {
         t: "p",
@@ -1623,6 +1651,7 @@ function startApp() {
   const els = {
     board: document.getElementById("board"),
     docs: document.getElementById("docs"),
+    events: document.getElementById("events"),
     boardControls: document.getElementById("board-controls"),
     actorName: document.getElementById("actor-name"),
     actorType: document.getElementById("actor-type"),
@@ -1652,6 +1681,8 @@ function startApp() {
     dragCardId: null,
     route: currentRoute(),
     lang: loadLanguage(),
+    /** The audit page: a newest-first window over the event log. */
+    events: { items: [], hasMore: false, newestId: 0, query: "" },
   };
 
   /** Guards against re-rendering the docs when only the section hash changes. */
@@ -1697,10 +1728,12 @@ function startApp() {
     if (state.route === "docs") void renderDocs();
   }
 
-  /** `#/board` or `#/docs` — the docs page is the home page. */
+  /** `#/board`, `#/events` or `#/docs` — the docs page is the home page. */
   function currentRoute() {
     const hash = window.location.hash.replace(/^#\/?/, "");
-    return hash.startsWith("board") ? "board" : "docs";
+    if (hash.startsWith("board")) return "board";
+    if (hash.startsWith("events")) return "events";
+    return "docs";
   }
 
   /** The section targeted by `#/docs/<id>`, if any. */
@@ -1713,15 +1746,24 @@ function startApp() {
   function applyRoute() {
     state.route = currentRoute();
     const onDocs = state.route === "docs";
+    const onEvents = state.route === "events";
 
-    els.board.hidden = onDocs;
+    els.board.hidden = state.route !== "board";
     els.docs.hidden = !onDocs;
-    els.boardControls.hidden = onDocs;
+    els.events.hidden = !onEvents;
+    els.boardControls.hidden = state.route !== "board";
 
     for (const link of document.querySelectorAll(".nav-link")) {
       const active = link.dataset.route === state.route;
       link.classList.toggle("active", active);
       link.setAttribute("aria-current", active ? "page" : "false");
+    }
+
+    if (onEvents) {
+      closeDrawer();
+      closeModal();
+      void renderEvents();
+      return;
     }
 
     if (!onDocs) {
@@ -1896,7 +1938,26 @@ function startApp() {
   function connectLive() {
     const source = new EventSource(apiUrl("/api/events"));
     source.onopen = () => setLive("live");
-    source.onmessage = () => scheduleRefresh();
+    source.onmessage = (message) => {
+      scheduleRefresh();
+      if (state.route !== "events") return;
+      // The server backfills the whole log on connect, so only events past the
+      // newest one we hold are genuinely new and belong at the top.
+      try {
+        const event = JSON.parse(message.data);
+        if (
+          typeof event?.id !== "number" ||
+          event.id <= state.events.newestId
+        ) {
+          return;
+        }
+        state.events.items = mergeEvents(state.events.items, [event]);
+        state.events.newestId = event.id;
+        renderEventList();
+      } catch {
+        // A frame we cannot parse is not worth breaking the page over.
+      }
+    };
     source.onerror = () => setLive("offline"); // EventSource reconnects on its own
   }
 
@@ -3044,6 +3105,150 @@ function startApp() {
     window.setTimeout(() => element.remove(), 5000);
   }
 
+  /* ------------------------------- events ------------------------------ */
+
+  /** How many events one page of the audit view holds. */
+  const EVENTS_PAGE = 100;
+  let eventsListEl = null;
+  let eventsMoreEl = null;
+
+  /** Build the Events page shell (once) and load its first page. */
+  async function renderEvents() {
+    els.events.textContent = "";
+
+    const header = document.createElement("div");
+    header.className = "events-header";
+    const title = document.createElement("h1");
+    title.textContent = t("events.title");
+    const sub = document.createElement("p");
+    sub.className = "events-sub";
+    sub.textContent = t("events.subtitle");
+
+    const controls = document.createElement("div");
+    controls.className = "events-controls";
+    const query = document.createElement("input");
+    query.type = "search";
+    query.placeholder = t("events.filterPlaceholder");
+    query.value = state.events.query;
+    query.addEventListener("input", () => {
+      state.events.query = query.value;
+      renderEventList();
+    });
+    const refreshButton = document.createElement("button");
+    refreshButton.type = "button";
+    refreshButton.textContent = t("events.refresh");
+    refreshButton.addEventListener("click", () => void loadEvents());
+    controls.append(query, refreshButton);
+    header.append(title, sub, controls);
+
+    eventsListEl = document.createElement("ul");
+    eventsListEl.className = "event-list";
+    eventsMoreEl = document.createElement("button");
+    eventsMoreEl.type = "button";
+    eventsMoreEl.className = "event-more";
+    eventsMoreEl.textContent = t("events.loadMore");
+    eventsMoreEl.addEventListener(
+      "click",
+      () => void loadEvents({ more: true }),
+    );
+
+    els.events.append(header, eventsListEl, eventsMoreEl);
+
+    // Card titles come from the board, which the docs route (the home page)
+    // never loads. (Named `refreshButton` above so it cannot shadow `refresh`.)
+    if (state.cards.length === 0) await refresh();
+    await loadEvents();
+  }
+
+  /** Fetch the newest page (or the next older one) and repaint. */
+  async function loadEvents({ more = false } = {}) {
+    const before = more ? state.events.items.at(-1)?.id : undefined;
+    if (more && before === undefined) return;
+    eventsMoreEl.disabled = true;
+    try {
+      const params = new URLSearchParams({ limit: String(EVENTS_PAGE) });
+      if (before !== undefined) params.set("before", String(before));
+      const payload = await api(`/api/log?${params}`);
+      const incoming = payload.events ?? [];
+      // Keep anything already loaded (and older) when refetching the first
+      // page, so `Refresh` does not throw away the pages you paged back to.
+      state.events.items = mergeEvents(
+        more ? state.events.items : [],
+        incoming,
+      );
+      state.events.newestId = state.events.items[0]?.id ?? 0;
+      state.events.hasMore = Boolean(payload.hasMore);
+      renderEventList();
+    } catch (error) {
+      toast(error.message, "error");
+    } finally {
+      eventsMoreEl.disabled = false;
+    }
+  }
+
+  function renderEventList() {
+    if (!eventsListEl) return;
+    const byId = new Map(state.cards.map((card) => [card.id, card]));
+    const query = state.events.query.trim().toLowerCase();
+    const shown = state.events.items.filter((event) =>
+      matchesEvent(event, query, byId),
+    );
+    eventsListEl.textContent = "";
+    for (const event of shown) eventsListEl.append(eventRow(event, byId));
+    if (shown.length === 0) {
+      const empty = document.createElement("li");
+      empty.className = "event-empty";
+      empty.textContent = t("events.empty");
+      eventsListEl.append(empty);
+    }
+    eventsMoreEl.hidden = !state.events.hasMore;
+  }
+
+  /** One audit row: when, who, through what, what happened, which card. */
+  function eventRow(event, byId) {
+    const row = document.createElement("li");
+    row.className = "event-row";
+    row.dataset.type = event.type;
+
+    const time = document.createElement("time");
+    time.className = "event-time";
+    time.dateTime = event.ts;
+    time.textContent = formatTimestamp(event.ts);
+
+    const actor = document.createElement("span");
+    actor.className = `event-actor ${event.actor.type}`;
+    actor.textContent = `${event.actor.type}/${event.actor.name}`;
+
+    const source = document.createElement("span");
+    source.className = "event-source";
+    source.textContent = event.source;
+
+    const desc = document.createElement("span");
+    desc.className = "event-desc";
+    desc.textContent = describeEvent(event);
+
+    const ref = document.createElement("button");
+    ref.type = "button";
+    ref.className = "event-card";
+    const title = byId.get(event.cardId)?.title;
+    ref.textContent = `#${event.cardId}${title ? ` ${title}` : ""}`;
+    ref.addEventListener("click", () => void openDrawer(event.cardId));
+
+    row.append(time, actor, source, desc, ref);
+    return row;
+  }
+
+  /** `YYYY-MM-DD HH:mm:ss` in the reader's timezone. */
+  function formatTimestamp(iso) {
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return iso;
+    const pad = (value) => String(value).padStart(2, "0");
+    return (
+      `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
+      ` ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+    );
+  }
+
   /* ------------------------------- wiring ---------------------------- */
 
   els.newCard.addEventListener("click", openModal);
@@ -3141,23 +3346,76 @@ function textArea(value, onChange) {
   return textarea;
 }
 
-function describeEvent(event) {
+/**
+ * One line saying what an event did. Pure and exported so the drawer history
+ * and the Events page say the same thing, and so it can be tested without a
+ * browser. Covers every `EventType`; the fallback is the raw type, which is
+ * still true, just not friendly.
+ */
+export function describeEvent(event) {
+  const payload = event.payload ?? {};
   switch (event.type) {
     case "card.created":
       return "created";
     case "card.updated":
       return "edited";
-    case "card.moved": {
-      const payload = event.payload ?? {};
+    case "card.moved":
       return `${payload.action ?? "moved"} ${payload.from ?? "?"}→${payload.to ?? "?"}`;
-    }
     case "card.deleted":
       return "deleted";
     case "card.dependency_added":
-      return `blocked on #${event.payload?.blockedBy ?? "?"}`;
+      return `blocked on #${payload.blockedBy ?? "?"}`;
     case "card.dependency_removed":
-      return `unblocked from #${event.payload?.blockedBy ?? "?"}`;
+      return `unblocked from #${payload.blockedBy ?? "?"}`;
+    case "card.parent_set":
+      return `child of #${payload.parent ?? "?"}`;
+    case "card.parent_cleared":
+      return "detached from its parent";
+    case "card.note_added":
+      return "added a note";
+    case "card.note_updated":
+      return `edited note #${payload.note ?? "?"}`;
+    case "card.note_removed":
+      return `removed note #${payload.note ?? "?"}`;
     default:
       return event.type;
   }
+}
+
+/**
+ * Merge two event lists — each newest-first — into one, deduped by id, newest
+ * first, capped at `limit`. Used both ways the page grows: a live event arriving
+ * over SSE, and a page fetched by `Load more` or `Refresh`.
+ */
+export function mergeEvents(existing, incoming, limit = Infinity) {
+  const byId = new Map();
+  for (const event of [...existing, ...incoming]) {
+    if (event && typeof event.id === "number" && !byId.has(event.id)) {
+      byId.set(event.id, event);
+    }
+  }
+  return [...byId.values()].sort((a, b) => b.id - a.id).slice(0, limit);
+}
+
+/**
+ * Whether an event matches the audit page's free-text filter. It looks at the
+ * actor, source, action, and the card it touched (id and title), because a
+ * reader auditing "what happened to #38" types the id, not the event type.
+ */
+export function matchesEvent(event, query, byId) {
+  if (!query) return true;
+  const title = byId?.get?.(event.cardId)?.title ?? "";
+  return [
+    event.type,
+    event.actor?.type,
+    event.actor?.name,
+    event.source,
+    describeEvent(event),
+    `#${event.cardId}`,
+    String(event.cardId),
+    title,
+  ]
+    .join(" ")
+    .toLowerCase()
+    .includes(query);
 }

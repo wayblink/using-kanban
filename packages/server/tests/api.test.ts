@@ -659,3 +659,42 @@ describe("documents", () => {
     expect(response.status).toBe(401);
   });
 });
+
+describe("GET /api/log", () => {
+  const create = (title: string): Promise<Response> =>
+    request("/api/cards", {
+      method: "POST",
+      body: JSON.stringify({ title }),
+    });
+
+  it("returns the log newest first, and pages backwards with `before`", async () => {
+    await create("one");
+    await create("two");
+
+    const first = await request("/api/log?limit=1");
+    const page = (await first.json()) as {
+      events: { id: number; type: string; payload: { title?: string } }[];
+      hasMore: boolean;
+    };
+    expect(page.events).toHaveLength(1);
+    expect(page.events[0]?.payload.title).toBe("two");
+    expect(page.hasMore).toBe(true);
+
+    const newest = page.events[0]?.id ?? 0;
+    const older = (await (
+      await request(`/api/log?limit=5&before=${newest}`)
+    ).json()) as {
+      events: { id: number; payload: { title?: string } }[];
+      hasMore: boolean;
+    };
+    expect(older.events).toHaveLength(1);
+    expect(older.events[0]?.payload.title).toBe("one");
+    expect(older.events.every((event) => event.id < newest)).toBe(true);
+    expect(older.hasMore).toBe(false);
+  });
+
+  it("rejects a bad limit or cursor", async () => {
+    expect((await request("/api/log?limit=0")).status).toBe(400);
+    expect((await request("/api/log?before=x")).status).toBe(400);
+  });
+});

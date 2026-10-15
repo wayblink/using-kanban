@@ -1,8 +1,56 @@
 import type { Event } from "@wayblink/using-kanban-core";
-import { HttpError } from "../http.js";
+import { HttpError, sendJson } from "../http.js";
 import type { RequestContext } from "../router.js";
 
 const HEARTBEAT_MS = 15_000;
+const DEFAULT_LIMIT = 100;
+const MAX_LIMIT = 500;
+
+/**
+ * `GET /api/log?limit=&before=` — the shared log as JSON, newest first.
+ *
+ * `/api/events` is the *stream* (SSE, for tailing). This is the *read*: an
+ * audit view wants the last few hundred operations in one request, not a
+ * connection it has to buffer itself. `before` is an event id cursor — pass the
+ * oldest id you already hold to page further back.
+ */
+export function listEvents(ctx: RequestContext): void {
+  const limit = parseLimit(ctx);
+  const before = parseBefore(ctx);
+  const all = ctx.kanban.events();
+  const older =
+    before === null ? all : all.filter((event) => event.id < before);
+  const page = older.slice(Math.max(0, older.length - limit)).reverse();
+  sendJson(ctx.res, 200, { events: page, hasMore: older.length > limit });
+}
+
+function parseLimit(ctx: RequestContext): number {
+  const raw = ctx.query.get("limit");
+  if (raw === null || raw === "") return DEFAULT_LIMIT;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1) {
+    throw new HttpError(
+      400,
+      "invalid_input",
+      "limit must be a positive integer",
+    );
+  }
+  return Math.min(value, MAX_LIMIT);
+}
+
+function parseBefore(ctx: RequestContext): number | null {
+  const raw = ctx.query.get("before");
+  if (raw === null || raw === "") return null;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1) {
+    throw new HttpError(
+      400,
+      "invalid_input",
+      "before must be a positive event id",
+    );
+  }
+  return value;
+}
 
 /**
  * `GET /api/events?since=<id>` — Server-Sent Events stream of the shared log.

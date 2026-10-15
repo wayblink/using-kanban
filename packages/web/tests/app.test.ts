@@ -9,11 +9,14 @@ import {
   actionForColumn,
   actorOptions,
   blockedCardIds,
+  describeEvent,
   docKindOf,
   escapeHtml,
   filterCards,
   formatRelativeTime,
   markdownToHtml,
+  matchesEvent,
+  mergeEvents,
   normaliseDocPath,
   parseActor,
   previewCards,
@@ -775,5 +778,89 @@ describe("column preview and expansion", () => {
     const preview = previewCards(cards, "someday", false);
     expect(preview.collapsed).toBe(true);
     expect(preview.hidden).toBe(3);
+  });
+});
+
+const event = (type, payload = {}, over = {}) => ({
+  id: 1,
+  ts: "2026-01-01T00:00:00.000Z",
+  actor: { type: "agent", name: "pi" },
+  source: "cli",
+  type,
+  cardId: 3,
+  payload,
+  ...over,
+});
+
+describe("describeEvent", () => {
+  it("names every event type the log can hold", () => {
+    expect(describeEvent(event("card.created"))).toBe("created");
+    expect(describeEvent(event("card.updated"))).toBe("edited");
+    expect(
+      describeEvent(
+        event("card.moved", { action: "claim", from: "todo", to: "doing" }),
+      ),
+    ).toBe("claim todo→doing");
+    expect(describeEvent(event("card.deleted"))).toBe("deleted");
+    expect(
+      describeEvent(event("card.dependency_added", { blockedBy: 7 })),
+    ).toBe("blocked on #7");
+    expect(
+      describeEvent(event("card.dependency_removed", { blockedBy: 7 })),
+    ).toBe("unblocked from #7");
+    expect(describeEvent(event("card.parent_set", { parent: 38 }))).toBe(
+      "child of #38",
+    );
+    expect(describeEvent(event("card.parent_cleared"))).toBe(
+      "detached from its parent",
+    );
+    expect(describeEvent(event("card.note_added"))).toBe("added a note");
+    expect(describeEvent(event("card.note_updated", { note: 9 }))).toBe(
+      "edited note #9",
+    );
+    expect(describeEvent(event("card.note_removed", { note: 9 }))).toBe(
+      "removed note #9",
+    );
+  });
+
+  it("falls back to the raw type for something it does not know", () => {
+    expect(describeEvent(event("card.teleported"))).toBe("card.teleported");
+  });
+});
+
+describe("mergeEvents", () => {
+  const at = (id) => ({ id });
+
+  it("dedupes by id, newest first, capped at the limit", () => {
+    expect(
+      mergeEvents([at(3), at(1)], [at(2), at(1)], 2).map((e) => e.id),
+    ).toEqual([3, 2]);
+  });
+
+  it("ignores anything without an id", () => {
+    expect(
+      mergeEvents([at(1)], [{ nope: true }, null]).map((e) => e.id),
+    ).toEqual([1]);
+  });
+});
+
+describe("matchesEvent", () => {
+  const moved = event("card.moved", {
+    action: "claim",
+    from: "todo",
+    to: "doing",
+  });
+  const byId = new Map([[3, { id: 3, title: "Ship v2" }]]);
+
+  it("matches everything when the query is empty", () => {
+    expect(matchesEvent(moved, "", byId)).toBe(true);
+  });
+
+  it("matches the actor, the action, the id and the card title", () => {
+    expect(matchesEvent(moved, "pi", byId)).toBe(true);
+    expect(matchesEvent(moved, "claim", byId)).toBe(true);
+    expect(matchesEvent(moved, "#3", byId)).toBe(true);
+    expect(matchesEvent(moved, "ship v2", byId)).toBe(true);
+    expect(matchesEvent(moved, "nothing", byId)).toBe(false);
   });
 });

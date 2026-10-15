@@ -889,6 +889,30 @@ async function main() {
       `display: ${modalClosed}`,
     ]);
 
+    /* ------------------------------- events ------------------------------ */
+
+    await cdp.clickCenter('.nav-link[data-route="events"]');
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    const eventsPage = JSON.parse(
+      await cdp.evaluate(`JSON.stringify({
+        active: document.querySelector('.nav-link.active')?.dataset.route ?? null,
+        rows: document.querySelectorAll('.event-row').length,
+        cards: [...document.querySelectorAll('.event-card')].filter((el) => /^#\\d+/.test(el.textContent)).length,
+        header: document.querySelector('.events-header h1')?.textContent ?? '',
+      })`),
+    );
+    report.push([
+      "events page lists the log",
+      eventsPage.active === "events" &&
+        eventsPage.rows > 0 &&
+        eventsPage.cards > 0,
+      `active=${eventsPage.active} · rows=${eventsPage.rows} · card refs=${eventsPage.cards} · header="${eventsPage.header}"`,
+    ]);
+
+    // back to the board, so the final screenshot is the board
+    await cdp.clickCenter('.nav-link[data-route="board"]');
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
     // screenshot the final state
     const shot = await cdp.send("Page.captureScreenshot", { format: "png" });
     writeFileSync(out, Buffer.from(shot.data, "base64"));

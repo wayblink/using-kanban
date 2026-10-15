@@ -39,7 +39,7 @@ import {
   updateCardNote,
 } from "./routes/cards.js";
 import { getDoc } from "./routes/docs.js";
-import { streamEvents } from "./routes/events.js";
+import { listEvents, streamEvents } from "./routes/events.js";
 import { health, me, openapi } from "./routes/meta.js";
 import { serveStaticUi } from "./static.js";
 
@@ -160,6 +160,12 @@ const ROUTES: readonly Route[] = [
     path: "/api/doc",
     mutation: true,
     handler: getDoc,
+  },
+  {
+    method: "GET",
+    path: "/api/log",
+    mutation: false,
+    handler: listEvents,
   },
   {
     method: "GET",

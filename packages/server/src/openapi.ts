@@ -213,6 +213,31 @@ export function openApiSpec(): Record<string, unknown> {
           responses: { "200": { description: "board" } },
         },
       },
+      "/api/log": {
+        get: {
+          summary: "The event log, newest first — the audit view",
+          parameters: [
+            {
+              name: "limit",
+              in: "query",
+              schema: { type: "integer", minimum: 1, maximum: 500 },
+              description: "how many events to return (default 100)",
+            },
+            {
+              name: "before",
+              in: "query",
+              schema: { type: "integer" },
+              description:
+                "event id cursor — return events older than this one",
+            },
+          ],
+          responses: {
+            "200": {
+              description: "{ events, hasMore } — events are newest first",
+            },
+          },
+        },
+      },
       "/api/cards": {
         get: {
           summary: "List cards",

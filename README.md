@@ -123,6 +123,12 @@ changes made by an agent or the CLI appear without a refresh. The same page
 serves its own docs at `/`, which is the friendliest thing to leave open for a
 newcomer.
 
+An **Events** page (`#/events`) is the audit view: every operation on the board
+— created, moved, edited, blocked, attached to an umbrella, noted, deleted —
+newest first, each row naming who did it, through which door, and which card it
+touched. It filters by card, actor or action, and pages back through the whole
+log; a live event lands at the top as it happens.
+
 It is one self-contained file with no framework and no build step:
 
 ```bash
@@ -212,6 +218,7 @@ POST   /api/cards/:id/{parent,unparent}   umbrella ↔ parts (one level)
 POST   /api/cards/:id/{block,unblock}     { blockedBy }
 POST   /api/cards/:id/{relate,unrelate}   { other, direction }
 POST   /api/cards/:id/notes           { text, url }
+GET    /api/log?limit=&before=        the event log, newest first (audit)
 GET    /api/doc?path=…                the document behind a note's link
 GET    /api/events                    SSE stream of the log
 GET    /openapi.json                  full spec
