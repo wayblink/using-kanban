@@ -24,6 +24,8 @@ function makeCard(over: Partial<Card> = {}): Card {
     priority: "normal",
     blockedBy: [],
     blocks: [],
+    parent: null,
+    children: [],
     notes: [],
     createdBy: "jyxc",
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -83,6 +85,34 @@ describe("formatBoard", () => {
     );
     expect(output).toContain("#3 [todo] ship");
     expect(output).not.toContain("\u001b");
+  });
+});
+
+describe("hierarchy progress", () => {
+  const parent = makeCard({ id: 1, title: "epic", children: [2, 3] });
+  const child = makeCard({ id: 2, state: "review", parent: 1 });
+  const otherProject = makeCard({ id: 3, state: "done", parent: 1 });
+  const slice: Board = {
+    someday: [],
+    todo: [parent],
+    doing: [],
+    review: [child],
+    done: [],
+  };
+
+  it("counts children outside the shown board when given an index", () => {
+    const index = new Map([parent, child, otherProject].map((c) => [c.id, c]));
+    expect(formatBoard(slice, [], index)).toContain("▸1/2");
+  });
+
+  it("degrades to a bare count when a child cannot be resolved", () => {
+    const output = formatBoard(slice);
+    expect(output).toContain("▸2");
+    expect(output).not.toContain("▸1/2");
+  });
+
+  it("prints the parent id when no parent card was resolved", () => {
+    expect(formatCard(child, []).split("\n")).toContain("parent: #1");
   });
 });
 

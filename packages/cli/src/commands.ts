@@ -77,9 +77,21 @@ function briefCard(
   | "project"
   | "priority"
   | "blockedBy"
+  | "parent"
+  | "children"
 > {
-  const { id, title, state, assignee, reviewer, project, priority, blockedBy } =
-    card;
+  const {
+    id,
+    title,
+    state,
+    assignee,
+    reviewer,
+    project,
+    priority,
+    blockedBy,
+    parent,
+    children,
+  } = card;
   return {
     id,
     title,
@@ -89,6 +101,8 @@ function briefCard(
     project,
     priority,
     blockedBy,
+    parent,
+    children,
   };
 }
 
@@ -116,6 +130,8 @@ const COMMANDS = [
   "delete",
   "block",
   "unblock",
+  "parent",
+  "unparent",
   "relate",
   "unrelate",
   "note",
@@ -166,6 +182,8 @@ work:
   ukb delete <id> [<id> …]         creator only
   ukb block <id> --by <id>         make a card wait on another
   ukb unblock <id> --by <id>
+  ukb parent <id> --of <id>        make a card a child of an umbrella
+  ukb unparent <id>                make it a top-level card again
   ukb relate <id> --with <id> --as upstream|downstream
                                      name the direction of a relation;
                                      "upstream" = the other card is a
@@ -211,6 +229,14 @@ priority:
                                      because its lines already carry six other
                                      markers and ukb show states the priority
                                      outright.
+
+hierarchy:
+  Umbrella cards (a big goal) and their children (the work that supports it)
+  are one level deep: an umbrella has children, a child has none. This is
+  composition, not blocking — an umbrella does not block its children, and
+  a card can be both someone's child and blocked by a third card. An umbrella
+  with unfinished children cannot enter doing or review, because a container
+  is not a work item. ukb board marks them ⤷#parent and ▸done/total.
 
 global flags:
   --dir <path>       board directory (default: home; the store is <dir>/.ukb)
@@ -287,6 +313,7 @@ export async function runCommand(
           formatMine(
             kanban.mine(actor.name, flagString(parsed.flags, "project")),
             actor.name,
+            new Map(kanban.cards().map((card) => [card.id, card])),
           ),
         );
         return 0;
@@ -320,7 +347,15 @@ export async function runCommand(
           );
           return 0;
         }
-        io.stdout(formatBoard(board, kanban.projects()));
+        io.stdout(
+          formatBoard(
+            board,
+            kanban.projects(),
+            // Full index: a project slice must still count children in other
+            // projects, or an umbrella's `▸done/total` would undercount.
+            new Map(kanban.cards().map((card) => [card.id, card])),
+          ),
+        );
         return 0;
       }
       case "show": {
@@ -328,7 +363,12 @@ export async function runCommand(
         const card = kanban.card(id);
         if (!card)
           throw new KanbanError("card_not_found", `card ${id} not found`);
-        io.stdout(formatCard(card, kanban.history(id)));
+        io.stdout(
+          formatCard(card, kanban.history(id), {
+            parent: card.parent === null ? null : kanban.card(card.parent),
+            children: kanban.childrenOf(id),
+          }),
+        );
         return 0;
       }
       case "add": {
@@ -458,6 +498,22 @@ export async function runCommand(
             command === "block" ? `blocked on #${by}` : `unblocked from #${by}`,
           ),
         );
+        return 0;
+      }
+      case "parent":
+      case "unparent": {
+        const id = requireId(parsed.positionals[0], command);
+        if (command === "unparent") {
+          const { card } = kanban.unparent(id, actor, "cli");
+          io.stdout(formatMutation(card, "now top-level"));
+          return 0;
+        }
+        const of = Number(flagString(parsed.flags, "of"));
+        if (!Number.isInteger(of) || of <= 0) {
+          throw new UsageError("ukb parent needs --of <card id>");
+        }
+        const { card } = kanban.parent(id, of, actor, "cli");
+        io.stdout(formatMutation(card, `child of #${of}`));
         return 0;
       }
       case "relate":

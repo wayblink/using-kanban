@@ -181,6 +181,15 @@ export const CardDependencyPayloadSchema = z.object({
 });
 export type CardDependencyPayload = z.infer<typeof CardDependencyPayloadSchema>;
 
+/**
+ * Linking a card to the card it is a part of. One level only, so the payload is
+ * a single id — there is no chain to describe.
+ */
+export const CardParentPayloadSchema = z.object({
+  parent: z.number().int().positive(),
+});
+export type CardParentPayload = z.infer<typeof CardParentPayloadSchema>;
+
 export const NoteAddedPayloadSchema = z.object({
   text: z.string().min(1),
   url: z.string().nullable().default(null),

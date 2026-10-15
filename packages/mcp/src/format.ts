@@ -5,6 +5,7 @@ import type {
   ProjectSummary,
 } from "@wayblink/using-kanban-core";
 import {
+  childProgress,
   compareByPriority,
   sanitizeTerminalBlock,
   sanitizeTerminalText,
@@ -19,7 +20,10 @@ import {
  * caller ever sees. Same policy as the CLI renderer: sanitize on the way out,
  * and split `body` before sanitizing so its own line structure survives.
  */
-export function formatCardBrief(card: Card): string {
+export function formatCardBrief(
+  card: Card,
+  byId?: ReadonlyMap<number, Card>,
+): string {
   const parts = [
     `#${card.id} [${card.state}]`,
     sanitizeTerminalText(card.title),
@@ -33,6 +37,23 @@ export function formatCardBrief(card: Card): string {
   if (card.blockedBy.length > 0)
     parts.push(`blocked-by:${card.blockedBy.join(",")}`);
   if (card.blocks.length > 0) parts.push(`blocks:${card.blocks.join(",")}`);
+  // Hierarchy: the umbrella a card belongs to, and an umbrella's progress.
+  // `byId` must resolve every child for `done/total`; a partial index falls
+  // back to the bare count rather than a number that undercounts.
+  if (card.parent !== null) parts.push(`⤷#${card.parent}`);
+  if (card.children.length > 0) {
+    const resolved =
+      byId === undefined
+        ? []
+        : card.children
+            .map((id) => byId.get(id))
+            .filter((child): child is Card => child !== undefined);
+    parts.push(
+      resolved.length === card.children.length
+        ? `▸${childProgress(resolved).done}/${card.children.length}`
+        : `▸${card.children.length}`,
+    );
+  }
   if (card.notes.length > 0) parts.push(`notes:${card.notes.length}`);
   return parts.join(" ");
 }
@@ -61,7 +82,10 @@ export function formatProjects(
     .join("\n");
 }
 
-export function formatBoard(board: Board): string {
+export function formatBoard(
+  board: Board,
+  index?: ReadonlyMap<number, Card>,
+): string {
   const columns: [string, readonly Card[]][] = [
     ["someday", board.someday],
     ["todo", board.todo],
@@ -69,6 +93,12 @@ export function formatBoard(board: Board): string {
     ["review", board.review],
     ["done", board.done],
   ];
+  const byId = index === undefined ? new Map<number, Card>() : new Map(index);
+  if (index === undefined) {
+    for (const [, cards] of columns) {
+      for (const card of cards) byId.set(card.id, card);
+    }
+  }
   const lines: string[] = [];
   for (const [name, cards] of columns) {
     lines.push(`${name} (${cards.length}):`);
@@ -80,7 +110,7 @@ export function formatBoard(board: Board): string {
     // shelf reads as a separate area rather than the top of the to-do list.
     // Shared with the CLI so the two doors cannot disagree.
     for (const card of [...cards].sort(compareByPriority)) {
-      lines.push(`  ${formatCardBrief(card)}`);
+      lines.push(`  ${formatCardBrief(card, byId)}`);
     }
   }
   return lines.join("\n");
@@ -94,7 +124,25 @@ export function formatCards(
   return cards.map((card) => formatCardBrief(card)).join("\n");
 }
 
-export function formatCard(card: Card, events: readonly Event[]): string {
+export interface CardHierarchy {
+  readonly parent: Card | null;
+  readonly children: readonly Card[];
+}
+
+/**
+ * `parent:` reads as `#id title`, or just `#id` when the caller passed no
+ * resolved parent card, or `—` for a top-level card.
+ */
+function parentLabel(card: Card, parent: Card | null): string {
+  if (parent) return `#${parent.id} ${sanitizeTerminalText(parent.title)}`;
+  return card.parent === null ? "—" : `#${card.parent}`;
+}
+
+export function formatCard(
+  card: Card,
+  events: readonly Event[],
+  hierarchy?: CardHierarchy,
+): string {
   const lines: string[] = [
     `#${card.id} ${sanitizeTerminalText(card.title)} [${card.state}]`,
     `assignee: ${sanitizeTerminalText(card.assignee ?? "—")}`,
@@ -102,8 +150,18 @@ export function formatCard(card: Card, events: readonly Event[]): string {
     `reviewer: ${sanitizeTerminalText(card.reviewer ?? "—")}`,
     `blocked by: ${card.blockedBy.length > 0 ? card.blockedBy.map((id) => `#${id}`).join(", ") : "—"}`,
     `blocks: ${card.blocks.length > 0 ? card.blocks.map((id) => `#${id}`).join(", ") : "—"}`,
+    `parent: ${parentLabel(card, hierarchy?.parent ?? null)}`,
     `created by: ${sanitizeTerminalText(card.createdBy)}  ·  revision ${card.revision}  ·  updated ${card.updatedAt}`,
   ];
+  const children = hierarchy?.children ?? [];
+  if (children.length > 0) {
+    lines.push(`children: ${childProgress(children).done}/${children.length}`);
+    for (const child of [...children].sort(compareByPriority)) {
+      lines.push(
+        `  #${child.id} [${child.state}] ${sanitizeTerminalText(child.title)}`,
+      );
+    }
+  }
   if (card.body) {
     lines.push(
       "body:",

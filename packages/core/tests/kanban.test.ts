@@ -536,6 +536,172 @@ describe("someday", () => {
   });
 });
 
+describe("parent / child", () => {
+  function tree() {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    const parent = kanban.add({ title: "epic" }, human).card;
+    const a = kanban.add({ title: "a" }, human).card;
+    const b = kanban.add({ title: "b" }, human).card;
+    return { kanban, parent, a, b };
+  }
+
+  it("links a child to its parent, mirrored on both cards", () => {
+    const { kanban, parent, a } = tree();
+
+    const linked = kanban.parent(a.id, parent.id, human, "cli").card;
+
+    expect(linked.parent).toBe(parent.id);
+    expect(kanban.card(parent.id)?.children).toEqual([a.id]);
+    // and the parent end comes back from a plain read
+    expect(kanban.childrenOf(parent.id).map((c) => c.id)).toEqual([a.id]);
+  });
+
+  it("is idempotent and re-parents in one move", () => {
+    const { kanban, parent, a, b } = tree();
+    kanban.parent(a.id, parent.id, human, "cli");
+    expect(kanban.parent(a.id, parent.id, human, "cli").events).toEqual([]);
+
+    kanban.parent(a.id, b.id, human, "cli");
+    expect(kanban.card(a.id)?.parent).toBe(b.id);
+    expect(kanban.card(parent.id)?.children).toEqual([]);
+    expect(kanban.card(b.id)?.children).toEqual([a.id]);
+  });
+
+  it("allows a child in another project", () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    const parent = kanban.add({ title: "epic", project: "web" }, human).card;
+    const child = kanban.add({ title: "part", project: "api" }, human).card;
+
+    // Composition is a relation, not a project partition: the two may differ,
+    // and the project filter then shows a slice of the umbrella.
+    kanban.parent(child.id, parent.id, human, "cli");
+    expect(kanban.card(child.id)?.parent).toBe(parent.id);
+  });
+
+  it("keeps the hierarchy one level", () => {
+    const { kanban, parent, a, b } = tree();
+    kanban.parent(a.id, parent.id, human, "cli");
+
+    // a is a child, so it cannot become a parent
+    expectKanbanError(
+      () => kanban.parent(b.id, a.id, human, "cli"),
+      "invalid_state",
+    );
+    // parent is an umbrella, so it cannot become a child
+    expectKanbanError(
+      () => kanban.parent(parent.id, b.id, human, "cli"),
+      "invalid_state",
+    );
+  });
+
+  it("refuses a card as its own parent", () => {
+    const { kanban, parent } = tree();
+    expectKanbanError(
+      () => kanban.parent(parent.id, parent.id, human, "cli"),
+      "invalid_input",
+    );
+  });
+
+  it("unparents, and is a no-op when already top-level", () => {
+    const { kanban, parent, a } = tree();
+    kanban.parent(a.id, parent.id, human, "cli");
+
+    const cleared = kanban.unparent(a.id, human, "cli").card;
+    expect(cleared.parent).toBeNull();
+    expect(kanban.card(parent.id)?.children).toEqual([]);
+    expect(kanban.unparent(a.id, human, "cli").events).toEqual([]);
+  });
+
+  it("only the child's creator or assignee may attach it", () => {
+    const { kanban, parent, a } = tree();
+    kanban.edit(a.id, { assignee: "codex" }, human);
+
+    // `otherAgent` is codex: the assignee may attach its own card
+    kanban.parent(a.id, parent.id, otherAgent, "cli");
+    expect(kanban.card(a.id)?.parent).toBe(parent.id);
+
+    const stranger: Actor = { type: "agent", name: "nobody" };
+    const detached = kanban.unparent(a.id, otherAgent, "cli").card;
+    void detached;
+    expectKanbanError(
+      () => kanban.parent(a.id, parent.id, stranger, "cli"),
+      "forbidden",
+    );
+  });
+});
+
+describe("an umbrella cannot be in play", () => {
+  function umbrella() {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    const parent = kanban.add({ title: "epic" }, human).card;
+    const child = kanban.add({ title: "part" }, human).card;
+    kanban.parent(child.id, parent.id, human, "cli");
+    return { kanban, parent, child };
+  }
+
+  it("refuses to claim or review while a child is unfinished", () => {
+    const { kanban, parent } = umbrella();
+
+    expectKanbanError(
+      () => kanban.claim(parent.id, human, "cli"),
+      "invalid_state",
+    );
+    expectKanbanError(
+      () => kanban.review(parent.id, human, "cli"),
+      "invalid_state",
+    );
+  });
+
+  it("allows it once every child is done", () => {
+    const { kanban, parent, child } = umbrella();
+    kanban.done(child.id, human, "cli");
+
+    expect(kanban.claim(parent.id, human, "cli").card.state).toBe("doing");
+  });
+
+  it("still allows `done` — a card must always be closable", () => {
+    const { kanban, parent } = umbrella();
+    expect(kanban.done(parent.id, human, "cli").card.state).toBe("done");
+  });
+
+  it("will not let an in-flight card become an umbrella", () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    const parent = kanban.add({ title: "epic" }, human).card;
+    const child = kanban.add({ title: "part" }, human).card;
+    kanban.claim(parent.id, human, "cli");
+
+    expectKanbanError(
+      () => kanban.parent(child.id, parent.id, human, "cli"),
+      "invalid_state",
+    );
+  });
+});
+
+describe("deleting a card in a hierarchy", () => {
+  it("orphans the children of a deleted umbrella", () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    const parent = kanban.add({ title: "epic" }, human).card;
+    const child = kanban.add({ title: "part" }, human).card;
+    kanban.parent(child.id, parent.id, human, "cli");
+
+    kanban.remove(parent.id, human, "cli");
+
+    expect(kanban.card(parent.id)).toBeNull();
+    expect(kanban.card(child.id)?.parent).toBeNull();
+  });
+
+  it("removes a deleted child from its parent's list", () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    const parent = kanban.add({ title: "epic" }, human).card;
+    const child = kanban.add({ title: "part" }, human).card;
+    kanban.parent(child.id, parent.id, human, "cli");
+
+    kanban.remove(child.id, human, "cli");
+
+    expect(kanban.card(parent.id)?.children).toEqual([]);
+  });
+});
+
 describe("projects", () => {
   const web = { title: "web card", project: "web" };
   const api = { title: "api card", project: "api" };

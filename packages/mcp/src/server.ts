@@ -104,7 +104,17 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
       inputSchema: { project: projectSchemaOptional() },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    safe(({ project }) => text(formatBoard(read().board(project)))),
+    safe(({ project }) => {
+      const kanban = read();
+      // Full index: a project slice must still count children in other
+      // projects, or an umbrella's `▸done/total` would undercount.
+      return text(
+        formatBoard(
+          kanban.board(project),
+          new Map(kanban.cards().map((card) => [card.id, card])),
+        ),
+      );
+    }),
   );
 
   server.registerTool(
@@ -166,13 +176,19 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
     {
       title: "Show card",
       description:
-        "Read a card's full detail: body (target files and acceptance criteria), assignee, reviewer, upstream/downstream relations, notes (document links) and event history. Always read the body before acting on a card.",
+        "Read a card's full detail: body (target files and acceptance criteria), assignee, reviewer, upstream/downstream relations, parent and children, notes (document links) and event history. Always read the body before acting on a card.",
       inputSchema: { id: cardIdSchema },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     safe(({ id }) => {
-      const card = requireCard(read().card(id), id);
-      return text(formatCard(card, read().history(id)));
+      const kanban = read();
+      const card = requireCard(kanban.card(id), id);
+      return text(
+        formatCard(card, kanban.history(id), {
+          parent: card.parent === null ? null : kanban.card(card.parent),
+          children: kanban.childrenOf(id),
+        }),
+      );
     }),
   );
 
@@ -432,6 +448,37 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
     safe(({ id, other }) => {
       const { card } = write().unrelate(id, other, actor, "mcp");
       return text(`unrelated ${formatCardBrief(card)} from #${other}`);
+    }),
+  );
+
+  server.registerTool(
+    "kanban_parent",
+    {
+      title: "Set parent",
+      description:
+        "Make card `id` a child of card `parent` — composition, not blocking: an umbrella (a big goal) and the work that supports it. One level only, so the parent must not itself be a child and the child must not already have children. An umbrella with unfinished children cannot be claimed or reviewed. Re-parenting replaces the old parent in one step.",
+      inputSchema: {
+        id: cardIdSchema.describe("The child card"),
+        parent: cardIdSchema.describe("The umbrella card it belongs to"),
+      },
+    },
+    safe(({ id, parent }) => {
+      const { card } = write().parent(id, parent, actor, "mcp");
+      return text(`child of #${parent} — ${formatCardBrief(card)}`);
+    }),
+  );
+
+  server.registerTool(
+    "kanban_unparent",
+    {
+      title: "Clear parent",
+      description:
+        "Make card `id` a top-level card again. A no-op when it has no parent.",
+      inputSchema: { id: cardIdSchema },
+    },
+    safe(({ id }) => {
+      const { card } = write().unparent(id, actor, "mcp");
+      return text(`now top-level — ${formatCardBrief(card)}`);
     }),
   );
 

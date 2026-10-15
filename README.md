@@ -16,7 +16,7 @@ opencode, Pi, …) share one board. No team concept, no message bus, no daemon.
 | ------------------------------- | ------ | -------------------------------------------------------------------- |
 | `@wayblink/using-kanban-core`   | ✅     | Event-sourced engine: event log, projection, transition guards       |
 | `@wayblink/using-kanban-server` | ✅     | REST + SSE API, token auth, OpenAPI, static UI hosting, `ukb-server` |
-| `@wayblink/using-kanban-mcp`    | ✅     | MCP stdio server, 20 tools — the multi-framework front door          |
+| `@wayblink/using-kanban-mcp`    | ✅     | MCP stdio server, 22 tools — the multi-framework front door          |
 | `@wayblink/using-kanban-web`    | ✅     | Default Web UI: drag & drop, live over SSE, one self-contained file  |
 | `@wayblink/using-kanban-cli`    | ✅     | `ukb` binary + `ukb init --for <framework>` installers               |
 
@@ -83,7 +83,9 @@ kanban.history(card.id); // full event trail
 
 ## The model
 
-- **States**: `todo → doing → review → done` (`reopen` goes back to `todo`)
+- **States**: `someday | todo → doing → review → done` (`reopen` goes back to
+  `todo`). `someday` is a shelf: parked work that is out of `mine` but still
+  unfinished.
 - **Actors**: `{ type: "human" | "agent", name }` — one namespace, so a human
   can review an agent's card and vice versa
 - **One centralised board.** The store is `~/.ukb/`, not a directory per project:
@@ -104,6 +106,14 @@ kanban.history(card.id); // full event trail
   claimed or moved into `doing` — the guard names the blockers so the failure is
   actionable, and `done` is never gated, so an irrelevant blocker cannot become
   a dead end.
+- **Hierarchy (umbrella cards)**: one level deep. A card can be an umbrella — a
+  big goal supported by smaller cards — and each child names its `parent`. This
+  is _composition_, not blocking: an umbrella does not block its children, and
+  the two relations are orthogonal, so a card can be someone's child and blocked
+  by a third card at once. `parent`/`unparent` manage it, `▸4/6` is derived
+  progress, and an umbrella with unfinished children cannot enter `doing` or
+  `review` — it is a container, not a work item. Deleting an umbrella orphans its
+  children rather than deleting them.
 - **Notes**: remarks on a card, each with an optional document link — the
   design doc for the requirement, say. The link is either `https://…` or a path
   to a file on this machine; the Web UI reads local markdown, HTML and text and
@@ -128,6 +138,7 @@ PATCH  /api/cards/:id                 edit fields
 DELETE /api/cards/:id                 creator only
 GET    /api/cards/:id/history
 POST   /api/cards/:id/{claim,review,done,reopen,move}
+POST   /api/cards/:id/{parent,unparent}          umbrella ↔ child (one level)
 POST   /api/cards/:id/{block,unblock} { blockedBy: <id> }
 POST   /api/cards/:id/{relate,unrelate} { other: <id>, direction: upstream|downstream }
 POST   /api/cards/:id/notes         { text, url } — a remark with a document link
@@ -193,7 +204,7 @@ agent. It talks to the core in-process — no daemon, no HTTP hop.
 | ----------------------------------------- | -------------------------------------------------- |
 | `kanban_my_cards`                         | **Your open cards** — the call to act              |
 | `kanban_review_queue`                     | Cards waiting for your review                      |
-| `kanban_board`                            | Full board (todo/doing/review/done)                |
+| `kanban_board`                            | Full board (someday/todo/doing/review/done)        |
 | `kanban_show`                             | Card detail: body, blockers, event history         |
 | `kanban_add`                              | Create a card (todo)                               |
 | `kanban_claim`                            | todo → doing, assigned to you                      |
@@ -205,6 +216,7 @@ agent. It talks to the core in-process — no daemon, no HTTP hop.
 | `kanban_delete`                           | Delete (creator only)                              |
 | `kanban_block` / `kanban_unblock`         | Dependencies                                       |
 | `kanban_relate` / `kanban_unrelate`       | Relations with a named direction, from either card |
+| `kanban_parent` / `kanban_unparent`       | Umbrella ↔ parts — composition, one level deep     |
 | `kanban_note_add` / `_update` / `_remove` | Notes — remarks and document links                 |
 
 Plus the `kanban://board` resource (the board as JSON).
@@ -328,7 +340,7 @@ pnpm --filter @wayblink/using-kanban-web drag-check      # Playwright: real drag
 `browser-check` drives headless Chrome over the DevTools Protocol using Node's
 built-in WebSocket — no Playwright, no Puppeteer. It starts its own throwaway
 board, asserts the layout (hidden panels stay hidden, the board fills the
-viewport, four columns), clicks a card, presses Escape, opens and closes the
+viewport, five columns), clicks a card, presses Escape, opens and closes the
 modal, relates two cards, reads a local markdown document into the document
 viewer, and fails on any console error.
 
@@ -359,6 +371,8 @@ ukb move 5 someday                 # park it: leaves the to-do list, owner clear
 ukb edit 3 --body "…"              # empty string clears a field
 ukb block 4 --by 3                 # dependencies
 ukb relate 4 --with 3 --as upstream # name the direction instead
+ukb parent 4 --of 1                # umbrella: #4 becomes a part of #1
+ukb unparent 4                     # top-level again
 ukb unrelate 4 --with 3            # drop the relation, either way round
 ukb note 4 "design doc" --url docs/design.md   # a remark with a document link
 ukb web                            # start the API + Web UI and open a browser
@@ -413,6 +427,37 @@ with its counts. Over REST, `?project=` works on `/api/board` and `/api/cards`.
 Slugs are lowercased and restricted to `[a-z0-9._-]`, because they end up in
 URLs and CLI flags — "Web" and "web"
 cannot become two different projects by accident.
+
+### Umbrella cards (a big goal and its parts)
+
+A card can be an **umbrella**: a goal that several smaller cards support. This
+is a _composition_ relation, separate from the dependency (`block` / `relate`)
+one — an umbrella does not block its parts, and a card can be someone's child
+and blocked by a third card at the same time:
+
+```bash
+ukb parent 601 --of 38   # #601 is now a part of #38
+ukb unparent 601         # top-level again
+ukb show 38              # parent: — · children: 4/6 (…) + the child list
+ukb board                # #38 ▸4/6, each part ⤷#38
+```
+
+Three rules, all deliberate:
+
+- **One level deep.** An umbrella has children; a child has none. `ukb parent`
+  refuses anything that would create a grandparent, so there is exactly one
+  shape to reason about and cycles are impossible by construction.
+- **Composition, not order.** Hanging a part under an umbrella does not block
+  it — that is what `ukb block` / `ukb relate` are for. Parts may live in
+  another project: the hierarchy is a relation, not a partition.
+- **An umbrella with unfinished children cannot enter `doing` or `review`.** It
+  is a container, not a work item: work the children instead. `done` is never
+  gated, so it can always be closed.
+
+`▸4/6` is derived from the children's own states — nothing is stored, so it
+cannot go stale — and deleting an umbrella orphans its children (they become
+top-level cards) rather than deleting them. The Pi panel draws the same
+relation as a tree, with the parts indented under the umbrella.
 
 ### Notes and documents
 
@@ -474,13 +519,24 @@ basename → project slug), grouped by state, showing who each `doing`/`review`
 card is waiting on plus counts for the rest:
 
 ```
-● ukb · using-kanban · 2 doing · 1 review · 2 todo · 1 someday
+● ukb · using-kanban · 2 doing · 2 review · 3 todo
 ├─ [doing][high]    #1 Fix flaky retry backoff test        @pi
 ├─ [doing][normal]  #2 Wire SSE replay for board events    @codex
-├─ [review][normal] #3 Overlay widget above the editor     → human
 ├─ [todo][normal]   #4 Add terminal sanitizer to the CLI   @pi
-└─ [someday][low]   #5 Hoist sanitize into a shared module
+├─ [todo][low]      #5 Umbrella: sanitize the renderers    ▸1/3
+  ├─ [todo][normal]   #6 Split the sanitizer out of render @pi
+  └─ [review][normal] #7 Cover CJK width                 → jyxc
+└─ [review][normal] #3 Overlay widget above the editor     → human
 ```
+
+An umbrella row is followed by its children, indented one level, whatever
+column they are in — a `review` child sits under a `todo` umbrella rather than
+in the review group, and it is not repeated there (one card, one row). The
+heading still counts it under `review`, because counts are per card. A child
+whose umbrella is not on screen (its state is hidden, or the scope filtered it
+out) stays a top-level row and keeps its `⤷#parent` marker; the `▸1/3` on the
+umbrella is derived from **all** its children — including the ones not
+displayed, which is why `#5` reads `1/3` while two child rows show.
 
 It reads `ukb board --json --brief` — the same board's compact list projection,
 without transferring every body, note and audit field. While visible it repaints

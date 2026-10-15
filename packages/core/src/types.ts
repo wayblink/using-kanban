@@ -107,6 +107,8 @@ export const EVENT_TYPES = [
   "card.deleted",
   "card.dependency_added",
   "card.dependency_removed",
+  "card.parent_set",
+  "card.parent_cleared",
   "card.note_added",
   "card.note_updated",
   "card.note_removed",
@@ -148,6 +150,18 @@ export interface Card {
   readonly blockedBy: readonly number[];
   /** Card ids waiting on this card — its successors. */
   readonly blocks: readonly number[];
+  /**
+   * The card this one is a part of, or null for a top-level card. Mirrored as
+   * a member of that card's `children`.
+   *
+   * Hierarchy is deliberately **one level**: a card with a parent cannot have
+   * children, and a card with children cannot have a parent. An umbrella and
+   * its direct children — no grandchildren. This is a *composition* relation,
+   * distinct from `blockedBy`, which is about order. See `docs/parent-child.md`.
+   */
+  readonly parent: number | null;
+  /** Cards this one is composed of. Empty for a leaf card. */
+  readonly children: readonly number[];
   /**
    * Free-form remarks, oldest first. The intended use is links to documents
    * (a design doc for the requirement, say) that a card cannot carry in its

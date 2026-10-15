@@ -364,8 +364,8 @@ async function main() {
       `viewport ${layout.viewport}px, board ${layout.boardWidth}px, ${layout.columns} columns ${JSON.stringify(layout.columnWidths)}`,
     ]);
     report.push([
-      "four columns rendered",
-      layout.columns === 4,
+      "five columns rendered",
+      layout.columns === 5,
       `${layout.columns} columns, ${layout.cards} cards`,
     ]);
 
@@ -443,7 +443,7 @@ async function main() {
     const en = await langState();
     report.push([
       "English board labels",
-      en.columns.join(",") === "Todo,Doing,Review,Done" &&
+      en.columns.join(",") === "Someday,Todo,Doing,Review,Done" &&
         en.active === "en" &&
         en.lang === "en",
       `columns=${en.columns.join("/")} · ${en.actingAs} · ${en.newCard}`,
@@ -453,7 +453,7 @@ async function main() {
     const zh = await langState();
     report.push([
       "Chinese board labels",
-      zh.columns.join(",") === "待办,进行中,审查中,已完成" &&
+      zh.columns.join(",") === "搁置,待办,进行中,审查中,已完成" &&
         zh.active === "zh" &&
         zh.lang === "zh-CN",
       `columns=${zh.columns.join("/")} · ${zh.actingAs} · ${zh.newCard}`,

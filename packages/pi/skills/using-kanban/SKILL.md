@@ -117,8 +117,42 @@ invalid_state: card 7 is blocked by #3 (doing) — finish or unblock it first
 Two deliberate exceptions: a blocker that has been **deleted** counts as
 satisfied, otherwise deleting a card could block another one forever; and
 `done` is never gated, so an irrelevant blocker cannot become a dead end.
-`review` is not gated either — by then the work is already finished, and
-refusing would only create friction.
+`review` is not gated by a dependency either — by then the work is already
+finished, and refusing would only create friction. An umbrella is a separate
+rule, and it _is_ gated; see the next section.
+
+## Umbrella cards (a big goal and its parts)
+
+A card can be an **umbrella**: a goal that several smaller cards support. Link a
+child to it, and the relationship shows on both cards:
+
+```bash
+ukb parent 601 --of 38      # #601 is now a part of #38
+ukb unparent 601            # ...and this makes it top-level again
+ukb show 38                 # children: 4/6 (4 done · 1 review · 1 todo) + the list
+```
+
+In the Pi panel the children follow their umbrella row, indented one level,
+whatever column they are in — a child in `review` sits under a `todo` umbrella,
+not in the review group, and it is not repeated there. A child whose umbrella is
+not on screen stays a top-level row with a `⤷#parent` marker.
+
+Three rules, all deliberate:
+
+- **One level deep.** An umbrella has children; a child has none. `ukb parent`
+  refuses anything that would create a grandparent, so there is exactly one
+  shape to reason about.
+- **Composition, not blocking.** An umbrella does _not_ block its children —
+  they are how it gets done, not what it waits for. Use `relate`/`block` for
+  ordering; use `parent` for belonging. A card can be someone's child _and_
+  blocked by a third card at the same time.
+- **An umbrella with unfinished children cannot enter `doing` or `review`.**
+  It is a container, not a work item: work the children instead. Its progress
+  (`▸4/6`) is derived, and it can always be `done` — like every other card, a
+  closure is never blocked.
+
+Deleting an umbrella orphans its children (they become top-level) rather than
+deleting them.
 
 ## Notes carry the paperwork
 
@@ -181,6 +215,8 @@ ukb move <id> <someday|todo|doing|review|done>
 ukb reopen <id>                  # back to todo
 ukb block <id> --by <other>      # make a card wait on another
 ukb unblock <id> --by <other>
+ukb parent <id> --of <parent>    # make a card a part of an umbrella (one level)
+ukb unparent <id>                # make it a top-level card again
 ukb relate <id> --with <other> --as upstream    # or downstream
 ukb unrelate <id> --with <other>
 ukb note <id> "design doc" --url docs/design.md # a remark + document link

@@ -61,6 +61,8 @@ const ACTIONS = [
   "delete",
   "block",
   "unblock",
+  "parent",
+  "unparent",
   "relate",
   "unrelate",
   "note",
@@ -113,6 +115,8 @@ interface UkbParams {
   project?: string | undefined;
   /** The card on the other end of a relation. */
   other?: number | undefined;
+  /** The umbrella card, for `parent`. */
+  parent?: number | undefined;
   /** Which side `other` sits on, relative to `id`. */
   direction?: Direction | undefined;
   /** A note's id — the id `ukb show` prints beside it. */
@@ -135,6 +139,8 @@ const ID_ACTIONS: ReadonlySet<Action> = new Set([
   "delete",
   "block",
   "unblock",
+  "parent",
+  "unparent",
   "relate",
   "unrelate",
   "note",
@@ -198,6 +204,11 @@ function buildArgs(params: UkbParams): string[] {
     case "unblock":
       flag("--by", params.blockedBy);
       break;
+    case "parent":
+      flag("--of", params.parent);
+      break;
+    case "unparent":
+      break;
     case "relate":
       flag("--with", params.other);
       flag("--as", params.direction);
@@ -260,6 +271,9 @@ function summarizeCall(params: UkbParams): string {
     params.blockedBy !== undefined
   ) {
     parts.push(`--by #${params.blockedBy}`);
+  }
+  if (params.action === "parent" && params.parent !== undefined) {
+    parts.push(`--of #${params.parent}`);
   }
   if (params.action === "add" && params.blockedBy !== undefined) {
     parts.push(`--blocked-by #${params.blockedBy}`);
@@ -704,6 +718,13 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
         Type.Integer({
           minimum: 1,
           description: "Card on the other end of a relation (relate/unrelate)",
+        }),
+      ),
+      parent: Type.Optional(
+        Type.Integer({
+          minimum: 1,
+          description:
+            "Umbrella card id for `parent` — the card this one is a part of. One level only.",
         }),
       ),
       ids: Type.Optional(

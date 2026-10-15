@@ -3,6 +3,7 @@ import {
   CardCreatedPayloadSchema,
   CardDependencyPayloadSchema,
   CardMovedPayloadSchema,
+  CardParentPayloadSchema,
   CardUpdatedPayloadSchema,
   NoteAddedPayloadSchema,
   NoteRemovedPayloadSchema,
@@ -53,6 +54,8 @@ export class Projection {
           priority: payload.priority,
           blockedBy: payload.blockedBy,
           blocks: [],
+          parent: null,
+          children: [],
           notes: payload.notes,
           createdBy: payload.createdBy,
           createdAt: event.ts,
@@ -86,15 +89,21 @@ export class Projection {
 
       case "card.deleted": {
         this.cards.delete(event.cardId);
-        // Drop dangling dependency references on both sides of the edge: the
-        // deleted card's own blockedBy goes with it, and every card that was
-        // waiting on it (or that it was waiting on) loses the reference.
+        // Drop dangling references in every relation: the deleted card's own
+        // lists go with it, and every card that named it loses the reference.
+        // For the hierarchy that means orphaning its children — they become
+        // top-level cards rather than vanishing — and removing it from its
+        // parent's `children`.
         for (const card of this.cards.values()) {
           const blockedBy = card.blockedBy.filter((id) => id !== event.cardId);
           const blocks = card.blocks.filter((id) => id !== event.cardId);
+          const children = card.children.filter((id) => id !== event.cardId);
+          const parent = card.parent === event.cardId ? null : card.parent;
           if (
             blockedBy.length === card.blockedBy.length &&
-            blocks.length === card.blocks.length
+            blocks.length === card.blocks.length &&
+            children.length === card.children.length &&
+            parent === card.parent
           ) {
             continue;
           }
@@ -102,6 +111,8 @@ export class Projection {
             ...card,
             blockedBy,
             blocks,
+            children,
+            parent,
             updatedAt: event.ts,
             revision: card.revision + 1,
           });
@@ -201,6 +212,40 @@ export class Projection {
         this.unlink(event.cardId, blockedBy, event.ts);
         return;
       }
+
+      case "card.parent_set": {
+        const { parent } = CardParentPayloadSchema.parse(event.payload);
+        const child = this.cards.get(event.cardId);
+        const nextParent = this.cards.get(parent);
+        if (!child || !nextParent) return;
+        if (child.parent === parent) return;
+        const previous = child.parent;
+        this.cards.set(child.id, {
+          ...child,
+          parent,
+          updatedAt: event.ts,
+          revision: child.revision + 1,
+        });
+        this.attachChild(parent, child.id, event.ts);
+        // Re-parenting is one event, not a clear-then-set the caller has to
+        // remember: the old parent loses the child in the same step.
+        if (previous !== null) this.detachChild(previous, child.id, event.ts);
+        return;
+      }
+
+      case "card.parent_cleared": {
+        const child = this.cards.get(event.cardId);
+        if (!child || child.parent === null) return;
+        const previous = child.parent;
+        this.cards.set(child.id, {
+          ...child,
+          parent: null,
+          updatedAt: event.ts,
+          revision: child.revision + 1,
+        });
+        this.detachChild(previous, child.id, event.ts);
+        return;
+      }
     }
   }
 
@@ -210,6 +255,21 @@ export class Projection {
 
   all(): Card[] {
     return [...this.cards.values()].sort((a, b) => a.id - b.id);
+  }
+
+  /** Direct children of `card` that still exist, in the order they were added. */
+  childrenOf(card: Card): Card[] {
+    const result: Card[] = [];
+    for (const id of card.children) {
+      const child = this.cards.get(id);
+      if (child) result.push(child);
+    }
+    return result;
+  }
+
+  /** Unfinished direct children — what keeps an umbrella out of `doing`. */
+  openChildren(card: Card): Card[] {
+    return this.childrenOf(card).filter((child) => !isTerminal(child.state));
   }
 
   board(project?: string | null): {
@@ -324,6 +384,33 @@ export class Projection {
     });
   }
 
+  /**
+   * Mirror an umbrella's `children`. Like `link`/`unlink` for dependencies, the
+   * edge is stored once (the child's `parent`) and the parent's list is derived
+   * from it — its revision is bumped because the snapshot really did change.
+   */
+  private attachChild(parentId: number, childId: number, ts: string): void {
+    const parent = this.cards.get(parentId);
+    if (!parent || parent.children.includes(childId)) return;
+    this.cards.set(parentId, {
+      ...parent,
+      children: [...parent.children, childId],
+      updatedAt: ts,
+      revision: parent.revision + 1,
+    });
+  }
+
+  private detachChild(parentId: number, childId: number, ts: string): void {
+    const parent = this.cards.get(parentId);
+    if (!parent || !parent.children.includes(childId)) return;
+    this.cards.set(parentId, {
+      ...parent,
+      children: parent.children.filter((id) => id !== childId),
+      updatedAt: ts,
+      revision: parent.revision + 1,
+    });
+  }
+
   private touch(card: Card, patch: CardPatch | undefined, ts: string): Card {
     const next: Card = {
       ...card,
@@ -356,4 +443,23 @@ export function compareByPriority(a: Card, b: Card): number {
     CARD_PRIORITIES.indexOf(a.priority) - CARD_PRIORITIES.indexOf(b.priority) ||
     a.id - b.id
   );
+}
+
+/** How far along an umbrella is: `done` over all of its direct children. */
+export interface ChildProgress {
+  readonly total: number;
+  readonly done: number;
+}
+
+/**
+ * Derived progress of a parent card from its children. Nothing is stored: a
+ * child's state is the truth, so this cannot go stale the way a counter can.
+ * `done` is `isTerminal`, so a parked child counts as unfinished and keeps an
+ * umbrella from advancing.
+ */
+export function childProgress(children: readonly Card[]): ChildProgress {
+  return {
+    total: children.length,
+    done: children.filter((child) => isTerminal(child.state)).length,
+  };
 }

@@ -201,6 +201,28 @@ export function unblockCard(ctx: RequestContext): void {
   sendJson(ctx.res, 200, { card: result.card });
 }
 
+/** Make card `id` a child of `body.parent`. One level only; see kanban.parent. */
+export function parentCard(ctx: RequestContext): void {
+  const id = parseId(ctx);
+  const parent = readBodyObject(ctx.body).parent;
+  if (typeof parent !== "number") {
+    throw new HttpError(
+      400,
+      "invalid_input",
+      "body.parent must be a card id (number)",
+    );
+  }
+  const result = ctx.kanban.parent(id, parent, ctx.actor, ctx.source);
+  sendJson(ctx.res, 200, { card: result.card });
+}
+
+/** Make card `id` a top-level card again. Idempotent. */
+export function unparentCard(ctx: RequestContext): void {
+  const id = parseId(ctx);
+  const result = ctx.kanban.unparent(id, ctx.actor, ctx.source);
+  sendJson(ctx.res, 200, { card: result.card });
+}
+
 export function relateCard(ctx: RequestContext): void {
   const id = parseId(ctx);
   const body = readBodyObject(ctx.body);

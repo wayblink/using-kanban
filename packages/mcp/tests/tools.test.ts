@@ -83,6 +83,7 @@ describe("tool discovery", () => {
       "kanban_note_add",
       "kanban_note_remove",
       "kanban_note_update",
+      "kanban_parent",
       "kanban_projects",
       "kanban_relate",
       "kanban_reopen",
@@ -90,6 +91,7 @@ describe("tool discovery", () => {
       "kanban_review_queue",
       "kanban_show",
       "kanban_unblock",
+      "kanban_unparent",
       "kanban_unrelate",
     ]);
 
@@ -275,6 +277,33 @@ describe("the agent workflow", () => {
     const unrelated = await call("kanban_unrelate", { id: 1, other: 2 });
     expect(unrelated.content[0]?.text).not.toContain("blocked-by");
     expect(unrelated.content[0]?.text).not.toContain("blocks:");
+  });
+
+  it("links an umbrella and its parts, one level deep", async () => {
+    await call("kanban_add", { title: "epic" });
+    await call("kanban_add", { title: "part one" });
+    await call("kanban_add", { title: "part two" });
+
+    const linked = await call("kanban_parent", { id: 2, parent: 1 });
+    expect(linked.isError).toBeFalsy();
+    expect(linked.content[0]?.text).toContain("child of #1");
+    await call("kanban_parent", { id: 3, parent: 1 });
+    await call("kanban_done", { id: 2 });
+
+    const shown = await call("kanban_show", { id: 1 });
+    expect(shown.content[0]?.text).toContain("children: 1/2");
+    expect(shown.content[0]?.text).toContain("#2 [done] part one");
+
+    const child = await call("kanban_show", { id: 3 });
+    expect(child.content[0]?.text).toContain("parent: #1 epic");
+
+    // One level only: a child cannot become a parent.
+    const deeper = await call("kanban_parent", { id: 3, parent: 2 });
+    expect(deeper.isError).toBe(true);
+    expect(deeper.content[0]?.text).toContain("one level");
+
+    const detached = await call("kanban_unparent", { id: 3 });
+    expect(detached.content[0]?.text).toContain("now top-level");
   });
 
   it("keeps a note with a document link on the card", async () => {

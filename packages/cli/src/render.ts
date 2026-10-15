@@ -5,6 +5,7 @@ import type {
   ProjectSummary,
 } from "@wayblink/using-kanban-core";
 import {
+  childProgress,
   compareByPriority,
   sanitizeTerminalBlock,
   sanitizeTerminalText,
@@ -35,7 +36,42 @@ function priorityMarker(card: Card): string | null {
   return card.priority === "normal" ? null : card.priority;
 }
 
-export function formatCardBrief(card: Card): string {
+/**
+ * Hierarchy markers: `⤷#38` names the umbrella a card belongs to, `▸4/6` is an
+ * umbrella's derived progress. Distinct from `blocked-by:` / `blocks:` on
+ * purpose — composition and order are different questions, and a reader who
+ * confuses them would think an epic blocks its own children.
+ *
+ * `byId` must be able to resolve every child for the progress to be printed as
+ * `done/total`; a partial index degrades to the bare count rather than a number
+ * that quietly undercounts. A mutation reply (no index) shows the bare count.
+ */
+function hierarchyMarkers(
+  card: Card,
+  byId?: ReadonlyMap<number, Card>,
+): string[] {
+  const parts: string[] = [];
+  if (card.parent !== null) parts.push(`⤷#${card.parent}`);
+  if (card.children.length > 0) {
+    const resolved =
+      byId === undefined
+        ? []
+        : card.children
+            .map((id) => byId.get(id))
+            .filter((child): child is Card => child !== undefined);
+    parts.push(
+      resolved.length === card.children.length
+        ? `▸${childProgress(resolved).done}/${card.children.length}`
+        : `▸${card.children.length}`,
+    );
+  }
+  return parts;
+}
+
+export function formatCardBrief(
+  card: Card,
+  byId?: ReadonlyMap<number, Card>,
+): string {
   const parts = [
     `#${card.id} [${card.state}]`,
     sanitizeTerminalText(card.title),
@@ -49,6 +85,7 @@ export function formatCardBrief(card: Card): string {
   if (card.blockedBy.length > 0)
     parts.push(`blocked-by:${card.blockedBy.join(",")}`);
   if (card.blocks.length > 0) parts.push(`blocks:${card.blocks.join(",")}`);
+  parts.push(...hierarchyMarkers(card, byId));
   if (card.notes.length > 0) parts.push(`notes:${card.notes.length}`);
   return parts.join(" ");
 }
@@ -94,6 +131,7 @@ export function formatProjects(summaries: readonly ProjectSummary[]): string {
 export function formatBoard(
   board: Board,
   projects: readonly string[] = [],
+  index?: ReadonlyMap<number, Card>,
 ): string {
   const columns: [string, readonly Card[]][] = [
     ["someday", board.someday],
@@ -102,6 +140,15 @@ export function formatBoard(
     ["review", board.review],
     ["done", board.done],
   ];
+  // `index` is the full board when `board` is a project slice: progress must
+  // count every child, including one in another project, or `▸` undercounts.
+  // Without it, the slice's own cards are all we can resolve.
+  const byId = index === undefined ? new Map<number, Card>() : new Map(index);
+  if (index === undefined) {
+    for (const [, cards] of columns) {
+      for (const card of cards) byId.set(card.id, card);
+    }
+  }
   const lines: string[] = [];
   for (const [name, cards] of columns) {
     lines.push(`${name} (${cards.length}):`);
@@ -113,7 +160,7 @@ export function formatBoard(
     // primary grouping, and `someday` is printed first so the shelves read as
     // a separate area rather than the top of the to-do list.
     for (const card of [...cards].sort(compareByPriority)) {
-      lines.push(`  ${formatCardBrief(card)}`);
+      lines.push(`  ${formatCardBrief(card, byId)}`);
     }
   }
   if (projects.length > 0) {
@@ -124,13 +171,17 @@ export function formatBoard(
 }
 
 /** The no-args output: a list of cards plus an explicit call to act. */
-export function formatMine(cards: readonly Card[], actor: string): string {
+export function formatMine(
+  cards: readonly Card[],
+  actor: string,
+  byId?: ReadonlyMap<number, Card>,
+): string {
   if (cards.length === 0) {
     return `no open cards assigned to ${actor}.\n\nukb board — see the whole board`;
   }
   const lines = [`your open cards (${actor}):`, ""];
   for (const card of [...cards].sort(compareByPriority)) {
-    lines.push(`  ${formatCardBrief(card)}`);
+    lines.push(`  ${formatCardBrief(card, byId)}`);
   }
   lines.push("");
   const claimable = cards
@@ -146,7 +197,30 @@ export function formatMine(cards: readonly Card[], actor: string): string {
   return lines.join("\n");
 }
 
-export function formatCard(card: Card, events: readonly Event[]): string {
+/**
+ * What a card's place in the hierarchy looks like when you open it: the
+ * umbrella it belongs to, and its own children with a derived progress line.
+ * The caller resolves the related cards, because only it holds the projection.
+ */
+export interface CardHierarchy {
+  readonly parent: Card | null;
+  readonly children: readonly Card[];
+}
+
+/**
+ * `parent:` reads as `#id title`, or just `#id` when the caller passed no
+ * resolved parent card, or `—` for a top-level card.
+ */
+function parentLabel(card: Card, parent: Card | null): string {
+  if (parent) return `#${parent.id} ${sanitizeTerminalText(parent.title)}`;
+  return card.parent === null ? "—" : `#${card.parent}`;
+}
+
+export function formatCard(
+  card: Card,
+  events: readonly Event[],
+  hierarchy?: CardHierarchy,
+): string {
   const lines = [
     `#${card.id} ${sanitizeTerminalText(card.title)} [${card.state}]`,
     `assignee: ${sanitizeTerminalText(card.assignee ?? "—")}`,
@@ -155,8 +229,30 @@ export function formatCard(card: Card, events: readonly Event[]): string {
     `priority: ${card.priority}`,
     `blocked by: ${card.blockedBy.length > 0 ? card.blockedBy.map((id) => `#${id}`).join(", ") : "—"}`,
     `blocks: ${card.blocks.length > 0 ? card.blocks.map((id) => `#${id}`).join(", ") : "—"}`,
+    `parent: ${parentLabel(card, hierarchy?.parent ?? null)}`,
     `created by: ${sanitizeTerminalText(card.createdBy)} · revision ${card.revision} · updated ${card.updatedAt}`,
   ];
+  const children = hierarchy?.children ?? [];
+  if (children.length > 0) {
+    const { done } = childProgress(children);
+    const byState = new Map<string, number>();
+    for (const child of children) {
+      byState.set(child.state, (byState.get(child.state) ?? 0) + 1);
+    }
+    // Fixed order so the breakdown does not depend on which child was added
+    // first; matches the panel's read order.
+    const counts = ["doing", "todo", "review", "someday", "done"]
+      .map((state) => [state, byState.get(state) ?? 0] as const)
+      .filter(([, count]) => count > 0)
+      .map(([state, count]) => `${count} ${state}`)
+      .join(" · ");
+    lines.push(`children: ${done}/${children.length} (${counts})`);
+    for (const child of [...children].sort(compareByPriority)) {
+      lines.push(
+        `  #${child.id} [${child.state}] ${sanitizeTerminalText(child.title)}`,
+      );
+    }
+  }
   if (card.body) {
     lines.push(
       "body:",

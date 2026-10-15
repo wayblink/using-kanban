@@ -107,6 +107,12 @@ export class Kanban {
     return this.projection.reviewQueueFor(reviewer, project);
   }
 
+  /** Direct children of a card that still exist — an umbrella's parts. */
+  childrenOf(id: number): Card[] {
+    this.projection.sync(this.log);
+    return this.projection.childrenOf(this.mustCard(id));
+  }
+
   /** Every distinct project in use, sorted — drives filter dropdowns. */
   projects(): string[] {
     this.projection.sync(this.log);
@@ -390,6 +396,85 @@ export class Kanban {
   }
 
   /**
+   * Make card `id` a part of card `parentId`.
+   *
+   * Hierarchy is deliberately one level: the child must be a leaf and the parent
+   * must be top-level, so nothing can gain a grandparent. A card that is in
+   * `doing` or `review` cannot become an umbrella — that is the same rule as
+   * "an umbrella cannot enter doing or review", seen from the other end.
+   *
+   * Re-parenting replaces the old parent in one event; the caller does not have
+   * to remember an `unparent` first. `id` is the child: attaching changes that
+   * card, so its creator or assignee is the one who may do it.
+   */
+  parent(
+    id: number,
+    parentId: number,
+    actor: Actor,
+    source: EventSource = "cli",
+    options?: MutationOptions,
+  ): MutationResult {
+    this.projection.sync(this.log);
+    const card = this.mustCard(id);
+    const parentCard = this.mustCard(parentId);
+    this.checkRevision(card, options);
+    this.assertCanModify(card, actor);
+    if (id === parentId) {
+      throw new KanbanError(
+        "invalid_input",
+        `card ${id} cannot be its own parent`,
+      );
+    }
+    if (card.parent === parentId) return { card, events: [] };
+    if (card.children.length > 0) {
+      throw new KanbanError(
+        "invalid_state",
+        `card ${id} has children of its own — the hierarchy is one level, so a card cannot be both a parent and a child`,
+      );
+    }
+    if (parentCard.parent !== null) {
+      throw new KanbanError(
+        "invalid_state",
+        `card ${parentId} is itself a child of #${parentCard.parent} — the hierarchy is one level, so it cannot also be a parent`,
+      );
+    }
+    if (parentCard.state === "doing" || parentCard.state === "review") {
+      throw new KanbanError(
+        "invalid_state",
+        `card ${parentId} is in ${parentCard.state} — an umbrella cannot be in doing or review, so move it out before attaching children`,
+      );
+    }
+    return this.emit({
+      actor,
+      source,
+      type: "card.parent_set",
+      cardId: id,
+      payload: { parent: parentId },
+    });
+  }
+
+  /** Make card `id` a top-level card again. Idempotent. */
+  unparent(
+    id: number,
+    actor: Actor,
+    source: EventSource = "cli",
+    options?: MutationOptions,
+  ): MutationResult {
+    this.projection.sync(this.log);
+    const card = this.mustCard(id);
+    this.checkRevision(card, options);
+    this.assertCanModify(card, actor);
+    if (card.parent === null) return { card, events: [] };
+    return this.emit({
+      actor,
+      source,
+      type: "card.parent_cleared",
+      cardId: id,
+      payload: {},
+    });
+  }
+
+  /**
    * Relate two cards. `direction` is the side `otherId` sits on relative to
    * `id`: `upstream` makes this card wait on it, `downstream` makes it wait on
    * this card. Both directions land on the same edge, so relating twice in
@@ -617,6 +702,26 @@ export class Kanban {
           `card ${id} is blocked by ${waiting} — finish or unblock ${
             open.length === 1 ? "it" : "them"
           } first`,
+        );
+      }
+    }
+    // An umbrella is a container, not a work item: it cannot be in play while
+    // its parts are unfinished. This is explicit (the user chose to enforce it),
+    // unlike the soft progress display, and it is what makes #38's "the epic's
+    // status is derived from its children, it does not advance on its own" a
+    // rule rather than a note in a body. `done` stays ungated for the same
+    // reason blockers do not gate it — a card must always be closable.
+    if (to === "doing" || to === "review") {
+      const openChildren = this.projection.openChildren(card);
+      if (openChildren.length > 0) {
+        const listed = openChildren
+          .map((child) => `#${child.id} (${child.state})`)
+          .join(", ");
+        throw new KanbanError(
+          "invalid_state",
+          `card ${id} is an umbrella with ${openChildren.length} unfinished ${
+            openChildren.length === 1 ? "child" : "children"
+          } — finish or unparent ${openChildren.length === 1 ? "it" : "them"} first: ${listed}`,
         );
       }
     }

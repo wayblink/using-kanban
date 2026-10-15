@@ -4,7 +4,10 @@ const CARD_SCHEMA = {
     id: { type: "integer" },
     title: { type: "string" },
     body: { type: ["string", "null"] },
-    state: { type: "string", enum: ["todo", "doing", "review", "done"] },
+    state: {
+      type: "string",
+      enum: ["someday", "todo", "doing", "review", "done"],
+    },
     assignee: { type: ["string", "null"] },
     reviewer: { type: ["string", "null"] },
     blockedBy: {
@@ -16,6 +19,16 @@ const CARD_SCHEMA = {
       type: "array",
       items: { type: "integer" },
       description: "downstream — the cards waiting on this one",
+    },
+    parent: {
+      type: ["integer", "null"],
+      description:
+        "the umbrella this card is part of, or null. One level only — see /api/cards/{id}/parent",
+    },
+    children: {
+      type: "array",
+      items: { type: "integer" },
+      description: "the parts this card is composed of, if it is an umbrella",
     },
     notes: { type: "array", items: { $ref: "#/components/schemas/CardNote" } },
     createdBy: { type: "string" },
@@ -134,6 +147,17 @@ export function openApiSpec(): Record<string, unknown> {
           required: ["other"],
           properties: { other: { type: "integer" } },
         },
+        ParentInput: {
+          type: "object",
+          required: ["parent"],
+          properties: {
+            parent: {
+              type: "integer",
+              description:
+                "the umbrella card this one is a part of. One level only; an umbrella with unfinished children cannot be claimed or reviewed",
+            },
+          },
+        },
         AddNoteInput: {
           type: "object",
           required: ["text"],
@@ -156,7 +180,10 @@ export function openApiSpec(): Record<string, unknown> {
           type: "object",
           required: ["to"],
           properties: {
-            to: { type: "string", enum: ["todo", "doing", "review", "done"] },
+            to: {
+              type: "string",
+              enum: ["someday", "todo", "doing", "review", "done"],
+            },
             expectedRevision: { type: "integer" },
           },
         },
@@ -304,6 +331,23 @@ export function openApiSpec(): Record<string, unknown> {
           summary: "Remove a dependency",
           requestBody: jsonBody({ $ref: "#/components/schemas/BlockInput" }),
           responses: { "200": { description: "unblocked" } },
+        },
+      },
+      "/api/cards/{id}/parent": {
+        post: {
+          summary:
+            "Make this card a child of an umbrella — composition, one level",
+          requestBody: jsonBody({ $ref: "#/components/schemas/ParentInput" }),
+          responses: {
+            "200": { description: "child linked" },
+            "400": { description: "self-parent or would exceed one level" },
+          },
+        },
+      },
+      "/api/cards/{id}/unparent": {
+        post: {
+          summary: "Make this card top-level again",
+          responses: { "200": { description: "parent cleared" } },
         },
       },
       "/api/cards/{id}/relate": {

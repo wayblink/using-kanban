@@ -584,6 +584,8 @@ export const I18N = {
     "card.reviewer": "reviewer:",
     "card.blockedBy": "blocked-by:",
     "card.blocks": "blocks:",
+    "card.parent": "parent:",
+    "card.children": "children:",
     "card.notes": "notes:",
     "time.justNow": "just now",
     "time.minutes": "{n}m ago",
@@ -597,6 +599,14 @@ export const I18N = {
     "drawer.priority": "Priority",
     "drawer.blockedBy": "Upstream — waits on",
     "drawer.blocks": "Downstream — waits for this",
+    "drawer.hierarchy":
+      "Hierarchy — the umbrella this belongs to, and its parts",
+    "drawer.parent": "Set parent",
+    "drawer.setParent": "parent #",
+    "drawer.unparent": "detach from #{id}",
+    "drawer.childProgress": "{done}/{total} done",
+    "drawer.addChild": "child #",
+    "drawer.addChildButton": "Add child",
     "drawer.addUpstream": "add upstream card #",
     "drawer.addDownstream": "add downstream card #",
     "drawer.relate": "Relate",
@@ -682,6 +692,8 @@ export const I18N = {
     "card.reviewer": "审查：",
     "card.blockedBy": "阻塞：",
     "card.blocks": "下游：",
+    "card.parent": "父卡：",
+    "card.children": "子卡：",
     "card.notes": "备注：",
     "time.justNow": "刚刚",
     "time.minutes": "{n} 分钟前",
@@ -695,6 +707,13 @@ export const I18N = {
     "drawer.priority": "优先级",
     "drawer.blockedBy": "上游 — 本卡片等待",
     "drawer.blocks": "下游 — 等待本卡片",
+    "drawer.hierarchy": "层级 — 所属伞卡与它的子卡",
+    "drawer.parent": "设为子卡",
+    "drawer.setParent": "父卡 #",
+    "drawer.unparent": "从 #{id} 摘除",
+    "drawer.childProgress": "{done}/{total} 已完成",
+    "drawer.addChild": "子卡 #",
+    "drawer.addChildButton": "添加子卡",
     "drawer.addUpstream": "添加上游卡片 #",
     "drawer.addDownstream": "添加下游卡片 #",
     "drawer.relate": "关联",
@@ -1053,6 +1072,7 @@ const DOCS_EN = [
             "transitions",
           ],
           ["POST", "/api/cards/:id/{block,unblock}", "dependencies"],
+          ["POST", "/api/cards/:id/{parent,unparent}", "umbrella ↔ parts"],
           [
             "POST",
             "/api/cards/:id/{relate,unrelate}",
@@ -1455,6 +1475,7 @@ const DOCS_ZH = [
             "状态流转",
           ],
           ["POST", "/api/cards/:id/{block,unblock}", "依赖关系"],
+          ["POST", "/api/cards/:id/{parent,unparent}", "伞卡 ↔ 子卡"],
           [
             "POST",
             "/api/cards/:id/{relate,unrelate}",
@@ -1974,6 +1995,16 @@ function startApp() {
     }
   }
 
+  /** Derived progress of an umbrella: done over all of its direct children. */
+  function childProgressOf(card) {
+    const ids = card.children ?? [];
+    const done = ids.filter((id) => {
+      const child = state.cards.find((entry) => entry.id === id);
+      return child?.state === "done";
+    }).length;
+    return { total: ids.length, done };
+  }
+
   function renderCard(card, blocked) {
     const element = document.createElement("article");
     element.className = "card";
@@ -2016,6 +2047,18 @@ function startApp() {
     if ((card.blocks ?? []).length > 0) {
       meta.append(
         badge(`${t("card.blocks")}${card.blocks.join(",")}`, "downstream"),
+      );
+    }
+    if (card.parent != null) {
+      meta.append(badge(`${t("card.parent")}${card.parent}`, "parent"));
+    }
+    if ((card.children ?? []).length > 0) {
+      const progress = childProgressOf(card);
+      meta.append(
+        badge(
+          `${t("card.children")}${progress.done}/${progress.total}`,
+          "children",
+        ),
       );
     }
     if ((card.notes ?? []).length > 0) {
@@ -2287,6 +2330,8 @@ function startApp() {
     }
     body.append(actions);
 
+    body.append(hierarchyField(card));
+
     // relations — one edge, shown from both ends
     body.append(
       relationField(
@@ -2357,6 +2402,126 @@ function startApp() {
    * `blockedBy` is upstream (this card waits on them), `blocks` is downstream
    * (they wait on this card). Adding from either side writes the same edge.
    */
+  /** The umbrella this card belongs to, and the parts it is composed of. */
+  function hierarchyField(card) {
+    const wrapper = field(t("drawer.hierarchy"));
+    const chips = document.createElement("div");
+    chips.className = "blockers";
+
+    if (card.parent != null) {
+      const parent = state.cards.find((entry) => entry.id === card.parent);
+      const chip = document.createElement("span");
+      chip.className = "badge relation";
+      chip.textContent = `⤷ #${card.parent}${parent ? ` ${parent.title} (${parent.state})` : ""}`;
+      chip.title = parent?.title ?? `#${card.parent}`;
+      chip.addEventListener("click", () => void openDrawer(card.parent));
+      const detach = document.createElement("button");
+      detach.className = "icon-button";
+      detach.type = "button";
+      detach.textContent = "✕";
+      detach.setAttribute(
+        "aria-label",
+        t("drawer.unparent", { id: card.parent }),
+      );
+      detach.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        try {
+          await api(`/api/cards/${card.id}/unparent`, {
+            method: "POST",
+            body: {},
+          });
+          await refresh();
+        } catch (error) {
+          toast(error.message, "error");
+        }
+      });
+      chip.append(detach);
+      chips.append(chip);
+    } else if ((card.children ?? []).length === 0) {
+      // A card with children is an umbrella and cannot gain a parent; a
+      // standalone card may go either way.
+      const input = document.createElement("input");
+      input.type = "number";
+      input.min = "1";
+      input.placeholder = t("drawer.setParent");
+      const set = document.createElement("button");
+      set.type = "button";
+      set.textContent = t("drawer.parent");
+      set.addEventListener("click", async () => {
+        const parent = Number(input.value);
+        if (!Number.isInteger(parent) || parent <= 0) {
+          toast(t("modal.enterId"), "error");
+          return;
+        }
+        try {
+          await api(`/api/cards/${card.id}/parent`, {
+            method: "POST",
+            body: { parent },
+          });
+          input.value = "";
+          await refresh();
+        } catch (error) {
+          toast(error.message, "error");
+        }
+      });
+      chips.append(input, set);
+    }
+
+    const children = (card.children ?? [])
+      .map((id) => state.cards.find((entry) => entry.id === id))
+      .filter(Boolean);
+    if (children.length > 0) {
+      const done = children.filter((child) => child.state === "done").length;
+      const progress = document.createElement("span");
+      progress.className = "badge";
+      progress.textContent = t("drawer.childProgress", {
+        done,
+        total: children.length,
+      });
+      chips.append(progress);
+      for (const child of children) {
+        const chip = document.createElement("span");
+        chip.className = "badge relation";
+        chip.textContent = `#${child.id} [${child.state}] ${child.title}`;
+        chip.title = child.title;
+        chip.addEventListener("click", () => void openDrawer(child.id));
+        chips.append(chip);
+      }
+    }
+
+    if (card.parent == null) {
+      const childInput = document.createElement("input");
+      childInput.type = "number";
+      childInput.min = "1";
+      childInput.placeholder = t("drawer.addChild");
+      const addChild = document.createElement("button");
+      addChild.type = "button";
+      addChild.textContent = t("drawer.addChildButton");
+      addChild.addEventListener("click", async () => {
+        const child = Number(childInput.value);
+        if (!Number.isInteger(child) || child <= 0) {
+          toast(t("modal.enterId"), "error");
+          return;
+        }
+        try {
+          // Attaching changes the child card, so the call is addressed to it.
+          await api(`/api/cards/${child}/parent`, {
+            method: "POST",
+            body: { parent: card.id },
+          });
+          childInput.value = "";
+          await refresh();
+        } catch (error) {
+          toast(error.message, "error");
+        }
+      });
+      chips.append(childInput, addChild);
+    }
+
+    wrapper.append(chips);
+    return wrapper;
+  }
+
   function relationField(card, side, label, placeholder) {
     const wrapper = field(label);
     const chips = document.createElement("div");

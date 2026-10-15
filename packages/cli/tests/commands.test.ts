@@ -167,6 +167,79 @@ describe("the someday shelf", () => {
   });
 });
 
+describe("umbrella cards", () => {
+  async function epic(dir: string): Promise<void> {
+    await run(["add", "epic"], dir);
+    await run(["add", "part one"], dir);
+    await run(["add", "part two"], dir);
+    await run(["parent", "2", "--of", "1"], dir);
+    await run(["parent", "3", "--of", "1"], dir);
+  }
+
+  it("links children and shows the hierarchy on both cards", async () => {
+    const dir = tempDir();
+    await epic(dir);
+    await run(["done", "2"], dir);
+
+    const parent = await run(["show", "1"], dir);
+    const text = parent.out.join("\n");
+    expect(text).toContain("children: 1/2 (1 todo · 1 done)");
+    expect(text).toContain("#2 [done] part one");
+    expect(text).toContain("#3 [todo] part two");
+
+    const child = await run(["show", "3"], dir);
+    expect(child.out.join("\n")).toContain("parent: #1 epic");
+  });
+
+  it("marks the board with ⤷ and ▸ progress", async () => {
+    const dir = tempDir();
+    await epic(dir);
+    await run(["done", "2"], dir);
+
+    const board = await run(["board"], dir);
+    const text = board.out.join("\n");
+    expect(text).toContain("#1 [todo] epic ▸1/2");
+    expect(text).toContain("#2 [done] part one ⤷#1");
+  });
+
+  it("refuses to claim or review an umbrella with unfinished children", async () => {
+    const dir = tempDir();
+    await epic(dir);
+
+    await expect(runCommand(["claim", "1"], makeIo(dir))).rejects.toThrow(
+      /umbrella with 2 unfinished children/,
+    );
+    await expect(runCommand(["review", "1"], makeIo(dir))).rejects.toThrow(
+      /umbrella with 2 unfinished children/,
+    );
+    // but `done` stays allowed — a card must always be closable
+    const closed = await run(["done", "1"], dir);
+    expect(closed.out.join("\n")).toContain("#1 [done] epic");
+  });
+
+  it("keeps the hierarchy one level", async () => {
+    const dir = tempDir();
+    await epic(dir);
+
+    // #2 is a child, so it cannot become a parent
+    await expect(
+      runCommand(["parent", "3", "--of", "2"], makeIo(dir)),
+    ).rejects.toThrow(/one level/);
+  });
+
+  it("unparents back to a top-level card", async () => {
+    const dir = tempDir();
+    await epic(dir);
+
+    const out = await run(["unparent", "2"], dir);
+    expect(out.out.join("\n")).toContain("now top-level");
+    const shown = await run(["show", "2"], dir);
+    expect(shown.out.join("\n")).toContain("parent: —");
+    const parent = await run(["show", "1"], dir);
+    expect(parent.out.join("\n")).toContain("children: 0/1");
+  });
+});
+
 describe("batch card verbs", () => {
   /** A board with three todo cards, all in one project. */
   async function threeCards(dir: string): Promise<void> {
@@ -569,6 +642,8 @@ describe("render", () => {
     priority: "normal",
     blockedBy: [1],
     blocks: [4],
+    parent: null,
+    children: [],
     notes: [
       {
         id: 9,
@@ -797,6 +872,8 @@ describe("board --json", () => {
       project: "web",
       priority: "normal",
       blockedBy: [],
+      parent: null,
+      children: [],
     });
     expect(brief.out.join("\n")).not.toContain("large private body");
     expect(parsed.todo[0]).not.toHaveProperty("notes");
