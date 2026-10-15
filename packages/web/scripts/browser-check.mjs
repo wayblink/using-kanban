@@ -8,13 +8,44 @@
  * It screenshots the page, asserts the layout, exercises the drawer and modal,
  * and prints any console errors.
  */
-import { spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startServer } from "@wayblink/using-kanban-server";
 
-const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+/**
+ * The Chrome binary, resolved the same way on every platform: `CHROME_PATH`
+ * (or `CHROME_BIN`) wins, then the macOS app, then whatever `google-chrome` /
+ * `chromium` is on PATH — which is what the Linux CI runner ships. A hardcoded
+ * macOS path is why this check could only ever have run on one laptop.
+ */
+function resolveChrome() {
+  const explicit = process.env.CHROME_PATH ?? process.env.CHROME_BIN;
+  if (explicit) return explicit;
+  const mac = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+  if (existsSync(mac)) return mac;
+  for (const name of [
+    "google-chrome",
+    "google-chrome-stable",
+    "chromium",
+    "chromium-browser",
+  ]) {
+    const found = spawnSync("which", [name], { encoding: "utf8" });
+    if (found.status === 0 && found.stdout.trim()) return found.stdout.trim();
+  }
+  throw new Error(
+    "no Chrome found — install one or set CHROME_PATH (looked for the macOS app, google-chrome, chromium)",
+  );
+}
+
+const CHROME = resolveChrome();
 const DEBUG_PORT = 9222;
 
 const args = process.argv.slice(2);
