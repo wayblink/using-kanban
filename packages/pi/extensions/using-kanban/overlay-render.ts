@@ -56,6 +56,12 @@ export interface CardLite {
   readonly reviewer: string | null;
   readonly project: string | null;
   readonly blockedBy: readonly number[];
+  /**
+   * The umbrella this card is part of, or null. One level deep: a card is
+   * either an umbrella or a child, never both. Absent on older brief JSON.
+   */
+  readonly parent?: number | null;
+  readonly children?: readonly number[];
   /** Absent on brief JSON written before priorities existed. */
   readonly priority?: CardPriority;
 }
@@ -96,6 +102,12 @@ export interface OverlayRenderOptions {
   readonly groupBy?: OverlayGroup;
   /** Which states to show. Defaults to doing/todo/review/someday. */
   readonly states?: readonly CardState[];
+  /**
+   * Full-board index for resolving hierarchy progress. Defaults to the
+   * snapshot's own cards; pass the unscoped index when rendering a scoped
+   * snapshot so `▸done/total` counts children the scope filtered out.
+   */
+  readonly index?: ReadonlyMap<number, CardLite>;
 }
 
 const CARD_STATES: readonly CardState[] = [
@@ -220,6 +232,18 @@ function toCardLite(value: unknown, state: CardState): CardLite | null {
     blockedBy: Array.isArray(value.blockedBy)
       ? value.blockedBy.filter(
           (entry): entry is number => typeof entry === "number",
+        )
+      : [],
+    parent:
+      typeof value.parent === "number" &&
+      Number.isInteger(value.parent) &&
+      value.parent > 0
+        ? value.parent
+        : null,
+    children: Array.isArray(value.children)
+      ? value.children.filter(
+          (entry): entry is number =>
+            typeof entry === "number" && Number.isInteger(entry) && entry > 0,
         )
       : [],
     priority:
@@ -365,6 +389,15 @@ export function countCards(snapshot: BoardSnapshot): OverlayCounts {
   };
 }
 
+/** Every card in a snapshot, by id — for resolving ids a row references. */
+export function cardIndex(snapshot: BoardSnapshot): Map<number, CardLite> {
+  const index = new Map<number, CardLite>();
+  for (const state of CARD_STATES) {
+    for (const card of snapshot[state]) index.set(card.id, card);
+  }
+  return index;
+}
+
 /** Open work: everything not in `done`. Zero means there is nothing to watch. */
 export function openCardCount(snapshot: BoardSnapshot): number {
   return snapshot.todo.length + snapshot.doing.length + snapshot.review.length;
@@ -392,6 +425,8 @@ export interface OverlayRow {
   /** Inline group column. Only the first row in a group prints the label. */
   readonly groupLabel: string | null;
   readonly groupStart: boolean;
+  /** True for a child rendered under its umbrella, indented one level. */
+  readonly nested: boolean;
 }
 
 export interface OverlayLayout {
@@ -454,6 +489,7 @@ function groupedRows(
       state: card.state,
       groupLabel: label,
       groupStart: label !== previous,
+      nested: false,
     };
     previous = label;
     return row;
@@ -465,6 +501,13 @@ function groupedRows(
  * the view displays) — trimmed to fit `bodyBudget`. When anything is trimmed
  * one row is reserved for the overflow summary, so `rows.length + 1 <=
  * bodyBudget` on the overflow path.
+ *
+ * **Hierarchy nests.** An umbrella is a top-level row and its children follow
+ * it, indented one level, whatever state they are in — a `review` child of a
+ * `todo` umbrella sits under the umbrella, not in the review group. A card
+ * whose parent is not displayed (hidden state, or filtered out by scope) is a
+ * top-level row and keeps its `⤷#parent` marker. Children are never repeated in
+ * their own group: one card, one row.
  *
  * Earlier states win the budget: `doing` is only ever dropped when it alone
  * exceeds it, and the tail (the shelf, then history) goes first. A card someone
@@ -482,20 +525,51 @@ export function selectOverlayRows(
   const cards: CardLite[] = shown.flatMap((state) =>
     snapshot[state].map((card) => ({ ...card, state })),
   );
-  const all: OverlayRow[] =
+
+  const displayed = new Map(cards.map((card) => [card.id, card]));
+  const childrenByParent = new Map<number, CardLite[]>();
+  const roots: CardLite[] = [];
+  for (const card of cards) {
+    const parent = card.parent ?? null;
+    if (parent !== null && displayed.has(parent)) {
+      const list = childrenByParent.get(parent) ?? [];
+      list.push(card);
+      childrenByParent.set(parent, list);
+    } else {
+      roots.push(card);
+    }
+  }
+  for (const list of childrenByParent.values()) list.sort(compareByPriority);
+
+  const rootRows: OverlayRow[] =
     groupBy === "project" || groupBy === "owner"
-      ? groupedRows(cards, groupBy)
+      ? groupedRows(roots, groupBy)
       : (groupBy === "none"
-          ? byId(cards)
+          ? byId(roots)
           : shown.flatMap((state) =>
-              byId(cards.filter((card) => card.state === state)),
+              byId(roots.filter((card) => card.state === state)),
             )
         ).map((card) => ({
           card,
           state: card.state,
           groupLabel: null,
           groupStart: false,
+          nested: false,
         }));
+
+  const all: OverlayRow[] = [];
+  for (const row of rootRows) {
+    all.push(row);
+    for (const child of childrenByParent.get(row.card.id) ?? []) {
+      all.push({
+        card: child,
+        state: child.state,
+        groupLabel: row.groupLabel,
+        groupStart: false,
+        nested: true,
+      });
+    }
+  }
 
   if (all.length <= bodyBudget) return { rows: all, hidden: [] };
 
@@ -552,6 +626,36 @@ function ownerSuffix(row: OverlayRow): string {
   return "";
 }
 
+/**
+ * Hierarchy markers appended to a row: `⤷#38` names the umbrella, `▸4/6` is an
+ * umbrella's derived progress. Distinct from the `⛓`-style dependency marks —
+ * composition and order are different questions. Returns "" when neither
+ * applies, so a leaf row stays exactly as wide as before.
+ */
+function hierarchySuffix(
+  card: CardLite,
+  byId: ReadonlyMap<number, CardLite>,
+  nested = false,
+): string {
+  const parts: string[] = [];
+  // A nested row already sits under its umbrella, so the parent marker would
+  // repeat the indentation in words.
+  if (!nested && card.parent != null) parts.push(`⤷#${card.parent}`);
+  const children = card.children ?? [];
+  if (children.length > 0) {
+    const resolved = children
+      .map((id) => byId.get(id))
+      .filter((child): child is CardLite => child !== undefined);
+    // `done` is the whole of "finished" in the overlay's copy of the rule.
+    parts.push(
+      resolved.length === children.length
+        ? `▸${resolved.filter((child) => child.state === "done").length}/${children.length}`
+        : `▸${children.length}`,
+    );
+  }
+  return parts.join(" ");
+}
+
 function summarizeHidden(hidden: readonly OverlayRow[]): string {
   const counts: Record<CardState, number> = {
     someday: 0,
@@ -583,6 +687,7 @@ function renderRow(
   groupColumn: number,
   ownerColumn: number,
   last: boolean,
+  byId: ReadonlyMap<number, CardLite>,
 ): string {
   const connector = theme.fg("dim", last ? "└─" : "├─");
   const stateColor =
@@ -607,9 +712,12 @@ function renderRow(
       ? `${rawGroup ? theme.fg("muted", rawGroup) : ""}${groupPad} `
       : "";
   const priority = priorityTag(row.card);
-  const frozen = `${plainGroup}${STATE_TAG[row.state]}${priority ? priority : ""} #${row.card.id} ${title}`;
+  const hierarchy = hierarchySuffix(row.card, byId, row.nested);
+  const hierarchyText = hierarchy ? ` ${hierarchy}` : "";
+  const indent = row.nested ? "  " : "";
+  const frozen = `${indent}${plainGroup}${STATE_TAG[row.state]}${priority ? priority : ""} #${row.card.id} ${title}${hierarchyText}`;
   const titleColor = row.state === "doing" ? "text" : "dim";
-  const colored = `${coloredGroup}${theme.fg(stateColor, STATE_TAG[row.state])}${priority ? theme.fg("warning", priority) : ""} ${theme.fg("accent", `#${row.card.id}`)} ${theme.fg(titleColor, title)}`;
+  const colored = `${coloredGroup}${theme.fg(stateColor, STATE_TAG[row.state])}${priority ? theme.fg("warning", priority) : ""} ${theme.fg("accent", `#${row.card.id}`)} ${theme.fg(titleColor, title)}${hierarchy ? ` ${theme.fg("muted", hierarchy)}` : ""}`;
 
   const owner = ownerSuffix(row);
   const gap =
@@ -617,7 +725,7 @@ function renderRow(
       ? " ".repeat(Math.max(2, ownerColumn - visibleWidth(frozen) + 2))
       : "";
   const suffix = owner ? `${gap}${theme.fg("muted", owner)}` : "";
-  return truncate(`${connector} ${colored}${suffix}`, width);
+  return truncate(`${indent}${connector} ${colored}${suffix}`, width);
 }
 
 /**
@@ -664,6 +772,11 @@ export function renderOverlay(
     states,
   );
 
+  // Resolve children against the full board when the caller supplied one, so
+  // `▸done/total` counts a child the scope filtered out (another project, or
+  // `mine`). Falling back to the snapshot is fine for an unscoped board.
+  const byId = options.index ?? cardIndex(snapshot);
+
   const groupColumn = rows.reduce(
     (widest, row) =>
       Math.max(
@@ -677,11 +790,14 @@ export function renderOverlay(
   const ownerColumn = rows.reduce((widest, row) => {
     if (!ownerSuffix(row)) return widest;
     const groupWidth = groupColumn > 0 ? groupColumn + 1 : 0;
+    const indent = row.nested ? 2 : 0;
+    const hierarchy = hierarchySuffix(row.card, byId, row.nested);
     return Math.max(
       widest,
-      groupWidth +
+      indent +
+        groupWidth +
         options.visibleWidth(
-          `${STATE_TAG[row.state]}${priorityTag(row.card)} #${row.card.id} ${sanitizeTerminalText(row.card.title)}`,
+          `${STATE_TAG[row.state]}${priorityTag(row.card)} #${row.card.id} ${sanitizeTerminalText(row.card.title)}${hierarchy ? ` ${hierarchy}` : ""}`,
         ),
     );
   }, 0);
@@ -701,6 +817,7 @@ export function renderOverlay(
         groupColumn,
         ownerColumn,
         last,
+        byId,
       ),
     );
   });

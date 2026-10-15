@@ -11,6 +11,7 @@ import {
   type BoardSnapshot,
   type CardLite,
   countCards,
+  cardIndex,
   openCardCount,
   parseBoardJson,
   renderOverlay,
@@ -438,6 +439,36 @@ describe("selectOverlayRows", () => {
       "review:9",
     ]);
   });
+
+  it("nests a child under its umbrella, whatever state it is in", () => {
+    const board = snapshot({
+      todo: [card({ id: 1, title: "epic", children: [2, 3] })],
+      review: [
+        card({ id: 2, title: "part in review", state: "review", parent: 1 }),
+      ],
+      someday: [
+        card({ id: 3, title: "part parked", state: "someday", parent: 1 }),
+      ],
+      done: [card({ id: 4, title: "part done", state: "done", parent: 1 })],
+    });
+    const { rows } = selectOverlayRows(board, 10);
+    // #1 is the root; #2 and #3 follow it (a review child under a todo
+    // umbrella); #4 is not displayed because `done` is hidden by default.
+    expect(
+      rows.map((row) => `${row.nested ? "-" : "+"}${row.card.id}`),
+    ).toEqual(["+1", "-2", "-3"]);
+  });
+
+  it("keeps a child top-level when its parent is not displayed", () => {
+    const board = snapshot({
+      done: [card({ id: 1, state: "done", children: [2] })],
+      todo: [card({ id: 2, title: "orphan row", parent: 1 })],
+    });
+    const { rows } = selectOverlayRows(board, 10);
+    expect(
+      rows.map((row) => `${row.nested ? "-" : "+"}${row.card.id}`),
+    ).toEqual(["+2"]);
+  });
 });
 
 /* -------------------------------- rendering -------------------------------- */
@@ -514,6 +545,44 @@ describe("renderOverlay", () => {
     const lines = renderOverlay(board, renderOptions());
     expect(lines[0]).toBe("○ ukb · 1 someday");
     expect(lines[1]).toContain("[someday][normal] #1 parked");
+  });
+
+  it("counts children the scope filtered out when given a full index", () => {
+    const board = snapshot({
+      todo: [card({ id: 1, title: "epic", children: [2, 3] })],
+      review: [card({ id: 2, state: "review", parent: 1 })],
+      // #3 is not in this snapshot: filtered out by project or by `mine`.
+    });
+    const index = new Map([
+      [1, card({ id: 1, title: "epic", children: [2, 3] })],
+      [2, card({ id: 2, state: "review", parent: 1 })],
+      [3, card({ id: 3, state: "done", parent: 1 })],
+    ]);
+    expect(renderOverlay(board, renderOptions({ index }))[1]).toContain("▸1/2");
+    // without the index #3 cannot be resolved, so it degrades to a count
+    expect(renderOverlay(board, renderOptions())[1]).toContain("▸2");
+  });
+
+  it("indexes every card in a snapshot by id", () => {
+    const board = snapshot({
+      todo: [card({ id: 1 })],
+      done: [card({ id: 2, state: "done" })],
+    });
+    expect([...cardIndex(board).keys()].sort()).toEqual([1, 2]);
+  });
+
+  it("renders children indented under the parent, with no ⤷ marker", () => {
+    const board = snapshot({
+      todo: [card({ id: 1, title: "epic", children: [2] })],
+      review: [card({ id: 2, title: "part", state: "review", parent: 1 })],
+    });
+    const lines = renderOverlay(board, renderOptions());
+    // counts are per card, so the review child still shows under review
+    expect(lines[0]).toContain("1 todo · 1 review");
+    expect(lines[1]).toContain("[todo][normal] #1 epic");
+    expect(lines[2] ?? "").toMatch(/^ {2}└─/);
+    expect(lines[2]).toContain("[review][normal] #2 part");
+    expect(lines[2]).not.toContain("⤷");
   });
 
   it("spells the state out in front of each row instead of drawing an icon", () => {

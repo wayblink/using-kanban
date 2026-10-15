@@ -34,6 +34,7 @@ import {
   type BoardSnapshot,
   type OverlayView,
   OVERLAY_WIDGET_KEY,
+  cardIndex,
   countCards,
   parseBoardJson,
   renderOverlay,
@@ -289,6 +290,11 @@ export class BoardOverlay {
         scopeLabel: this.scopeLabel,
         groupBy: this.view.groupBy,
         states: this.view.states,
+        // Progress is global: count children the scope filtered out too.
+        index:
+          this.rawSnapshot === undefined
+            ? undefined
+            : cardIndex(this.rawSnapshot),
       });
     } catch (error) {
       // A layout bug must not take the session down, but it must not be
