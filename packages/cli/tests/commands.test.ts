@@ -75,31 +75,37 @@ async function run(
 describe("priority", () => {
   it("sets it at creation and changes it by edit", async () => {
     const dir = tempDir();
-    const added = await run(["add", "shelve me", "--priority", "pending"], dir);
-    expect(added.out.join("\n")).toContain("#1 [todo] shelve me pending");
+    const added = await run(["add", "dial me", "--priority", "low"], dir);
+    expect(added.out.join("\n")).toContain("#1 [todo] dial me low");
 
     const edited = await run(["edit", "1", "--priority", "high"], dir);
-    expect(edited.out.join("\n")).toContain("#1 [todo] shelve me high");
+    expect(edited.out.join("\n")).toContain("#1 [todo] dial me high");
 
     const reset = await run(["edit", "1", "--priority", "normal"], dir);
     // normal prints nothing, so the line goes quiet again
     expect(reset.out.join("\n")).not.toContain("high");
-    expect(reset.out.join("\n")).not.toContain("pending");
+    expect(reset.out.join("\n")).not.toContain("low");
   });
 
   it("names the accepted values when given a bad one", async () => {
     const dir = tempDir();
     await expect(
       runCommand(["add", "x", "--priority", "urgent"], makeIo(dir)),
-    ).rejects.toThrow(/--priority expects high \| normal \| low \| pending/);
+    ).rejects.toThrow(/--priority expects high \| normal \| low/);
   });
 
-  it("orders a column high → normal → low → pending", async () => {
+  it("points `--priority pending` at the someday column", async () => {
     const dir = tempDir();
-    await run(["add", "shelved", "--priority", "pending"], dir);
+    await expect(
+      runCommand(["add", "x", "--priority", "pending"], makeIo(dir)),
+    ).rejects.toThrow(/shelving is now a column.*ukb move <id> someday/s);
+  });
+
+  it("orders a column high → normal → low", async () => {
+    const dir = tempDir();
+    await run(["add", "minor", "--priority", "low"], dir);
     await run(["add", "plain"], dir);
     await run(["add", "urgent", "--priority", "high"], dir);
-    await run(["add", "minor", "--priority", "low"], dir);
 
     const board = await run(["board"], dir);
     const titles = board.out
@@ -107,13 +113,13 @@ describe("priority", () => {
       .split("\n")
       .filter((line) => line.includes("[todo]"))
       .map((line) => line.replace(/^\s*#\d+ \[todo\] /, "").split(" ")[0]);
-    expect(titles).toEqual(["urgent", "plain", "minor", "shelved"]);
+    expect(titles).toEqual(["urgent", "plain", "minor"]);
   });
 
   it("puts the highest-priority todo card in the call to act", async () => {
     const dir = tempDir();
     await run(
-      ["add", "background", "--priority", "pending", "--assignee", "tester"],
+      ["add", "background", "--priority", "low", "--assignee", "tester"],
       dir,
     );
     await run(
@@ -123,6 +129,41 @@ describe("priority", () => {
 
     const mine = await run(["mine", "--agent", "tester"], dir);
     expect(mine.out.join("\n")).toContain("ukb claim 2");
+  });
+});
+
+describe("the someday shelf", () => {
+  it("parks a card by move, clearing its owner", async () => {
+    const dir = tempDir();
+    await run(
+      ["add", "parked", "--assignee", "tester", "--reviewer", "reviewer"],
+      dir,
+    );
+
+    const moved = await run(["move", "1", "someday"], dir);
+    expect(moved.out.join("\n")).toContain("moved to someday");
+    expect(moved.out.join("\n")).toContain("#1 [someday] parked");
+
+    const shown = await run(["show", "1"], dir);
+    expect(shown.out.join("\n")).toContain("assignee: —");
+    expect(shown.out.join("\n")).toContain("reviewer: —");
+  });
+
+  it("keeps a parked card out of `mine`", async () => {
+    const dir = tempDir();
+    await run(["add", "parked", "--assignee", "tester"], dir);
+    await run(["move", "1", "someday"], dir);
+
+    const mine = await run(["mine", "--agent", "tester"], dir);
+    expect(mine.out.join("\n")).toContain("no open cards");
+  });
+
+  it("refuses a column it does not know", async () => {
+    const dir = tempDir();
+    await run(["add", "x"], dir);
+    await expect(
+      runCommand(["move", "1", "backlog"], makeIo(dir)),
+    ).rejects.toThrow(/someday\|todo\|doing\|review\|done/);
   });
 });
 
@@ -596,6 +637,7 @@ describe("render", () => {
 
   it("renders the board with counts and card details", () => {
     const output = formatBoard({
+      someday: [],
       todo: [card],
       doing: [],
       review: [],
@@ -611,9 +653,9 @@ describe("render", () => {
 
   it("renders the project list, untagged bucket last", () => {
     const output = formatProjects([
-      { project: "web", todo: 2, doing: 1, review: 0, done: 3 },
-      { project: "api", todo: 0, doing: 0, review: 1, done: 2 },
-      { project: null, todo: 4, doing: 0, review: 0, done: 0 },
+      { project: "web", someday: 0, todo: 2, doing: 1, review: 0, done: 3 },
+      { project: "api", someday: 0, todo: 0, doing: 0, review: 1, done: 2 },
+      { project: null, someday: 0, todo: 4, doing: 0, review: 0, done: 0 },
     ]);
     expect(output).toContain("projects (3):");
     const rows = output.split("\n").slice(1, 4);
@@ -621,11 +663,17 @@ describe("render", () => {
     // are scannable down the page rather than ragged.
     const offsets = rows.map((row) => row.indexOf("doing"));
     expect(new Set(offsets).size).toBe(1);
-    expect(output).toContain("1 doing · 0 review · 2 todo · 3 done");
-    expect(output).toContain("0 doing · 1 review · 0 todo · 2 done");
+    expect(output).toContain(
+      "1 doing · 0 review · 2 todo · 0 someday · 3 done",
+    );
+    expect(output).toContain(
+      "0 doing · 1 review · 0 todo · 0 someday · 2 done",
+    );
     // The untagged bucket is named, not dropped: those cards match no filter.
     expect(output).toContain("(none)");
-    expect(output).toContain("0 doing · 0 review · 4 todo · 0 done");
+    expect(output).toContain(
+      "0 doing · 0 review · 4 todo · 0 someday · 0 done",
+    );
     expect(output).toContain("ukb board --project <slug>");
   });
 
@@ -662,8 +710,8 @@ describe("list", () => {
     const io = await run(["list"], dir);
     const out = io.out.join("\n");
     expect(out).toContain("projects (3):");
-    expect(out).toContain("0 doing · 0 review · 1 todo · 0 done");
-    expect(out).toContain("1 doing · 0 review · 0 todo · 0 done");
+    expect(out).toContain("0 doing · 0 review · 1 todo · 0 someday · 0 done");
+    expect(out).toContain("1 doing · 0 review · 0 todo · 0 someday · 0 done");
     expect(out).toContain("(none)");
     expect(out).toContain("ukb board --project <slug>");
   });
@@ -683,8 +731,8 @@ describe("list", () => {
     const io = await run(["list", "--json"], dir);
     expect(JSON.parse(io.out.join("\n"))).toEqual({
       projects: [
-        { project: "web", todo: 1, doing: 0, review: 0, done: 0 },
-        { project: null, todo: 1, doing: 0, review: 0, done: 0 },
+        { project: "web", someday: 0, todo: 1, doing: 0, review: 0, done: 0 },
+        { project: null, someday: 0, todo: 1, doing: 0, review: 0, done: 0 },
       ],
     });
   });

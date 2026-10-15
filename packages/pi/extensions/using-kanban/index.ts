@@ -23,6 +23,7 @@ import {
   resolveOverlayGroup,
   resolveOverlayProject,
   resolveOverlayScope,
+  resolveOverlayStates,
 } from "./overlay-config.js";
 import { BoardOverlay } from "./overlay.js";
 import type { OverlayView } from "./overlay-render.js";
@@ -67,10 +68,10 @@ const ACTIONS = [
   "note-remove",
 ] as const;
 
-const COLUMNS = ["todo", "doing", "review", "done"] as const;
+const COLUMNS = ["someday", "todo", "doing", "review", "done"] as const;
 
 /** Mirrors core's CARD_PRIORITIES, in sort order. */
-const PRIORITIES = ["high", "normal", "low", "pending"] as const;
+const PRIORITIES = ["high", "normal", "low"] as const;
 
 /**
  * Verbs whose card ids are all positionals, so several can be given at once.
@@ -431,6 +432,7 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
     agent: AGENT,
     groupBy: resolveOverlayGroup(process.env, CONFIG),
     maxLines: resolveMaxLines(process.env, CONFIG),
+    states: resolveOverlayStates(process.env, CONFIG),
   };
 
   /** Current project = current Git root basename, falling back to cwd basename. */
@@ -569,14 +571,15 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
 
   const overlayHelp = [
     "ukb gui — the on-demand board panel",
-    "/ukb gui [show] [scope=…] [group=…] [project=…] [lines=<n>]",
+    "/ukb gui [show] [scope=…] [group=…] [states=…] [project=…] [lines=<n>]",
     "/ukb gui more | less              # grow / shrink the row budget",
     "/ukb gui hide",
     "/ukb gui collapse | expand        # one line / full height",
     "/ukb gui help",
     "scope: current-project | mine | all | project:<slug>",
     "group: state | project | owner | none",
-    "rows: doing, then todo, then review — review is what you are waiting on",
+    "states: doing, todo, review, someday, done (default: all but done)",
+    "rows: doing, then todo, then review, then someday",
     "default: current Git project, grouped by state",
     "persistent settings: ~/.config/ukb/config.json → overlay",
   ].join("\n");
@@ -642,7 +645,7 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
     const status = overlay.status();
     const counts = status.counts;
     const board = counts
-      ? `${counts.doing} doing · ${counts.todo} todo · ${counts.review} review · ${counts.done} done`
+      ? `${counts.doing} doing · ${counts.todo} todo · ${counts.review} review · ${counts.someday} someday · ${counts.done} done`
       : "board unreadable";
     const state = !status.visible
       ? "hidden"
@@ -694,7 +697,7 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
       priority: Type.Optional(
         StringEnum(PRIORITIES, {
           description:
-            "How urgently the card wants attention. normal is the default; low is minor but still wanted; pending is deliberately shelved. Lower priorities sort after higher ones.",
+            "How urgently the card wants attention. normal is the default; low is minor but still wanted. Lower priorities sort after higher ones. To park a card for later, move it to the `someday` column instead — that is a state, not a priority.",
         }),
       ),
       other: Type.Optional(

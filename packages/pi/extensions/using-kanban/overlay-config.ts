@@ -10,12 +10,15 @@
  */
 
 import {
+  DEFAULT_OVERLAY_STATES,
   OVERLAY_DISPLAYS,
   OVERLAY_GROUPS,
   OVERLAY_SCOPES,
+  OVERLAY_STATES,
   type OverlayDisplay,
   type OverlayGroup,
   type OverlayScope,
+  type OverlayState,
   type UkbConfig,
 } from "./config.js";
 
@@ -120,6 +123,47 @@ export function resolveOverlayGroup(
     if (OVERLAY_GROUPS.includes(value)) return value;
   }
   return DEFAULT_OVERLAY_GROUP;
+}
+
+/**
+ * Which states the panel shows: env (comma-separated) > config array > default.
+ * An entry that is not a known state makes the whole level unusable, so the
+ * next level still wins — the same all-or-nothing rule the config validator
+ * uses, applied per level.
+ */
+export function resolveOverlayStates(
+  env: NodeJS.ProcessEnv,
+  config: UkbConfig = {},
+): readonly OverlayState[] {
+  const candidates: readonly unknown[] = [
+    env.UKB_OVERLAY_STATES,
+    config.overlay?.states,
+  ];
+  for (const candidate of candidates) {
+    const parsed = parseStates(candidate);
+    if (parsed !== null) return parsed;
+  }
+  return DEFAULT_OVERLAY_STATES;
+}
+
+function parseStates(value: unknown): OverlayState[] | null {
+  const items = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(",")
+      : null;
+  if (items === null) return null;
+  const states = items.map((entry) => String(entry).trim().toLowerCase());
+  if (states.length === 0 || states.some((state) => state === "")) return null;
+  if (
+    !states.every((state) =>
+      (OVERLAY_STATES as readonly string[]).includes(state),
+    )
+  ) {
+    return null;
+  }
+  // Dedupe while keeping the caller's order; display order is fixed anyway.
+  return [...new Set(states)] as OverlayState[];
 }
 
 export function resolveMaxLines(

@@ -17,6 +17,7 @@ import {
   sanitizeTerminalText,
   scopeBoard,
   selectOverlayRows,
+  visibleCardCount,
 } from "../../pi/extensions/using-kanban/overlay-render.js";
 
 /* ------------------------------- fixtures -------------------------------- */
@@ -42,7 +43,15 @@ function omitPriority(card: CardLite): CardLite {
 }
 
 function snapshot(over: Partial<BoardSnapshot> = {}): BoardSnapshot {
-  return { projects: [], todo: [], doing: [], review: [], done: [], ...over };
+  return {
+    projects: [],
+    someday: [],
+    todo: [],
+    doing: [],
+    review: [],
+    done: [],
+    ...over,
+  };
 }
 
 /** Identity theme: assertions read the plain text, no escape codes to strip. */
@@ -160,15 +169,29 @@ describe("counts", () => {
       doing: [card({ id: 3 })],
       review: [card({ id: 4 })],
       done: [card({ id: 5 }), card({ id: 6 })],
+      someday: [card({ id: 7, state: "someday" })],
     });
     expect(countCards(board)).toEqual({
+      someday: 1,
       todo: 2,
       doing: 1,
       review: 1,
       done: 2,
     });
+    // A parked card is not open work the panel watches.
     expect(openCardCount(board)).toBe(4);
     expect(openCardCount(snapshot({ done: [card({ id: 1 })] }))).toBe(0);
+  });
+
+  it("counts the displayed states for the auto-hide decision", () => {
+    const board = snapshot({
+      someday: [card({ id: 1, state: "someday" })],
+    });
+    // someday is displayed by default, so a shelf-only board still gets a panel
+    expect(visibleCardCount(board)).toBe(1);
+    expect(visibleCardCount(board, ["todo", "doing", "review"])).toBe(0);
+    // openCardCount stays what it always was: actionable work only
+    expect(openCardCount(board)).toBe(0);
   });
 });
 
@@ -191,9 +214,11 @@ describe("scopeBoard", () => {
       agent: "pi",
       groupBy: "state",
       maxLines: 12,
+      states: ["doing", "todo", "review", "someday"],
     });
     expect(scoped.label).toBe("web");
     expect(countCards(scoped.snapshot)).toEqual({
+      someday: 0,
       todo: 1,
       doing: 0,
       review: 1,
@@ -208,6 +233,7 @@ describe("scopeBoard", () => {
       agent: "pi",
       groupBy: "state",
       maxLines: 12,
+      states: ["doing", "todo", "review", "someday"],
     });
     expect(scoped.label).toBe("mine:pi");
     expect(scoped.snapshot.todo.map((item) => item.id)).toEqual([1, 2]);
@@ -220,6 +246,7 @@ describe("scopeBoard", () => {
       agent: "pi",
       groupBy: "state",
       maxLines: 12,
+      states: ["doing", "todo", "review", "someday"],
     });
     expect(scoped.label).toBe("all");
     expect(scoped.snapshot.todo).toHaveLength(3);
@@ -227,13 +254,13 @@ describe("scopeBoard", () => {
 });
 
 describe("priority ordering", () => {
-  it("orders rows high → normal → low → pending inside a state", () => {
+  it("orders rows high → normal → low inside a state", () => {
     const board = snapshot({
       todo: [
-        card({ id: 1, priority: "pending", title: "shelved" }),
+        card({ id: 1, priority: "low", title: "minor" }),
         card({ id: 2, title: "plain" }),
         card({ id: 3, priority: "high", title: "urgent" }),
-        card({ id: 4, priority: "low", title: "minor" }),
+        card({ id: 4, priority: "low", title: "minor too" }),
       ],
     });
     const { rows } = selectOverlayRows(board, 10);
@@ -241,7 +268,7 @@ describe("priority ordering", () => {
       "urgent",
       "plain",
       "minor",
-      "shelved",
+      "minor too",
     ]);
   });
 
@@ -291,15 +318,17 @@ describe("priority ordering", () => {
       }),
     );
     expect(parsed?.todo[0]?.priority).toBe("normal");
+    // a missing someday column (an older producer) reads as an empty shelf
+    expect(parsed?.someday).toEqual([]);
     // and it still sorts as normal rather than dropping to the back
     const board = snapshot({
       todo: [
-        card({ id: 1, priority: "pending", title: "shelved" }),
+        card({ id: 1, priority: "low", title: "minor" }),
         omitPriority(card({ id: 2, title: "legacy" })),
       ],
     });
     const { rows } = selectOverlayRows(board, 10);
-    expect(rows.map((row) => row.card.title)).toEqual(["legacy", "shelved"]);
+    expect(rows.map((row) => row.card.title)).toEqual(["legacy", "minor"]);
   });
 
   it("ignores a priority outside the scale", () => {
@@ -433,18 +462,58 @@ describe("renderOverlay", () => {
         }),
       ],
       todo: [card({ id: 45, title: "Add sanitizer" })],
+      someday: [card({ id: 7, title: "Parked idea", state: "someday" })],
       done: [card({ id: 9, title: "Ship overlay", state: "done" })],
     });
     const lines = renderOverlay(board, renderOptions());
-    expect(lines[0]).toBe("● ukb · 1 doing · 1 todo · 1 review · 1 done");
+    // done is not displayed by default, so it is not in the heading either.
+    expect(lines[0]).toBe("● ukb · 1 doing · 1 todo · 1 review · 1 someday");
     expect(lines[1]).toContain("[doing][normal] #41 Fix flaky retry test");
     expect(lines[1]).toContain("@pi");
     // todo comes before review: available work ahead of the waiting queue.
     expect(lines[2]).toContain("[todo][normal] #45 Add sanitizer");
     expect(lines[3]).toContain("[review][normal] #38 Overlay widget");
     expect(lines[3]).toContain("→ human");
-    // done is history: counted in the heading, never given a row.
+    // the shelf is displayed, after review and before history.
+    expect(lines[4]).toContain("[someday][normal] #7 Parked idea");
+    // done is history: never given a row.
     expect(lines.join("\n")).not.toContain("Ship overlay");
+  });
+
+  it("honours the view's displayed states", () => {
+    const board = snapshot({
+      todo: [card({ id: 1, title: "live" })],
+      someday: [card({ id: 2, title: "parked", state: "someday" })],
+      done: [card({ id: 3, title: "history", state: "done" })],
+    });
+    const lines = renderOverlay(
+      board,
+      renderOptions({ states: ["todo", "done"] }),
+    );
+    // order is fixed: someday would sit before done, and both follow the flow
+    expect(lines[0]).toBe("○ ukb · 1 todo · 1 done");
+    const panel = lines.join("\n");
+    expect(panel).toContain("[todo][normal] #1 live");
+    expect(panel).toContain("[done][normal] #3 history");
+    expect(panel).not.toContain("parked");
+  });
+
+  it("returns nothing when every displayed state is empty", () => {
+    const board = snapshot({
+      someday: [card({ id: 1, state: "someday" })],
+    });
+    expect(renderOverlay(board, renderOptions({ states: ["todo"] }))).toEqual(
+      [],
+    );
+  });
+
+  it("shows a shelf-only board, because someday is displayed by default", () => {
+    const board = snapshot({
+      someday: [card({ id: 1, title: "parked", state: "someday" })],
+    });
+    const lines = renderOverlay(board, renderOptions());
+    expect(lines[0]).toBe("○ ukb · 1 someday");
+    expect(lines[1]).toContain("[someday][normal] #1 parked");
   });
 
   it("spells the state out in front of each row instead of drawing an icon", () => {

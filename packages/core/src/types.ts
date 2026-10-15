@@ -5,23 +5,80 @@
  * by replaying events. A card's id is the id of its `card.created` event.
  */
 
-export const CARD_STATES = ["todo", "doing", "review", "done"] as const;
+/**
+ * A card's column, in board order (left to right).
+ *
+ * `someday` is leftmost: the freezer, not a stage of the flow. It is the one
+ * state that answers "is this in play at all" rather than "how far along is
+ * it" — the question a priority cannot answer. See `docs/shelved-state.md`.
+ */
+export const CARD_STATES = [
+  "someday",
+  "todo",
+  "doing",
+  "review",
+  "done",
+] as const;
 export type CardState = (typeof CARD_STATES)[number];
 
 /**
- * How urgently a card wants attention, and — for `pending` — whether it wants
- * any at all right now.
+ * What a state *means* to the board's rules, independent of its name: whether
+ * a card is in play, parked, or finished.
  *
- * `low` and `pending` are different intents, not two spellings of the same
- * thing: `low` means minor but still wanted eventually, `pending` means
- * deliberately shelved until something outside the card changes. Collapsing
- * them would lose the distinction between "do this later" and "do not do this
- * yet", which is the one an operator acts on.
+ * This is the single source of the "is it open / is it on the radar / does it
+ * count as finished" decisions. The code that used to write `state !== "done"`
+ * scattered across the board now asks a predicate instead, so adding a state
+ * (or a second member of a kind, like a future `canceled`) is a change here and
+ * nothing else.
+ *
+ * Deliberately **not** a field on `Card` or in any event: it is derived from
+ * `state`, and a stored copy could disagree with the state it came from.
+ */
+type StateKind = "shelved" | "active" | "terminal";
+
+const STATE_KIND: Record<CardState, StateKind> = {
+  someday: "shelved",
+  todo: "active",
+  doing: "active",
+  review: "active",
+  done: "terminal",
+};
+
+/** Parked: deliberately not in play, but not finished. */
+export function isShelved(state: CardState): boolean {
+  return STATE_KIND[state] === "shelved";
+}
+
+/** Finished. `done` today; the kind exists so a future `canceled` slots in. */
+export function isTerminal(state: CardState): boolean {
+  return STATE_KIND[state] === "terminal";
+}
+
+/** Still owed: anything that is not finished. */
+export function isOpen(state: CardState): boolean {
+  return !isTerminal(state);
+}
+
+/**
+ * In play: what "what should I work on" may offer. Excludes the shelf because
+ * a parked card is not a candidate, which is the whole point of the shelf.
+ */
+export function onRadar(state: CardState): boolean {
+  return STATE_KIND[state] === "active";
+}
+
+/**
+ * How urgently a card wants attention.
+ *
+ * A pure urgency order, high to low. "Not now" is deliberately **not** here:
+ * urgency and "is this in play at all" are different questions, and answering
+ * the second with a priority made parked cards keep a `todo` slot and stay
+ * claimable. That answer is the `someday` state instead.
  *
  * The array is in sort order, so `CARD_PRIORITIES.indexOf(a) - indexOf(b)` is
  * the whole comparator.
  */
-export const CARD_PRIORITIES = ["high", "normal", "low", "pending"] as const;
+export const CARD_PRIORITIES = ["high", "normal", "low"] as const;
 export type CardPriority = (typeof CARD_PRIORITIES)[number];
 
 /** The priority a card has when nothing says otherwise. */
@@ -116,6 +173,7 @@ export interface CardNote {
 }
 
 export interface Board {
+  readonly someday: readonly Card[];
   readonly todo: readonly Card[];
   readonly doing: readonly Card[];
   readonly review: readonly Card[];
@@ -132,6 +190,7 @@ export interface Board {
  */
 export interface ProjectSummary {
   readonly project: string | null;
+  readonly someday: number;
   readonly todo: number;
   readonly doing: number;
   readonly review: number;

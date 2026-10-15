@@ -421,9 +421,15 @@ describe("projects", () => {
     // Counts come with the names, and the untagged bucket is named too, so an
     // agent can see that "untagged" will match no project filter.
     const projects = textOf(await call("kanban_projects"));
-    expect(projects).toContain("api: 0 doing, 0 review, 1 todo, 0 done");
-    expect(projects).toContain("web: 0 doing, 0 review, 1 todo, 0 done");
-    expect(projects).toContain("(none): 0 doing, 0 review, 1 todo, 0 done");
+    expect(projects).toContain(
+      "api: 0 doing, 0 review, 1 todo, 0 someday, 0 done",
+    );
+    expect(projects).toContain(
+      "web: 0 doing, 0 review, 1 todo, 0 someday, 0 done",
+    );
+    expect(projects).toContain(
+      "(none): 0 doing, 0 review, 1 todo, 0 someday, 0 done",
+    );
 
     const webBoard = textOf(await call("kanban_board", { project: "web" }));
     expect(webBoard).toContain("web card");
@@ -451,7 +457,7 @@ describe("projects", () => {
     await call("kanban_add", { title: "b", project: "web" });
 
     expect(textOf(await call("kanban_projects"))).toContain(
-      "web: 0 doing, 0 review, 2 todo, 0 done",
+      "web: 0 doing, 0 review, 2 todo, 0 someday, 0 done",
     );
   });
 

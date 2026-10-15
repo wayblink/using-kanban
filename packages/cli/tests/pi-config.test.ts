@@ -100,6 +100,7 @@ describe("loadConfig", () => {
             project: "web",
             groupBy: "owner",
             display: "always",
+            states: ["doing", "someday", "done"],
           },
         }),
       ),
@@ -118,6 +119,7 @@ describe("loadConfig", () => {
         project: "web",
         groupBy: "owner",
         display: "always",
+        states: ["doing", "someday", "done"],
       },
     });
   });
@@ -152,6 +154,18 @@ describe("loadConfig", () => {
       ),
     );
     expect(config).toEqual({ overlay: { maxLines: 6 } });
+  });
+
+  it("validates overlay.states all-or-nothing", () => {
+    // one unknown state falls back to the whole default list, so a typo cannot
+    // silently drop a column the user asked for.
+    const config = loadConfig(
+      withConfig(
+        tempHome(),
+        JSON.stringify({ overlay: { states: ["doing", "backlog"] } }),
+      ),
+    );
+    expect(config).toEqual({});
   });
 
   it("ignores a blank agent name", () => {

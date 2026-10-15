@@ -376,13 +376,13 @@ describe("priority", () => {
   it("defaults to normal and can be set at creation", () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
     const plain = kanban.add({ title: "plain" }, human).card;
-    const shelved = kanban.add(
-      { title: "shelved", priority: "pending" },
+    const urgent = kanban.add(
+      { title: "urgent", priority: "high" },
       human,
     ).card;
 
     expect(plain.priority).toBe("normal");
-    expect(shelved.priority).toBe("pending");
+    expect(urgent.priority).toBe("high");
   });
 
   it("can be changed by edit, including back to normal", () => {
@@ -427,12 +427,11 @@ describe("priority", () => {
     expect(replayed.card(card.id)?.priority).toBe("normal");
   });
 
-  it("orders cards high → normal → low → pending, then by id", () => {
+  it("orders cards high → normal → low, then by id", () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    kanban.add({ title: "p", priority: "pending" }, human);
+    kanban.add({ title: "l", priority: "low" }, human);
     kanban.add({ title: "n1" }, human);
     kanban.add({ title: "h", priority: "high" }, human);
-    kanban.add({ title: "l", priority: "low" }, human);
     kanban.add({ title: "n2" }, human);
 
     const order = kanban
@@ -440,7 +439,100 @@ describe("priority", () => {
       .slice()
       .sort(compareByPriority)
       .map((card) => card.title);
-    expect(order).toEqual(["h", "n1", "n2", "l", "p"]);
+    expect(order).toEqual(["h", "n1", "n2", "l"]);
+  });
+
+  it("no longer accepts `pending` — it is a state now, not a priority", () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    expect(() =>
+      kanban.add(
+        { title: "x", priority: "pending" as unknown as "low" },
+        human,
+      ),
+    ).toThrow();
+  });
+});
+
+describe("someday", () => {
+  it("is a real column, and a card enters it by move", () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    const { card } = kanban.add({ title: "parked idea" }, human);
+
+    kanban.move(card.id, "someday", human, "cli");
+
+    expect(kanban.card(card.id)?.state).toBe("someday");
+    expect(kanban.board().someday.map((c) => c.id)).toEqual([card.id]);
+    expect(kanban.board().todo).toEqual([]);
+  });
+
+  it("clears the owner on entry — a shelved card has nobody on it", () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    const { card } = kanban.add(
+      { title: "owned", assignee: "codex", reviewer: "jyxc" },
+      human,
+    );
+
+    const parked = kanban.move(card.id, "someday", human, "cli").card;
+
+    expect(parked.assignee).toBeNull();
+    expect(parked.reviewer).toBeNull();
+  });
+
+  it("keeps a card out of `mine` — the shelf is not a to-do list", () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    const mine = kanban.add({ title: "mine", assignee: "pi" }, human).card;
+    const parked = kanban.add({ title: "parked", assignee: "pi" }, human).card;
+    kanban.move(parked.id, "someday", human, "cli");
+
+    expect(kanban.mine("pi").map((c) => c.id)).toEqual([mine.id]);
+  });
+
+  it("can be claimed straight out of the shelf", () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    const { card } = kanban.add({ title: "parked" }, human);
+    kanban.move(card.id, "someday", human, "cli");
+
+    const claimed = kanban.claim(card.id, otherAgent, "cli").card;
+
+    expect(claimed.state).toBe("doing");
+    expect(claimed.assignee).toBe("codex");
+  });
+
+  it("refuses to put an owner back on a shelved card by edit", () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    const { card } = kanban.add({ title: "parked" }, human);
+    kanban.move(card.id, "someday", human, "cli");
+
+    expect(() => kanban.edit(card.id, { assignee: "codex" }, human)).toThrow(
+      /cannot carry an assignee/,
+    );
+    expect(kanban.card(card.id)?.assignee).toBeNull();
+  });
+
+  it("still blocks its dependents — later is not finished", () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    const parked = kanban.add({ title: "parked" }, human).card;
+    const waiting = kanban.add(
+      { title: "waiting", blockedBy: [parked.id] },
+      human,
+    ).card;
+    kanban.move(parked.id, "someday", human, "cli");
+
+    // `later` is not `finished`: the parked blocker still stands in the way.
+    expectKanbanError(
+      () => kanban.claim(waiting.id, human, "cli"),
+      "invalid_state",
+    );
+  });
+
+  it("is a no-op once a card is already there", () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    const { card } = kanban.add({ title: "parked" }, human);
+    kanban.move(card.id, "someday", human, "cli");
+
+    const again = kanban.move(card.id, "someday", human, "cli");
+
+    expect(again.events).toEqual([]);
   });
 });
 
@@ -472,11 +564,11 @@ describe("projects", () => {
     kanban.done(apiCard.id, human, "cli");
 
     expect(kanban.projectSummary()).toEqual([
-      { project: "api", todo: 1, doing: 0, review: 0, done: 1 },
-      { project: "web", todo: 1, doing: 0, review: 0, done: 0 },
+      { project: "api", someday: 0, todo: 1, doing: 0, review: 0, done: 1 },
+      { project: "web", someday: 0, todo: 1, doing: 0, review: 0, done: 0 },
       // A card with no project is in no project, but it still has to be
       // counted — otherwise the rows do not add up to the board.
-      { project: null, todo: 1, doing: 0, review: 0, done: 0 },
+      { project: null, someday: 0, todo: 1, doing: 0, review: 0, done: 0 },
     ]);
   });
 

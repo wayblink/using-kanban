@@ -13,6 +13,7 @@ export function me(ctx: RequestContext): void {
     actor: ctx.actor,
     storage: { kind: ctx.options.storage, dir: ctx.options.dir },
     counts: {
+      someday: board.someday.length,
       todo: board.todo.length,
       doing: board.doing.length,
       review: board.review.length,

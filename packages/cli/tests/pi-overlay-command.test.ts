@@ -13,6 +13,7 @@ const current: OverlayView = {
   agent: "pi",
   groupBy: "state",
   maxLines: 12,
+  states: ["doing", "todo", "review", "someday"],
 };
 
 describe("parseOverlayCommand", () => {
@@ -63,6 +64,19 @@ describe("parseOverlayCommand", () => {
       ...current,
       project: "api",
     });
+  });
+
+  it("sets the displayed states for this session", () => {
+    expect(
+      parseOverlayCommand("states=todo,someday", current).view.states,
+    ).toEqual(["todo", "someday"]);
+    // duplicate values are collapsed rather than rejected
+    expect(
+      parseOverlayCommand("states=todo,todo", current).view.states,
+    ).toEqual(["todo"]);
+    expect(parseOverlayCommand("states=todo,backlog", current).error).toContain(
+      "invalid overlay states",
+    );
   });
 
   it("sets the row budget for this session", () => {

@@ -42,15 +42,14 @@ describe("formatCardBrief priority", () => {
   it("prints the priority only when it is not normal", () => {
     expect(formatCardBrief(makeCard())).not.toContain("normal");
     expect(formatCardBrief(makeCard({ priority: "high" }))).toContain("high");
-    expect(formatCardBrief(makeCard({ priority: "pending" }))).toContain(
-      "pending",
-    );
+    expect(formatCardBrief(makeCard({ priority: "low" }))).toContain("low");
   });
 
-  it("orders a column high → normal → low → pending", () => {
+  it("orders a column high → normal → low", () => {
     const output = formatBoard({
+      someday: [],
       todo: [
-        makeCard({ id: 1, priority: "pending", title: "shelved" }),
+        makeCard({ id: 1, priority: "low", title: "minor" }),
         makeCard({ id: 2, title: "plain" }),
         makeCard({ id: 3, priority: "high", title: "urgent" }),
       ],
@@ -62,7 +61,7 @@ describe("formatCardBrief priority", () => {
       .split("\n")
       .filter((line) => line.includes("[todo]"))
       .map((line) => line.trim().split(" ")[2]);
-    expect(order).toEqual(["urgent", "plain", "shelved"]);
+    expect(order).toEqual(["urgent", "plain", "minor"]);
   });
 });
 
@@ -109,6 +108,7 @@ describe("formatCardBrief", () => {
 describe("formatBoard", () => {
   it("strips escapes out of titles", () => {
     const output = formatBoard({
+      someday: [],
       todo: [makeCard({ title: `ship${CLEAR_SCREEN}` })],
       doing: [],
       review: [],

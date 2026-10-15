@@ -7,14 +7,18 @@
  * `overlay.ts` owns the widget lifecycle; `index.ts` owns wiring.
  *
  * The overlay shows what the reader can act on first — `doing`, then the `todo`
- * backlog — and the `review` queue last, because a review row is work the reader
- * is *waiting* on rather than work they can pick up. `done` never occupies a
- * row; it is a count in the heading. That is what keeps the widget bounded on a
- * board with a hundred cards in it.
+ * backlog — then the `review` queue, because a review row is work the reader is
+ * *waiting* on rather than work they can pick up, then the `someday` shelf.
  *
- * Inside a state, priority orders the rows: `high`, `normal`, `low`, `pending`.
- * Without it a board with a long backlog interleaves shelved ideas with live
- * work, and the panel stops answering "what should I do next".
+ * Which states appear at all is the view's `states`, defaulting to the flow plus
+ * the shelf and **not** `done`: history is not what the panel is for, and it can
+ * grow without bound. Adding `done` back is a config change, and its rows are
+ * trimmed first when the budget runs out. That is what keeps the widget bounded
+ * on a board with a hundred cards in it.
+ *
+ * Inside a state, priority orders the rows: `high`, `normal`, `low`. Without
+ * it a board with a long backlog interleaves minor work with live work, and the
+ * panel stops answering "what should I do next".
  *
  * The order matters more than it looks. On a board where one project has eleven
  * review cards and fourteen todo cards, putting review first hid every piece of
@@ -22,22 +26,25 @@
  * "nothing to do" when the opposite was true.
  */
 
-import type { OverlayGroup, OverlayScope } from "./config.js";
+import {
+  DEFAULT_OVERLAY_STATES,
+  type OverlayGroup,
+  type OverlayScope,
+} from "./config.js";
 
 /** Widget key registered with Pi's `setWidget`. Rename = the widget disappears. */
 export const OVERLAY_WIDGET_KEY = "ukb-board";
 
-export type CardState = "todo" | "doing" | "review" | "done";
+export type CardState = "someday" | "todo" | "doing" | "review" | "done";
 
 /**
  * How urgently a card wants attention. In sort order, so the index difference
  * is the priority difference.
  *
- * `low` is minor but still wanted; `pending` is deliberately shelved until
- * something outside the card changes. Two different intents, which is why they
- * are not one value.
+ * `low` is minor but still wanted. "Not now" is not here — it is the `someday`
+ * state, because urgency and "is this in play" are different questions.
  */
-export const CARD_PRIORITIES = ["high", "normal", "low", "pending"] as const;
+export const CARD_PRIORITIES = ["high", "normal", "low"] as const;
 export type CardPriority = (typeof CARD_PRIORITIES)[number];
 
 /** The subset of a card the overlay renders. */
@@ -56,6 +63,7 @@ export interface CardLite {
 /** The board as `ukb board --json` writes it. */
 export interface BoardSnapshot {
   readonly projects: readonly string[];
+  readonly someday: readonly CardLite[];
   readonly todo: readonly CardLite[];
   readonly doing: readonly CardLite[];
   readonly review: readonly CardLite[];
@@ -86,9 +94,30 @@ export interface OverlayRenderOptions {
   readonly scopeLabel?: string;
   /** Row ordering and optional inline group column. */
   readonly groupBy?: OverlayGroup;
+  /** Which states to show. Defaults to doing/todo/review/someday. */
+  readonly states?: readonly CardState[];
 }
 
-const CARD_STATES: readonly CardState[] = ["todo", "doing", "review", "done"];
+const CARD_STATES: readonly CardState[] = [
+  "someday",
+  "todo",
+  "doing",
+  "review",
+  "done",
+];
+
+/**
+ * Display order for rows and for the heading counts: what you can act on,
+ * then what you are waiting on, then the shelf, then history. State grouping
+ * owns the structure; this owns the sequence.
+ */
+const DISPLAY_STATE_ORDER: readonly CardState[] = [
+  "doing",
+  "todo",
+  "review",
+  "someday",
+  "done",
+];
 
 /**
  * State marker spelled out in front of every row.
@@ -101,6 +130,7 @@ const CARD_STATES: readonly CardState[] = ["todo", "doing", "review", "done"];
  * characters of width, which the row budget absorbs — see `renderRow`.
  */
 const STATE_TAG: Record<CardState, string> = {
+  someday: "[someday]",
   todo: "[todo]",
   doing: "[doing]",
   review: "[review]",
@@ -109,6 +139,7 @@ const STATE_TAG: Record<CardState, string> = {
 
 /** Label used when a column's name is spelled out in the overflow summary. */
 const STATE_LABEL: Record<CardState, string> = {
+  someday: "someday",
   todo: "todo",
   doing: "doing",
   review: "review",
@@ -217,6 +248,7 @@ export function parseBoardJson(text: string): BoardSnapshot | null {
   if (!isRecord(parsed)) return null;
 
   const columns: Record<CardState, CardLite[]> = {
+    someday: [],
     todo: [],
     doing: [],
     review: [],
@@ -224,6 +256,11 @@ export function parseBoardJson(text: string): BoardSnapshot | null {
   };
   for (const state of CARD_STATES) {
     const raw = parsed[state];
+    // `someday` is newer than the four flow columns, so a brief snapshot from an
+    // older CLI may not carry it. Treat a missing column as empty rather than
+    // rejecting the whole board; the other four are still required, so a shape
+    // that is broken in the original way still hides the widget.
+    if (raw === undefined && state === "someday") continue;
     if (!Array.isArray(raw)) return null;
     columns[state] = raw
       .map((entry) => toCardLite(entry, state))
@@ -238,6 +275,7 @@ export function parseBoardJson(text: string): BoardSnapshot | null {
 
   return {
     projects,
+    someday: columns.someday,
     todo: columns.todo,
     doing: columns.doing,
     review: columns.review,
@@ -248,6 +286,7 @@ export function parseBoardJson(text: string): BoardSnapshot | null {
 /* ------------------------------- selectors ------------------------------- */
 
 export interface OverlayCounts {
+  readonly someday: number;
   readonly todo: number;
   readonly doing: number;
   readonly review: number;
@@ -265,6 +304,13 @@ export interface OverlayView {
    * session without touching the configured default.
    */
   readonly maxLines: number;
+  /**
+   * Which states the panel shows. A display setting like `groupBy`, so it
+   * travels with the view and `/ukb gui show states=…` can override it for one
+   * session. Defaults to doing/todo/review/someday — the shelf is visible, the
+   * history is not.
+   */
+  readonly states: readonly CardState[];
 }
 
 export interface ScopedBoard {
@@ -300,6 +346,7 @@ export function scopeBoard(
     label,
     snapshot: {
       projects: snapshot.projects,
+      someday: snapshot.someday.filter(include),
       todo: snapshot.todo.filter(include),
       doing: snapshot.doing.filter(include),
       review: snapshot.review.filter(include),
@@ -310,6 +357,7 @@ export function scopeBoard(
 
 export function countCards(snapshot: BoardSnapshot): OverlayCounts {
   return {
+    someday: snapshot.someday.length,
     todo: snapshot.todo.length,
     doing: snapshot.doing.length,
     review: snapshot.review.length,
@@ -320,6 +368,22 @@ export function countCards(snapshot: BoardSnapshot): OverlayCounts {
 /** Open work: everything not in `done`. Zero means there is nothing to watch. */
 export function openCardCount(snapshot: BoardSnapshot): number {
   return snapshot.todo.length + snapshot.doing.length + snapshot.review.length;
+}
+
+/**
+ * How many cards the panel accounts for given its displayed states. This is the
+ * auto-hide test: zero means there is nothing to watch, so the caller
+ * unregisters rather than leaving an empty banner. Unlike `openCardCount` it
+ * honours the configured states — a project whose only visible cards are on the
+ * shelf still gets a panel.
+ */
+export function visibleCardCount(
+  snapshot: BoardSnapshot,
+  states: readonly CardState[] = DEFAULT_OVERLAY_STATES,
+): number {
+  let total = 0;
+  for (const state of states) total += snapshot[state].length;
+  return total;
 }
 
 export interface OverlayRow {
@@ -353,12 +417,13 @@ function compareByPriority(a: CardLite, b: CardLite): number {
   );
 }
 
-/** Row order: what you can act on, then what you are waiting on. */
+/** Row order within a group: what you can act on, then the shelf, then history. */
 const STATE_ORDER: Record<CardState, number> = {
   doing: 0,
   todo: 1,
   review: 2,
-  done: 3,
+  someday: 3,
+  done: 4,
 };
 
 function ownerGroup(card: CardLite): string {
@@ -396,37 +461,35 @@ function groupedRows(
 }
 
 /**
- * Rows in display order — doing, then todo, then review — trimmed to fit
- * `bodyBudget`. When anything is trimmed one row is reserved for the overflow
- * summary, so `rows.length + 1 <= bodyBudget` on the overflow path.
+ * Rows in display order — doing, todo, review, someday, done (only the states
+ * the view displays) — trimmed to fit `bodyBudget`. When anything is trimmed
+ * one row is reserved for the overflow summary, so `rows.length + 1 <=
+ * bodyBudget` on the overflow path.
  *
- * Doing rows come first and are therefore only ever dropped when they alone
- * exceed the budget; a card someone is working on is the last thing to vanish.
- * Review rows are the first to go: they are the part of the board the reader
- * cannot act on from here.
+ * Earlier states win the budget: `doing` is only ever dropped when it alone
+ * exceeds it, and the tail (the shelf, then history) goes first. A card someone
+ * is working on is the last thing to vanish.
  */
 export function selectOverlayRows(
   snapshot: BoardSnapshot,
   bodyBudget: number,
   groupBy: OverlayGroup = "state",
+  states: readonly CardState[] = DEFAULT_OVERLAY_STATES,
 ): OverlayLayout {
+  const shown = DISPLAY_STATE_ORDER.filter((state) => states.includes(state));
   // The column is authoritative. Tests deliberately reuse a card fixture with
   // a stale `state`, and old JSON producers may do the same.
-  const cards: CardLite[] = [
-    ...snapshot.doing.map((card) => ({ ...card, state: "doing" as const })),
-    ...snapshot.review.map((card) => ({ ...card, state: "review" as const })),
-    ...snapshot.todo.map((card) => ({ ...card, state: "todo" as const })),
-  ];
+  const cards: CardLite[] = shown.flatMap((state) =>
+    snapshot[state].map((card) => ({ ...card, state })),
+  );
   const all: OverlayRow[] =
     groupBy === "project" || groupBy === "owner"
       ? groupedRows(cards, groupBy)
       : (groupBy === "none"
           ? byId(cards)
-          : [
-              ...byId(cards.filter((card) => card.state === "doing")),
-              ...byId(cards.filter((card) => card.state === "todo")),
-              ...byId(cards.filter((card) => card.state === "review")),
-            ]
+          : shown.flatMap((state) =>
+              byId(cards.filter((card) => card.state === state)),
+            )
         ).map((card) => ({
           card,
           state: card.state,
@@ -446,12 +509,15 @@ export function selectOverlayRows(
 /* ------------------------------- rendering ------------------------------- */
 
 /** Counts in the same order as the rows, so the panel reads top to bottom. */
-function headingSegments(counts: OverlayCounts): string {
+function headingSegments(
+  counts: OverlayCounts,
+  states: readonly CardState[],
+): string {
   const parts: string[] = [];
-  if (counts.doing > 0) parts.push(`${counts.doing} doing`);
-  if (counts.todo > 0) parts.push(`${counts.todo} todo`);
-  if (counts.review > 0) parts.push(`${counts.review} review`);
-  if (counts.done > 0) parts.push(`${counts.done} done`);
+  for (const state of DISPLAY_STATE_ORDER) {
+    if (!states.includes(state)) continue;
+    if (counts[state] > 0) parts.push(`${counts[state]} ${STATE_LABEL[state]}`);
+  }
   return parts.length > 0 ? parts.join(" · ") : "empty";
 }
 
@@ -488,6 +554,7 @@ function ownerSuffix(row: OverlayRow): string {
 
 function summarizeHidden(hidden: readonly OverlayRow[]): string {
   const counts: Record<CardState, number> = {
+    someday: 0,
     todo: 0,
     doing: 0,
     review: 0,
@@ -495,7 +562,7 @@ function summarizeHidden(hidden: readonly OverlayRow[]): string {
   };
   for (const row of hidden) counts[row.state] += 1;
   const parts: string[] = [];
-  for (const state of CARD_STATES) {
+  for (const state of DISPLAY_STATE_ORDER) {
     if (counts[state] > 0) parts.push(`${counts[state]} ${STATE_LABEL[state]}`);
   }
   // The command is on the line that needs it. A count of hidden rows with no
@@ -554,15 +621,17 @@ function renderRow(
 }
 
 /**
- * The widget body. Returns `[]` when the board has no open work — the caller
- * unregisters the widget rather than leaving an idle banner above the editor.
+ * The widget body. Returns `[]` when nothing the view displays has any cards —
+ * the caller unregisters the widget rather than leaving an idle banner above
+ * the editor.
  */
 export function renderOverlay(
   snapshot: BoardSnapshot,
   options: OverlayRenderOptions,
 ): string[] {
-  // Nothing open means nothing to watch — the caller unregisters the widget.
-  if (openCardCount(snapshot) === 0) return [];
+  const states = options.states ?? DEFAULT_OVERLAY_STATES;
+  // Nothing visible means nothing to watch — the caller unregisters the widget.
+  if (visibleCardCount(snapshot, states) === 0) return [];
 
   const counts = countCards(snapshot);
   const inFlight = counts.doing + counts.review;
@@ -571,7 +640,7 @@ export function renderOverlay(
   const icon = active ? "●" : "○";
   const scope = options.scopeLabel ? ` · ${options.scopeLabel}` : "";
   const heading = options.truncate(
-    `${options.theme.fg(accent, icon)} ${options.theme.fg(accent, options.theme.bold("ukb"))}${options.theme.fg("dim", `${scope} · ${headingSegments(counts)}`)}`,
+    `${options.theme.fg(accent, icon)} ${options.theme.fg(accent, options.theme.bold("ukb"))}${options.theme.fg("dim", `${scope} · ${headingSegments(counts, states)}`)}`,
     options.width,
   );
 
@@ -592,6 +661,7 @@ export function renderOverlay(
     snapshot,
     bodyBudget,
     options.groupBy,
+    states,
   );
 
   const groupColumn = rows.reduce(

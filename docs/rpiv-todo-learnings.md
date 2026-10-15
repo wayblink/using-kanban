@@ -61,7 +61,7 @@ under unrelated Gala backlog. The production default is therefore **on demand**
 ├─ [doing][normal]  #2 Wire SSE replay for board events            @codex
 ├─ [review][normal] #3 Overlay widget above the editor             → human
 ├─ [todo][normal]   #4 Add terminal sanitizer to the CLI renderer  @pi
-└─ [todo][pending]  #5 Hoist sanitize into a shared module
+└─ [todo][low]      #5 Hoist sanitize into a shared module
 ```
 
 Design decisions worth keeping:

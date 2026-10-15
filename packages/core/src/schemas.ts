@@ -151,7 +151,12 @@ export const CardCreatedPayloadSchema = z.object({
   reviewer: z.string().nullable(),
   /** Absent on events written before projects existed. */
   project: z.string().nullable().default(null),
-  /** Absent on events written before priorities existed. */
+  /**
+   * Absent on events written before priorities existed. Values written before
+   * `pending` was retired must be migrated before this schema can replay them —
+   * there is deliberately no tolerance for the old value (see
+   * `scripts/migrate-pending.mjs` and `docs/shelved-state.md` §4.3).
+   */
   priority: CardPrioritySchema.default(DEFAULT_CARD_PRIORITY),
   blockedBy: z.array(z.number().int().positive()),
   /** Absent on events written before notes existed. */

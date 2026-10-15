@@ -2,8 +2,10 @@
 import {
   OVERLAY_GROUPS,
   OVERLAY_SCOPES,
+  OVERLAY_STATES,
   type OverlayGroup,
   type OverlayScope,
+  type OverlayState,
 } from "./config.js";
 import { MIN_MAX_LINES, normalizeOverlayProject } from "./overlay-config.js";
 import type { OverlayView } from "./overlay-render.js";
@@ -61,7 +63,7 @@ export function parseOverlayCommand(
         view,
         action,
         error:
-          "usage: /ukb gui [show|hide|help|collapse|expand|more|less] [scope=current-project|mine|all|project:<slug>] [group=state|project|owner|none] [project=<slug>] [lines=<n>]",
+          "usage: /ukb gui [show|hide|help|collapse|expand|more|less] [scope=current-project|mine|all|project:<slug>] [group=state|project|owner|none] [states=doing,todo,review,someday,done] [project=<slug>] [lines=<n>]",
       };
     }
     const key = token.slice(0, separator).trim().toLowerCase();
@@ -95,6 +97,26 @@ export function parseOverlayCommand(
       if (project === null)
         return { view, action, error: `invalid overlay project: ${raw}` };
       view = { ...view, scope: "current-project", project };
+      continue;
+    }
+    if (key === "states" || key === "state") {
+      const states = raw
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter((entry) => entry !== "");
+      if (
+        states.length === 0 ||
+        !states.every((state) =>
+          (OVERLAY_STATES as readonly string[]).includes(state),
+        )
+      ) {
+        return {
+          view,
+          action,
+          error: `invalid overlay states: ${raw} (expected a comma-separated subset of ${OVERLAY_STATES.join(",")})`,
+        };
+      }
+      view = { ...view, states: [...new Set(states)] as OverlayState[] };
       continue;
     }
     if (key === "lines" || key === "max-lines") {

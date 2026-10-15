@@ -195,7 +195,7 @@ export function openApiSpec(): Record<string, unknown> {
               in: "query",
               schema: {
                 type: "string",
-                enum: ["open", "todo", "doing", "review", "done"],
+                enum: ["open", "someday", "todo", "doing", "review", "done"],
               },
             },
             {

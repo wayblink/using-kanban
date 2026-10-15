@@ -1,5 +1,5 @@
 import type { CardState } from "@wayblink/using-kanban-core";
-import { CARD_STATES } from "@wayblink/using-kanban-core";
+import { CARD_STATES, isOpen } from "@wayblink/using-kanban-core";
 import {
   HttpError,
   parseIfMatch,
@@ -33,7 +33,10 @@ export function listCards(ctx: RequestContext): void {
   let cards = kanban.cards();
 
   if (state === "open") {
-    cards = cards.filter((card) => card.state !== "done");
+    // "Open" means not finished, so a parked card counts: it is owed, just not
+    // now. A caller that wants actionable work also filters by assignee, and a
+    // shelved card has none.
+    cards = cards.filter((card) => isOpen(card.state));
   } else if (state !== null) {
     if (!isCardState(state)) {
       throw new HttpError(

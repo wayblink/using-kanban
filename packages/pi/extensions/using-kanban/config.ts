@@ -36,6 +36,33 @@ export type OverlayGroup = (typeof OVERLAY_GROUPS)[number];
 export const OVERLAY_DISPLAYS = ["on-demand", "always"] as const;
 export type OverlayDisplay = (typeof OVERLAY_DISPLAYS)[number];
 
+/**
+ * The states the panel can show. Mirrors core's `CARD_STATES`; this module has
+ * no dependency on core on purpose (see the note at the top of overlay-render).
+ */
+export const OVERLAY_STATES = [
+  "someday",
+  "todo",
+  "doing",
+  "review",
+  "done",
+] as const;
+export type OverlayState = (typeof OVERLAY_STATES)[number];
+
+/**
+ * Which states the panel shows by default.
+ *
+ * The shelf is in — a parked card you cannot see is a parked card you forget —
+ * and `done` is out, because history is not what the panel is for. Add `done`
+ * back (or drop anything else) with `overlay.states`.
+ */
+export const DEFAULT_OVERLAY_STATES: readonly OverlayState[] = [
+  "doing",
+  "todo",
+  "review",
+  "someday",
+];
+
 export interface UkbOverlayConfig {
   /** false hides the widget entirely. */
   readonly enabled?: boolean;
@@ -51,6 +78,11 @@ export interface UkbOverlayConfig {
   readonly groupBy?: OverlayGroup;
   /** On-demand by default; `always` restores a persistent widget. */
   readonly display?: OverlayDisplay;
+  /**
+   * Which states the panel shows — each one gets a heading count and, if it has
+   * cards, rows. Defaults to `DEFAULT_OVERLAY_STATES` (someday in, done out).
+   */
+  readonly states?: readonly OverlayState[];
 }
 
 export interface UkbConfig {
@@ -186,6 +218,7 @@ function validateOverlay(value: unknown): UkbOverlayConfig | undefined {
     project?: string;
     groupBy?: OverlayGroup;
     display?: OverlayDisplay;
+    states?: readonly OverlayState[];
   } = {};
 
   if (typeof record.enabled === "boolean") overlay.enabled = record.enabled;
@@ -220,6 +253,17 @@ function validateOverlay(value: unknown): UkbOverlayConfig | undefined {
     OVERLAY_DISPLAYS.includes(record.display as OverlayDisplay)
   ) {
     overlay.display = record.display as OverlayDisplay;
+  }
+
+  // All-or-nothing, like `guidance`: one unknown entry falls back to the whole
+  // default list rather than silently dropping a state the user asked for.
+  if (Array.isArray(record.states) && record.states.length > 0) {
+    const states = record.states.filter(
+      (state): state is OverlayState =>
+        typeof state === "string" &&
+        (OVERLAY_STATES as readonly string[]).includes(state),
+    );
+    if (states.length === record.states.length) overlay.states = states;
   }
 
   return Object.keys(overlay).length > 0 ? overlay : undefined;

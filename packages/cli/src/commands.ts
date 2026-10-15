@@ -145,20 +145,24 @@ board:
   ukb list                         every project on the board with its counts
   ukb board [--project p] [--json [--brief]]
                                      the whole board, or one project's slice
-                                     (--json emits { projects, todo, doing,
-                                     review, done } for scripts and the overlay)
+                                     (--json emits { projects, someday, todo,
+                                     doing, review, done } for scripts and the
+                                     overlay)
   ukb show <id>                    card detail + event history
 
 work:
   ukb add "<title>" [--body "..."] [--assignee X] [--reviewer Y] [--project p]
-                                     [--priority high|normal|low|pending]
+                                     [--priority high|normal|low]
   ukb claim <id>                   todo → doing, assigned to you (do this first!)
   ukb review <id> [<id> …]         → review, one line per card
   ukb done <id> [<id> …]           → done
   ukb reopen <id> [<id> …]         → todo
-  ukb move <id> <todo|doing|review|done>
+  ukb move <id> <someday|todo|doing|review|done>
+                                     someday parks a card for later: it leaves
+                                     the to-do list and is unhooked from its
+                                     owner (assignee and reviewer are cleared)
   ukb edit <id> [--title T] [--body B] [--assignee X] [--reviewer Y] [--project p]
-                                     [--priority high|normal|low|pending]
+                                     [--priority high|normal|low]
   ukb delete <id> [<id> …]         creator only
   ukb block <id> --by <id>         make a card wait on another
   ukb unblock <id> --by <id>
@@ -173,7 +177,7 @@ work:
   ukb note-remove <id> <noteId>
 
 gui (the Pi panel — /ukb gui, not a CLI verb):
-  /ukb gui [show] [scope=…] [group=…] [project=…] [lines=<n>]
+  /ukb gui [show] [scope=…] [group=…] [states=…] [project=…] [lines=<n>]
                                      mount the panel above the editor. On demand
                                      by default: the panel competes with the
                                      latest conversation, so you ask for it.
@@ -184,7 +188,9 @@ gui (the Pi panel — /ukb gui, not a CLI verb):
   /ukb gui help
   scope: current-project | mine | all | project:<slug>
   group: state | project | owner | none
-  rows: doing, then todo, then review — ordered by priority inside each state
+  states: doing, todo, review, someday, done (default: all but done)
+  rows: doing, then todo, then review, then someday — ordered by priority
+                                     inside each state
 
 setup:
   ukb web [--port N] [--no-open]    start the API + Web UI
@@ -196,15 +202,15 @@ setup:
   ukb doctor                        check the environment
 
 priority:
-  high | normal | low | pending   normal is the default. low is minor, pending
-                                     is deliberately shelved — two different
-                                     intents, not two spellings of "later".
-                                     Rows sort high → normal → low → pending
-                                     inside each column. The Pi panel always
-                                     prints the tag; the CLI text prints it only
-                                     when it is not normal, because its lines
-                                     already carry six other markers and
-                                     ukb show states the priority outright.
+  high | normal | low   normal is the default. Rows sort high → normal → low
+                                     inside each column. "not now" is not a
+                                     priority — park a card with
+                                     ukb move <id> someday instead. The Pi
+                                     panel always prints the tag; the CLI text
+                                     prints it only when it is not normal,
+                                     because its lines already carry six other
+                                     markers and ukb show states the priority
+                                     outright.
 
 global flags:
   --dir <path>       board directory (default: home; the store is <dir>/.ukb)
@@ -302,6 +308,7 @@ export async function runCommand(
         if (flagBoolean(parsed.flags, "json")) {
           const snapshot = flagBoolean(parsed.flags, "brief")
             ? {
+                someday: board.someday.map(briefCard),
                 todo: board.todo.map(briefCard),
                 doing: board.doing.map(briefCard),
                 review: board.review.map(briefCard),
@@ -407,9 +414,12 @@ export async function runCommand(
       case "move": {
         const id = requireId(parsed.positionals[0], command);
         const to = parsed.positionals[1];
-        if (!to || !["todo", "doing", "review", "done"].includes(to)) {
+        if (
+          !to ||
+          !["someday", "todo", "doing", "review", "done"].includes(to)
+        ) {
           throw new UsageError(
-            "ukb move needs a column: ukb move <id> <todo|doing|review|done>",
+            "ukb move needs a column: ukb move <id> <someday|todo|doing|review|done>",
           );
         }
         const result = kanban.move(id, to as CardState, actor, "cli");
@@ -644,6 +654,14 @@ function flagPriority(
 ): CardPriority | undefined {
   const value = flagString(flags, "priority");
   if (value === undefined) return undefined;
+  if (value === "pending") {
+    // Retired in favour of the `someday` state. The old value is common enough
+    // in muscle memory (and in docs) that a bare "expects high | normal | low"
+    // would read as a typo rather than a moved concept.
+    throw new UsageError(
+      '"--priority pending" is gone: shelving is now a column. Use `ukb move <id> someday` (or create the card and move it).',
+    );
+  }
   if (!(CARD_PRIORITIES as readonly string[]).includes(value)) {
     throw new UsageError(
       `--priority expects ${CARD_PRIORITIES.join(" | ")} (got "${value}")`,

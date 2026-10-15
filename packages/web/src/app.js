@@ -14,14 +14,19 @@ export const DONE_PREVIEW = 8;
 /**
  * Which cards a column renders, and whether it is showing a preview.
  *
- * `done` is history rather than current focus, so it is previewed by default:
- * on a centralised board it can hold hundreds of cards, and rendering all of
- * them pushes the three live columns off the screen. The live columns are never
- * previewed — a long review queue is exactly what someone needs to see.
+ * `done` is history and `someday` is a shelf, so both are previewed by
+ * default: on a centralised board either can grow without bound, and rendering
+ * all of them pushes the live columns off the screen. The three live columns
+ * are never previewed — a long review queue is exactly what someone needs to
+ * see.
  */
 export function previewCards(cards, columnId, expanded = false) {
   const all = [...cards];
-  if (columnId !== "done" || all.length <= DONE_PREVIEW || expanded) {
+  if (
+    (columnId !== "done" && columnId !== "someday") ||
+    all.length <= DONE_PREVIEW ||
+    expanded
+  ) {
     return { cards: all, shown: all.length, hidden: 0, collapsed: false };
   }
   return {
@@ -33,14 +38,20 @@ export function previewCards(cards, columnId, expanded = false) {
 }
 
 export const COLUMNS = [
+  { id: "someday", label: "Someday" },
   { id: "todo", label: "Todo" },
   { id: "doing", label: "Doing" },
   { id: "review", label: "Review" },
   { id: "done", label: "Done" },
 ];
 
-/** Dropping a card on a column maps to the matching intent verb, not a blind move. */
+/**
+ * Dropping a card on a column maps to the matching intent verb, not a blind
+ * move. `someday` is the exception: there is no intent verb for parking, so it
+ * is a `move` with `{ to: "someday" }` — see the drop handler.
+ */
 const COLUMN_ACTIONS = {
+  someday: "move",
   todo: "reopen",
   doing: "claim",
   review: "review",
@@ -79,7 +90,7 @@ function cardHaystack(card) {
 }
 
 /** Priority bands, in the order the board's other doors use. */
-const PRIORITY_ORDER = ["high", "normal", "low", "pending"];
+const PRIORITY_ORDER = ["high", "normal", "low"];
 
 /** The closed set, in sort order — the drawer and the modal both use it. */
 const PRIORITY_OPTIONS = [...PRIORITY_ORDER];
@@ -554,6 +565,7 @@ export const I18N = {
     "live.connecting": "connecting…",
     "live.live": "live",
     "live.offline": "reconnecting…",
+    "column.someday": "Someday",
     "column.todo": "Todo",
     "column.doing": "Doing",
     "column.review": "Review",
@@ -566,7 +578,6 @@ export const I18N = {
     "priority.high": "high",
     "priority.normal": "normal",
     "priority.low": "low",
-    "priority.pending": "pending",
     "filter.anyProject": "any project",
     "filter.anyAssignee": "any assignee",
     "filter.anyReviewer": "any reviewer",
@@ -597,6 +608,7 @@ export const I18N = {
     "drawer.requestReview": "Request review",
     "drawer.done": "Done",
     "drawer.reopen": "Reopen",
+    "drawer.someday": "Park in someday",
     "drawer.delete": "Delete card",
     "drawer.noteText": "Remark",
     "drawer.noteUrl": "Link — https://… or a local path",
@@ -651,6 +663,7 @@ export const I18N = {
     "live.connecting": "连接中…",
     "live.live": "实时",
     "live.offline": "重连中…",
+    "column.someday": "搁置",
     "column.todo": "待办",
     "column.doing": "进行中",
     "column.review": "审查中",
@@ -663,7 +676,6 @@ export const I18N = {
     "priority.high": "高",
     "priority.normal": "普通",
     "priority.low": "低",
-    "priority.pending": "暂缓",
     "filter.anyProject": "全部项目",
     "filter.anyAssignee": "全部负责人",
     "filter.anyReviewer": "全部审查者",
@@ -694,6 +706,7 @@ export const I18N = {
     "drawer.requestReview": "提交审查",
     "drawer.done": "完成",
     "drawer.reopen": "重新打开",
+    "drawer.someday": "搁置到 someday",
     "drawer.delete": "删除卡片",
     "drawer.noteText": "备注内容",
     "drawer.noteUrl": "链接 — https://… 或本机路径",
@@ -786,12 +799,17 @@ const DOCS_EN = [
   {
     id: "workflow",
     title: "The workflow",
-    lead: "Four columns, one rule: claim before you work.",
+    lead: "Five columns. The first is a shelf for later; the other four are the flow, and the rule there is claim before you work.",
     blocks: [
       {
         t: "table",
         head: ["State", "Meaning", "How you get there"],
         rows: [
+          [
+            "someday",
+            "parked for later — nobody assigned",
+            "move a card there",
+          ],
           ["todo", "ready to be picked up", "created here"],
           ["doing", "someone is actively working it", "claim"],
           ["review", "work is ready for its reviewer", "review"],
@@ -832,6 +850,10 @@ const DOCS_EN = [
           ["Review", "review — hands it to the reviewer named on the card"],
           ["Done", "done — marks it finished (idempotent)"],
           ["Todo", "reopen — sends it back for rework"],
+          [
+            "Someday",
+            "move — parks it for later and clears its assignee and reviewer",
+          ],
         ],
       },
       {
@@ -1211,12 +1233,13 @@ const DOCS_ZH = [
   {
     id: "workflow",
     title: "工作流",
-    lead: "四列看板，一条规则：先认领，再动手。",
+    lead: "五列看板。第一列是搁置区，其余四列是工作流，规则是：先认领，再动手。",
     blocks: [
       {
         t: "table",
         head: ["状态", "含义", "如何进入"],
         rows: [
+          ["someday", "搁置待议——无人负责", "把卡片移过去"],
           ["todo", "等待被认领", "创建时即在此列"],
           ["doing", "有人正在处理", "认领"],
           ["review", "工作已就绪，等待审查", "提交审查"],
@@ -1252,6 +1275,7 @@ const DOCS_ZH = [
           ["审查中", "提交审查——交给卡片上指定的审查者"],
           ["已完成", "完成——标记为已完成（幂等）"],
           ["待办", "重新打开——打回重做"],
+          ["搁置", "移动——搁置待议，并清空负责人和审查者"],
         ],
       },
       {
@@ -1827,6 +1851,7 @@ function startApp() {
     try {
       const board = await api("/api/board");
       state.cards = [
+        ...board.someday,
         ...board.todo,
         ...board.doing,
         ...board.review,
@@ -2049,7 +2074,11 @@ function startApp() {
       if (!Number.isInteger(id) || id <= 0) return;
       const card = state.cards.find((entry) => entry.id === id);
       if (!card || card.state === column) return;
-      await transition(id, actionForColumn(column));
+      await transition(
+        id,
+        actionForColumn(column),
+        column === "someday" ? { to: "someday" } : {},
+      );
     });
   }
 
@@ -2104,7 +2133,7 @@ function startApp() {
 
   /* ----------------------------- mutations --------------------------- */
 
-  async function transition(id, action) {
+  async function transition(id, action, body = {}) {
     const endpoints = {
       claim: "claim",
       review: "review",
@@ -2115,7 +2144,7 @@ function startApp() {
     const endpoint = endpoints[action];
     if (!endpoint) throw new Error(`unknown action ${action}`);
     try {
-      await api(`/api/cards/${id}/${endpoint}`, { method: "POST", body: {} });
+      await api(`/api/cards/${id}/${endpoint}`, { method: "POST", body });
       await refresh();
     } catch (error) {
       toast(error.message, "error");
@@ -2229,21 +2258,31 @@ function startApp() {
     // actions
     const actions = document.createElement("div");
     actions.className = "actions";
-    for (const [labelKey, action, enabled] of [
-      ["drawer.claim", "claim", card.state === "todo"],
+    for (const [labelKey, action, enabled, actionBody] of [
+      [
+        "drawer.claim",
+        "claim",
+        card.state === "todo" || card.state === "someday",
+        undefined,
+      ],
       [
         "drawer.requestReview",
         "review",
         card.state !== "done" && card.state !== "review",
+        undefined,
       ],
-      ["drawer.done", "done", card.state !== "done"],
-      ["drawer.reopen", "reopen", card.state !== "todo"],
+      ["drawer.done", "done", card.state !== "done", undefined],
+      ["drawer.reopen", "reopen", card.state !== "todo", undefined],
+      ["drawer.someday", "move", card.state !== "someday", { to: "someday" }],
     ]) {
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = t(labelKey);
       button.disabled = !enabled;
-      button.addEventListener("click", () => void transition(id, action));
+      button.addEventListener(
+        "click",
+        () => void transition(id, action, actionBody),
+      );
       actions.append(button);
     }
     body.append(actions);

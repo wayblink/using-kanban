@@ -14,10 +14,13 @@ import {
 import type {
   AddCardInput,
   AddNoteInput,
+  CardPatch,
   EditCardInput,
+  MoveAction,
   MutationOptions,
   UpdateNoteInput,
 } from "./schemas.js";
+import { isShelved } from "./types.js";
 import type {
   Actor,
   Board,
@@ -64,8 +67,7 @@ export class Kanban {
   /** The whole board, or just one project's slice of it. */
   board(project?: string | null): Board {
     this.projection.sync(this.log);
-    const { todo, doing, review, done } = this.projection.board(project);
-    return { todo, doing, review, done };
+    return this.projection.board(project);
   }
 
   cards(): Card[] {
@@ -130,6 +132,7 @@ export class Kanban {
       if (existing) return existing;
       const created: ProjectSummary = {
         project,
+        someday: 0,
         todo: 0,
         doing: 0,
         review: 0,
@@ -208,6 +211,20 @@ export class Kanban {
     if (parsed.priority !== undefined) patch.priority = parsed.priority;
     if (Object.keys(patch).length === 0) {
       return { card, events: [] };
+    }
+    // The shelf's invariant is that a card there has no owner. Editing is the
+    // other door that could break it, so refuse the write rather than silently
+    // dropping the field and letting the caller believe it took.
+    if (isShelved(card.state)) {
+      if (
+        (patch.assignee !== undefined && patch.assignee !== null) ||
+        (patch.reviewer !== undefined && patch.reviewer !== null)
+      ) {
+        throw new KanbanError(
+          "invalid_state",
+          `card ${id} is in someday and cannot carry an assignee or reviewer — move it to another column first`,
+        );
+      }
     }
 
     return this.emit({
@@ -555,13 +572,29 @@ export class Kanban {
   private transition(
     id: number,
     to: CardState,
-    action: "move" | "claim" | "review" | "done" | "reopen",
+    action: MoveAction,
     actor: Actor,
     source: EventSource,
-    patch?: { assignee: string },
+    patch?: CardPatch,
   ): MutationResult {
     const card = this.mustCard(id);
-    if (card.state === to && patch === undefined) {
+    // Entering `someday` clears both owner fields. This is the engine's
+    // invariant — "a shelved card has no owner" — not a side effect of one
+    // verb, so the CLI, MCP, the Web UI and the Pi overlay all land the same
+    // way. It is the one place `move` is not blind, and it is defensible
+    // because it *removes* information (nobody owns it) rather than inventing
+    // it the way an implicit `move`-into-doing assignment would.
+    const effective: CardPatch = {
+      ...patch,
+      ...(isShelved(to) ? { assignee: null, reviewer: null } : {}),
+    };
+    const stateChanges = card.state !== to;
+    const ownerChanges =
+      (effective.assignee !== undefined &&
+        effective.assignee !== card.assignee) ||
+      (effective.reviewer !== undefined &&
+        effective.reviewer !== card.reviewer);
+    if (!stateChanges && !ownerChanges) {
       return { card, events: [] };
     }
     // Starting work on a card whose blockers are unfinished would let someone
@@ -592,7 +625,12 @@ export class Kanban {
       source,
       type: "card.moved",
       cardId: id,
-      payload: { from: card.state, to, action, ...(patch ? { patch } : {}) },
+      payload: {
+        from: card.state,
+        to,
+        action,
+        ...(Object.keys(effective).length > 0 ? { patch: effective } : {}),
+      },
     });
   }
 

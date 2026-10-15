@@ -45,6 +45,8 @@ describe("drag and drop maps to intent verbs", () => {
     expect(actionForColumn("doing")).toBe("claim");
     expect(actionForColumn("review")).toBe("review");
     expect(actionForColumn("done")).toBe("done");
+    // The shelf has no intent verb, so it is a move with an explicit target.
+    expect(actionForColumn("someday")).toBe("move");
   });
 
   it("rejects unknown columns", () => {
@@ -130,19 +132,15 @@ describe("sortCards", () => {
   });
 
   it("orders by priority before recency", () => {
-    // The regression: recency alone put a shelved card above live work just
+    // The regression: recency alone put a minor card above live work just
     // because someone touched it last week.
     const cards = [
       card({ id: 1, updatedAt: "2026-01-01T00:00:00.000Z", priority: "high" }),
       card({ id: 2, updatedAt: "2026-01-09T00:00:00.000Z" }),
-      card({
-        id: 3,
-        updatedAt: "2026-01-08T00:00:00.000Z",
-        priority: "pending",
-      }),
+      card({ id: 3, updatedAt: "2026-01-08T00:00:00.000Z", priority: "low" }),
       card({ id: 4, updatedAt: "2026-01-07T00:00:00.000Z", priority: "low" }),
     ];
-    expect(sortCards(cards).map((c) => c.id)).toEqual([1, 2, 4, 3]);
+    expect(sortCards(cards).map((c) => c.id)).toEqual([1, 2, 3, 4]);
   });
 
   it("keeps recency as the tiebreak inside one priority band", () => {
@@ -155,7 +153,7 @@ describe("sortCards", () => {
 
   it("treats a card with no priority as normal", () => {
     const cards = [
-      card({ id: 1, priority: "pending" }),
+      card({ id: 1, priority: "low" }),
       { ...card({ id: 2 }), priority: undefined },
     ];
     expect(sortCards(cards).map((c) => c.id)).toEqual([2, 1]);
@@ -756,5 +754,26 @@ describe("column preview and expansion", () => {
     // review is a live column: 40 cards must all render, preview or not
     expect(previewCards(cards, "review", false).shown).toBe(40);
     expect(previewCards(cards, "review", false).collapsed).toBe(false);
+  });
+
+  it("previews the someday shelf, like done", () => {
+    const cards = Array.from({ length: DONE_PREVIEW + 3 }, (_, index) => ({
+      id: index + 1,
+      title: `parked ${index}`,
+      state: "someday",
+      project: null,
+      body: null,
+      assignee: null,
+      reviewer: null,
+      blockedBy: [],
+      createdBy: "jyxc",
+      createdAt: "",
+      updatedAt: "",
+      revision: 1,
+    }));
+
+    const preview = previewCards(cards, "someday", false);
+    expect(preview.collapsed).toBe(true);
+    expect(preview.hidden).toBe(3);
   });
 });

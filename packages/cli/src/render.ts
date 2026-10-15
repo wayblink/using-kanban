@@ -81,6 +81,7 @@ export function formatProjects(summaries: readonly ProjectSummary[]): string {
       `${summary.doing} doing`,
       `${summary.review} review`,
       `${summary.todo} todo`,
+      `${summary.someday} someday`,
       `${summary.done} done`,
     ].join(" · ");
     lines.push(`  ${label(summary).padEnd(width)}  ${counts}`);
@@ -95,6 +96,7 @@ export function formatBoard(
   projects: readonly string[] = [],
 ): string {
   const columns: [string, readonly Card[]][] = [
+    ["someday", board.someday],
     ["todo", board.todo],
     ["doing", board.doing],
     ["review", board.review],
@@ -107,8 +109,9 @@ export function formatBoard(
       lines.push("  (empty)");
       continue;
     }
-    // Priority order within the column, so a shelved card does not sit above
-    // live work. The column itself is already the primary grouping.
+    // Priority order within the column. The column itself is already the
+    // primary grouping, and `someday` is printed first so the shelves read as
+    // a separate area rather than the top of the to-do list.
     for (const card of [...cards].sort(compareByPriority)) {
       lines.push(`  ${formatCardBrief(card)}`);
     }

@@ -56,13 +56,14 @@ export function formatProjects(
         summary.project === null
           ? "(none)"
           : sanitizeTerminalText(summary.project);
-      return `${name}: ${summary.doing} doing, ${summary.review} review, ${summary.todo} todo, ${summary.done} done`;
+      return `${name}: ${summary.doing} doing, ${summary.review} review, ${summary.todo} todo, ${summary.someday} someday, ${summary.done} done`;
     })
     .join("\n");
 }
 
 export function formatBoard(board: Board): string {
   const columns: [string, readonly Card[]][] = [
+    ["someday", board.someday],
     ["todo", board.todo],
     ["doing", board.doing],
     ["review", board.review],
@@ -75,8 +76,9 @@ export function formatBoard(board: Board): string {
       lines.push("  (empty)");
       continue;
     }
-    // Priority order within the column, so a shelved card does not sit above
-    // live work. Shared with the CLI so the two doors cannot disagree.
+    // Priority order within the column. `someday` is printed first so the
+    // shelf reads as a separate area rather than the top of the to-do list.
+    // Shared with the CLI so the two doors cannot disagree.
     for (const card of [...cards].sort(compareByPriority)) {
       lines.push(`  ${formatCardBrief(card)}`);
     }

@@ -34,7 +34,7 @@ function makeCard(over: Partial<Card> = {}): Card {
 }
 
 function board(cards: readonly Card[]): Board {
-  return { todo: cards, doing: [], review: [], done: [] };
+  return { someday: [], todo: cards, doing: [], review: [], done: [] };
 }
 
 const CLEAR_SCREEN = "\u001b[2J";
@@ -69,8 +69,11 @@ describe("formatBoard", () => {
     const output = formatBoard(
       board([makeCard({ title: "a\n  #1 [done] impostor" })]),
     );
-    // todo header, the one card, then the three empty columns.
-    expect(output.split("\n")).toHaveLength(8);
+    // someday header + empty, todo header + the one card, then three empty
+    // columns. The shelf is printed first, so it cannot be mistaken for the
+    // top of the to-do list.
+    expect(output.split("\n")).toHaveLength(10);
+    expect(output).toContain("someday (0):");
     expect(output).toContain("#3 [todo] a   #1 [done] impostor");
   });
 

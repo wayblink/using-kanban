@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import {
   CARD_PRIORITIES,
+  CARD_STATES,
   KanbanError,
   describeMutation,
   openKanban,
@@ -36,7 +37,7 @@ function prioritySchemaOptional() {
     .enum(CARD_PRIORITIES)
     .optional()
     .describe(
-      'How urgently the card wants attention: "high", "normal" (default), "low" (minor, still wanted), or "pending" (deliberately shelved). Lower priorities sort after higher ones.',
+      'How urgently the card wants attention: "high", "normal" (default) or "low" (minor, still wanted). Lower priorities sort after higher ones. "Not now" is not a priority — park a card with kanban_move to "someday" (assignee and reviewer are cleared).',
     );
 }
 import {
@@ -331,10 +332,10 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
     {
       title: "Move card",
       description:
-        "Move a card to any column. Prefer the intent verbs (kanban_claim / kanban_review / kanban_done / kanban_reopen) when they fit.",
+        'Move a card to any column. "someday" parks it for later: it leaves the to-do list and its assignee/reviewer are cleared. Prefer the intent verbs (kanban_claim / kanban_review / kanban_done / kanban_reopen) when they fit.',
       inputSchema: {
         id: cardIdSchema,
-        to: z.enum(["todo", "doing", "review", "done"]),
+        to: z.enum(CARD_STATES),
       },
     },
     safe(({ id, to }) => {
@@ -512,7 +513,7 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
     "kanban://board",
     {
       title: "Kanban board",
-      description: "The full board as JSON (todo/doing/review/done).",
+      description: "The full board as JSON (someday/todo/doing/review/done).",
       mimeType: "application/json",
     },
     (uri) => ({

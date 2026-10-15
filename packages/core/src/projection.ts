@@ -8,7 +8,13 @@ import {
   NoteRemovedPayloadSchema,
   NoteUpdatedPayloadSchema,
 } from "./schemas.js";
-import { CARD_PRIORITIES, type Card, type Event } from "./types.js";
+import {
+  CARD_PRIORITIES,
+  isTerminal,
+  onRadar,
+  type Card,
+  type Event,
+} from "./types.js";
 import type { EventLog } from "./event-log.js";
 
 /**
@@ -207,6 +213,7 @@ export class Projection {
   }
 
   board(project?: string | null): {
+    someday: Card[];
     todo: Card[];
     doing: Card[];
     review: Card[];
@@ -214,6 +221,7 @@ export class Projection {
   } {
     const all = this.inProject(project);
     return {
+      someday: all.filter((card) => card.state === "someday"),
       todo: all.filter((card) => card.state === "todo"),
       doing: all.filter((card) => card.state === "doing"),
       review: all.filter((card) => card.state === "review"),
@@ -221,10 +229,14 @@ export class Projection {
     };
   }
 
-  /** Open cards (anything but done) assigned to `assignee`. */
+  /**
+   * Cards in play (not shelved, not done) assigned to `assignee`. The shelf is
+   * excluded deliberately: a parked card is not a candidate for "what should I
+   * work on", which is the point of parking it.
+   */
   openFor(assignee: string, project?: string | null): Card[] {
     return this.inProject(project).filter(
-      (card) => card.assignee === assignee && card.state !== "done",
+      (card) => card.assignee === assignee && onRadar(card.state),
     );
   }
 
@@ -247,15 +259,16 @@ export class Projection {
   }
 
   /**
-   * Blockers of `card` that still stand in the way: they exist and are not
-   * done. A blocker that has been deleted counts as satisfied — otherwise
-   * deleting a card could block another one forever.
+   * Blockers of `card` that still stand in the way: they exist and are not done.
+   * A shelved blocker still blocks — "later" is not "finished". A blocker that
+   * has been deleted counts as satisfied, so deleting a card cannot block
+   * another one forever.
    */
   openBlockers(card: Card): number[] {
     const open: number[] = [];
     for (const id of card.blockedBy) {
       const blocker = this.cards.get(id);
-      if (blocker && blocker.state !== "done") open.push(id);
+      if (blocker && !isTerminal(blocker.state)) open.push(id);
     }
     return open;
   }

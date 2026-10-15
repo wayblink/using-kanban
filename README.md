@@ -77,7 +77,7 @@ kanban.review(card.id, agent); // → review (notify the reviewer)
 kanban.done(card.id, human); // → done
 
 kanban.mine("claude-code"); // open cards assigned to me
-kanban.board(); // { todo, doing, review, done }
+kanban.board(); // { someday, todo, doing, review, done }
 kanban.history(card.id); // full event trail
 ```
 
@@ -276,11 +276,13 @@ node packages/web/scripts/inline.mjs   # → dist/index.html (one self-contained
 ukb-server --dir . --ui ./packages/web/dist
 ```
 
-- **Four columns**, drag & drop between them. A drop maps to the matching intent
-  verb — onto _Doing_ runs `claim` (and assigns the card to you), onto _Review_
-  runs `review`, onto _Done_ runs `done`, back onto _Todo_ reopens. A failed
-  claim (someone else got there first) surfaces the server's error and the board
-  snaps back to server state.
+- **Five columns**: a `someday` shelf, then the four flow columns, drag & drop
+  between them. A drop maps to the matching intent verb — onto _Doing_ runs
+  `claim` (and assigns the card to you), onto _Review_ runs `review`, onto _Done_
+  runs `done`, back onto _Todo_ reopens. Onto _Someday_ runs `move`: the card is
+  parked and its assignee/reviewer are cleared. A failed claim (someone else got
+  there first) surfaces the server's error and the board snaps back to server
+  state.
 - **Live**: `EventSource` on `/api/events`, so cards moved by an agent — or by
   the CLI, or another browser tab — appear without a refresh.
 - **Identity**: the top bar is _who this browser acts as_ (persisted in
@@ -342,7 +344,7 @@ daemon and no server needed:
 ```bash
 ukb                                # your open cards — a call to act, not a list
 ukb board                          # the whole board
-ukb board --json                   # …as { projects, todo, doing, review, done }
+ukb board --json                   # …as { projects, someday, todo, doing, review, done }
 ukb board --json --brief           # list fields only; no bodies/notes/audit metadata
 ukb show 3                         # detail + event history
 ukb add "fix the flaky test" --body "AC: green on CI" --assignee codex --reviewer jyxc
@@ -350,9 +352,10 @@ ukb claim 3                        # todo → doing, assigned to you
 ukb review 3                       # → review
 ukb done 3                         # → done
 ukb done 3 4 5                     # …or several at once
-ukb add "…" --priority pending     # high | normal | low | pending
+ukb add "…" --priority high        # high | normal | low
 ukb reopen 3                       # → todo
 ukb move 3 doing
+ukb move 5 someday                 # park it: leaves the to-do list, owner cleared
 ukb edit 3 --body "…"              # empty string clears a field
 ukb block 4 --by 3                 # dependencies
 ukb relate 4 --with 3 --as upstream # name the direction instead
@@ -371,12 +374,14 @@ applied. `claim` is the deliberate exception: the board allows exactly one card
 in `doing`, so `ukb claim 3 4` is refused with that reason rather than quietly
 claiming one of them.
 
-`--priority` takes `high`, `normal` (the default), `low` or `pending`. `low` is
-minor but still wanted; `pending` is deliberately shelved until something outside
-the card changes — two different intents, which is why they are not one value.
-Rows sort `high → normal → low → pending` inside each column, so a board with a
-long backlog stops interleaving shelved ideas with live work. `normal` prints
-nothing, so the marker only appears when it says something.
+`--priority` takes `high`, `normal` (the default) or `low`, and rows sort
+`high → normal → low` inside each column. `normal` prints nothing, so the marker
+only appears when it says something.
+
+"Not now" is deliberately **not** a priority. Park a card with
+`ukb move <id> someday`: it moves to its own column, its assignee and reviewer
+are cleared, and it drops out of `ukb`/`ukb mine` — while still counting as an
+unfinished blocker for anything downstream, because "later" is not "finished".
 
 Agents pass `--agent <name> --agent-type agent` so cards are attributable
 (`UKB_AGENT` / `UKB_AGENT_TYPE` work too); `--dir` / `--storage` select the
@@ -469,20 +474,26 @@ basename → project slug), grouped by state, showing who each `doing`/`review`
 card is waiting on plus counts for the rest:
 
 ```
-● ukb · using-kanban · 2 doing · 1 review · 2 todo · 1 done
+● ukb · using-kanban · 2 doing · 1 review · 2 todo · 1 someday
 ├─ [doing][high]    #1 Fix flaky retry backoff test        @pi
 ├─ [doing][normal]  #2 Wire SSE replay for board events    @codex
 ├─ [review][normal] #3 Overlay widget above the editor     → human
 ├─ [todo][normal]   #4 Add terminal sanitizer to the CLI   @pi
-└─ [todo][pending]  #5 Hoist sanitize into a shared module
+└─ [someday][low]   #5 Hoist sanitize into a shared module
 ```
 
 It reads `ukb board --json --brief` — the same board's compact list projection,
 without transferring every body, note and audit field. While visible it repaints
 after any `ukb` tool call, at the start of each turn, and after any successful
 `ukb` slash command that changed the board; there is no polling or daemon.
-`done` is a count and never a row, so the panel stays bounded however long the
-board grows.
+
+Which states the panel shows is a setting, because "what is my board" is the
+reader's call: `overlay.states` (or `states=…` for one session) takes any subset
+of `doing todo review someday done`. **The default is the flow plus the shelf —
+`doing`, `todo`, `review`, `someday` — and not `done`**: a parked card you cannot
+see is a parked card you forget, while history is not what the panel is for. Add
+`done` back if you want it. Order is fixed (`someday` before `done`) so the two
+doors cannot disagree.
 
 That last trigger is not redundant with the tool one. A human typing
 `/ukb done 319` drives the CLI directly and never goes through the tool, so
@@ -504,17 +515,19 @@ latest conversation and reasoning. `/ukb gui hide` removes it; while visible,
 /ukb gui show scope=project:civil-forest         # an explicit project
 /ukb gui more                                    # +10 rows; `less` takes them back
 /ukb gui show lines=40                           # or name the budget outright
+/ukb gui show states=doing,todo,someday          # which columns to show
 /ukb gui hide
 ```
 
-Rows are ordered `doing`, then `todo`, then `review` — what you can act on ahead
-of what you are waiting on — and by priority inside each state. Every row carries
-both tags, `[todo][normal]` included: a row missing one reads as malformed next
-to rows that have it, and `normal` has to be distinguishable from a card that
-predates priorities. The first cut put `review` second, and on a project
-with eleven review cards and fourteen todo cards that hid every piece of
-available work behind a queue the reader cannot clear, so the panel read as
-"nothing to do" when the opposite was true.
+Rows are ordered `doing`, then `todo`, then `review`, then `someday` — what you
+can act on ahead of what you are waiting on, with the shelf after the flow — and
+by priority inside each state. Every row carries both tags, `[todo][normal]`
+included: a row missing one reads as malformed next to rows that have it, and
+`normal` has to be distinguishable from a card that predates priorities. The
+first cut put `review` second, and on a project with eleven review cards and
+fourteen todo cards that hid every piece of available work behind a queue the
+reader cannot clear, so the panel read as "nothing to do" when the opposite was
+true.
 
 When rows are trimmed the summary line names the command that reveals them, so a
 count of hidden cards is never a dead end. Raising the budget is a deliberate,
@@ -545,6 +558,7 @@ extension load, so a change needs a `/reload`:
     "display": "on-demand",
     "scope": "current-project",
     "groupBy": "state",
+    "states": ["doing", "todo", "review", "someday"],
     "maxLines": 12,
     "collapseKey": "ctrl+shift+k"
   }
@@ -567,6 +581,7 @@ Environment overrides still beat the file: `UKB_OVERLAY` (`off` / `on`),
 `UKB_OVERLAY_DISPLAY` (`on-demand` / `always`), `UKB_OVERLAY_SCOPE`
 (`current-project` / `mine` / `all`), `UKB_OVERLAY_PROJECT`,
 `UKB_OVERLAY_GROUP` (`state` / `project` / `owner` / `none`),
+`UKB_OVERLAY_STATES` (comma-separated, e.g. `doing,todo,someday`),
 `UKB_OVERLAY_LINES`, and `UKB_OVERLAY_KEY`. Invalid values fall through to the
 next level, so a typo in a shell export does not silently discard the file.
 

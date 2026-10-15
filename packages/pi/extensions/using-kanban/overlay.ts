@@ -3,9 +3,9 @@
  *
  * Pi's widget contract is register-once, then `requestRender()` on change. This
  * class owns that: it holds the raw and scoped board snapshots, registers the
- * widget when visibility is requested and there is open work, repaints on
- * refresh, and unregisters on hide or when the scoped board has nothing open.
- * All layout lives in the pure `overlay-render.ts`.
+ * widget when visibility is requested and the view's displayed states have any
+ * cards, repaints on refresh, and unregisters on hide or when nothing visible
+ * remains. All layout lives in the pure `overlay-render.ts`.
  *
  * Refreshing shells out to `ukb board --json` rather than reading the board
  * in-process: the CLI is the one front door that owns storage resolution, and
@@ -35,10 +35,10 @@ import {
   type OverlayView,
   OVERLAY_WIDGET_KEY,
   countCards,
-  openCardCount,
   parseBoardJson,
   renderOverlay,
   scopeBoard,
+  visibleCardCount,
 } from "./overlay-render.js";
 
 /** Runs `ukb board --json` and returns its stdout, or why it did not. */
@@ -75,6 +75,7 @@ export interface BoardOverlayStatus {
   readonly collapsed: boolean;
   readonly visible: boolean;
   readonly counts: {
+    readonly someday: number;
     readonly todo: number;
     readonly doing: number;
     readonly review: number;
@@ -229,9 +230,11 @@ export class BoardOverlay {
     if (!ctx) return;
 
     const snapshot = this.snapshot;
-    const hasOpenWork = snapshot !== undefined && openCardCount(snapshot) > 0;
+    const hasVisibleCards =
+      snapshot !== undefined &&
+      visibleCardCount(snapshot, this.view.states) > 0;
 
-    if (!this.visible || !hasOpenWork) {
+    if (!this.visible || !hasVisibleCards) {
       this.unregister();
       return;
     }
@@ -268,7 +271,12 @@ export class BoardOverlay {
 
   private renderWidget(theme: Theme, width: number): string[] {
     const snapshot = this.snapshot;
-    if (snapshot === undefined || openCardCount(snapshot) === 0) return [];
+    if (
+      snapshot === undefined ||
+      visibleCardCount(snapshot, this.view.states) === 0
+    ) {
+      return [];
+    }
     try {
       return renderOverlay(snapshot, {
         theme,
@@ -280,6 +288,7 @@ export class BoardOverlay {
         collapseKey: this.options.collapseKey,
         scopeLabel: this.scopeLabel,
         groupBy: this.view.groupBy,
+        states: this.view.states,
       });
     } catch (error) {
       // A layout bug must not take the session down, but it must not be

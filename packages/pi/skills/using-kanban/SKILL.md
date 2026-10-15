@@ -38,6 +38,7 @@ ukb claim <id>          # todo → doing, assigned to you — do this first
 # ... do the work ...
 ukb review <id>         # → review, waiting for the reviewer
 ukb done <id>           # → done (the reviewer normally does this)
+ukb move <id> someday   # park it for later: leaves the to-do list, owner cleared
 ```
 
 **Claim before you start.** An unclaimed card is invisible work; a claimed one
@@ -70,19 +71,27 @@ not an overlay. Slugs are lowercased and limited to `[a-z0-9._-]`.
 
 ## Priority
 
-Every card has a priority: `high`, `normal` (default), `low`, or `pending`.
+Every card has a priority: `high`, `normal` (default), or `low`.
 
 ```bash
 ukb add "Fix the login bug" --priority high   # set at creation
-ukb edit 7 --priority pending                 # shelve it
+ukb edit 7 --priority low                      # dial it down later
 ```
 
-`low` means minor but still wanted. `pending` means deliberately shelved until
-something outside the card changes — they are different intents, not two
-spellings of "later". Rows sort `high → normal → low → pending` inside each
-column, so a shelved idea stops sitting above live work. Use `pending` rather
+Rows sort `high → normal → low` inside each column.
+
+"Not now" is **not** a priority — it is the `someday` column. Use it rather
 than deleting an idea you may want back, and rather than leaving it at `normal`
-where it competes for attention it is not asking for.
+where it competes for attention it is not asking for:
+
+```bash
+ukb move 7 someday      # park it — assignee and reviewer are cleared
+ukb claim 7             # pull it back: claim works straight out of someday
+```
+
+A parked card leaves `ukb mine` and the to-do count, so a shelf never reads as
+work you are behind on. It still counts as an unfinished blocker for anything
+waiting on it — "later" is not "finished".
 
 `ukb list` is how you discover a slug before filtering, and it counts `done`
 so the rows add up to the whole board. The `(none)` row is the cards with no
@@ -136,11 +145,12 @@ field on cards, which is what you filter on.
 
 ## The human is watching
 
-In Pi the board is also mounted above the editor as a live panel: every `doing`
-and `review` card, and who each one is waiting on. It repaints after every `ukb`
-call, so a card you claimed and never moved is visibly stuck, and a card left in
-`review` is visibly waiting on someone. Keep the board current as you work — the
-panel is the difference between the human trusting the board and ignoring it.
+In Pi the board is also mounted above the editor as a live panel: your `doing`,
+`todo` and `review` cards (plus `someday`), and who each one is waiting on. It
+repaints after every `ukb` call, so a card you claimed and never moved is visibly
+stuck, and a card left in `review` is visibly waiting on someone. Keep the board
+current as you work — the panel is the difference between the human trusting the
+board and ignoring it.
 
 ## If there is no board yet
 
@@ -162,12 +172,12 @@ ukb board --project <slug>       # one project's slice
 ukb board --json                 # the same board as JSON, for scripts
 ukb board --json --brief         # list fields only; skips bodies/notes/audit metadata
 ukb add "<title>" [--body B] [--assignee X] [--reviewer Y] [--project p]
-                        [--priority high|normal|low|pending]
+                        [--priority high|normal|low]
 ukb edit <id> [--title T] [--body B] [--assignee X] [--reviewer Y] [--project p]
 ukb done <id> [<id> …]  # several cards in one call; it stops at the first
                         # card the board refuses, so what it printed is what
                         # was applied
-ukb move <id> <todo|doing|review|done>
+ukb move <id> <someday|todo|doing|review|done>
 ukb reopen <id>                  # back to todo
 ukb block <id> --by <other>      # make a card wait on another
 ukb unblock <id> --by <other>

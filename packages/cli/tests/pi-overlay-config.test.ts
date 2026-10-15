@@ -3,7 +3,10 @@
  * pi-overlay-render.test.ts for why they are exercised from this suite.
  */
 import { describe, expect, it } from "vitest";
-import type { UkbConfig } from "../../pi/extensions/using-kanban/config.js";
+import {
+  DEFAULT_OVERLAY_STATES,
+  type UkbConfig,
+} from "../../pi/extensions/using-kanban/config.js";
 import {
   COLLAPSE_KEY_OFF,
   DEFAULT_COLLAPSE_KEY,
@@ -20,6 +23,7 @@ import {
   resolveOverlayGroup,
   resolveOverlayProject,
   resolveOverlayScope,
+  resolveOverlayStates,
 } from "../../pi/extensions/using-kanban/overlay-config.js";
 
 describe("isOverlayDisabled", () => {
@@ -103,6 +107,45 @@ describe("overlay view", () => {
         },
       ),
     ).toBe("web");
+  });
+});
+
+describe("resolveOverlayStates", () => {
+  it("defaults to the flow plus the shelf, without done", () => {
+    expect(resolveOverlayStates({})).toEqual(DEFAULT_OVERLAY_STATES);
+    expect(resolveOverlayStates({})).toEqual([
+      "doing",
+      "todo",
+      "review",
+      "someday",
+    ]);
+  });
+
+  it("reads a comma-separated env list, overriding the file", () => {
+    expect(
+      resolveOverlayStates(
+        { UKB_OVERLAY_STATES: "todo, done" },
+        { overlay: { states: ["doing"] } },
+      ),
+    ).toEqual(["todo", "done"]);
+  });
+
+  it("takes the file list when the environment is absent", () => {
+    expect(
+      resolveOverlayStates({}, { overlay: { states: ["someday", "doing"] } }),
+    ).toEqual(["someday", "doing"]);
+  });
+
+  it("falls back a level when a value names no known state", () => {
+    expect(
+      resolveOverlayStates({ UKB_OVERLAY_STATES: "todo,backlog" }),
+    ).toEqual(DEFAULT_OVERLAY_STATES);
+    expect(
+      resolveOverlayStates(
+        { UKB_OVERLAY_STATES: "todo,backlog" },
+        { overlay: { states: ["doing"] } },
+      ),
+    ).toEqual(["doing"]);
   });
 });
 
