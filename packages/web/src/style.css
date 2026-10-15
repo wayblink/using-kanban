@@ -250,7 +250,12 @@ button.primary:hover {
   flex: 1;
   width: 100%;
   display: grid;
-  grid-template-columns: repeat(4, minmax(240px, 1fr));
+  /* Columns are the board's states, and their number grows when a state is
+     added — so flow them automatically rather than naming a count here (a
+     hardcoded `repeat(5, …)` is what let the fifth column wrap to a second
+     row when `someday` landed). */
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(240px, 1fr);
   gap: 14px;
   padding: 16px;
   overflow-x: auto;
@@ -954,7 +959,7 @@ button.primary:hover {
   }
 
   .board {
-    grid-template-columns: repeat(4, 82vw);
+    grid-auto-columns: 82vw;
     scroll-snap-type: x mandatory;
   }
 

@@ -353,6 +353,7 @@ async function main() {
         viewport: window.innerWidth,
         boardWidth: Math.round(board.getBoundingClientRect().width),
         columns: columns.length,
+        columnTops: columns.map((c) => Math.round(c.getBoundingClientRect().top)),
         columnWidths: columns.map((c) => Math.round(c.getBoundingClientRect().width)),
         cards: document.querySelectorAll('.card').length,
       };
@@ -367,6 +368,13 @@ async function main() {
       "five columns rendered",
       layout.columns === 5,
       `${layout.columns} columns, ${layout.cards} cards`,
+    ]);
+    // Every state is a column in one row; a hardcoded grid count let the fifth
+    // wrap to a second row, which no other check here noticed.
+    report.push([
+      "columns share one row",
+      new Set(layout.columnTops).size === 1,
+      `tops=${JSON.stringify(layout.columnTops)}`,
     ]);
 
     // open a card drawer with a real mouse click
