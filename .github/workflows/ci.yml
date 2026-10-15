@@ -6,15 +6,23 @@ on:
   pull_request:
     branches: [main]
 
+# A superseded push cancels its older run, so a branch with several pushes in a
+# row does not queue several full runs — and does not notify on each of them.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
+      # No `version:` on purpose. pnpm/action-setup fails hard when both it and
+      # package.json's `packageManager` pin a version, and package.json is the
+      # one that also pins the local dev environment — so let it win.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - uses: actions/setup-node@v4
         with:
@@ -43,6 +51,8 @@ jobs:
       - name: Install browser
         run: pnpm exec playwright install --with-deps chromium
 
+      # browser-check finds the runner's own google-chrome; drag-check uses the
+      # chromium installed above.
       - name: Browser checks (layout, docs, i18n, drag & drop)
         run: |
           pnpm --filter @wayblink/using-kanban-web browser-check
