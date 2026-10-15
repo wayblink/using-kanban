@@ -559,9 +559,15 @@ export const I18N = {
     "events.title": "Events",
     "events.subtitle":
       "Every operation on the board, newest first — the audit trail.",
-    "events.filterPlaceholder": "Filter by card, actor, or action…",
+    "events.project": "Project",
+    "events.anyProject": "all projects",
+    "events.filterPlaceholder": "Filter this page by card, actor, or action…",
+    "events.perPage": "per page",
+    "events.perPageOption": "{n} / page",
     "events.refresh": "Refresh",
-    "events.loadMore": "Load more",
+    "events.newer": "Newer",
+    "events.older": "Older",
+    "events.page": "Page {n} · {count} events",
     "events.empty": "No events match.",
     "controls.actingAs": "acting as",
     "actor.human": "human",
@@ -674,9 +680,15 @@ export const I18N = {
     "nav.events": "事件",
     "events.title": "事件",
     "events.subtitle": "看板上的所有操作，最新的在前——用于审计。",
-    "events.filterPlaceholder": "按卡片 / 操作者 / 动作筛选…",
+    "events.project": "项目",
+    "events.anyProject": "全部项目",
+    "events.filterPlaceholder": "在本页按卡片 / 操作者 / 动作筛选…",
+    "events.perPage": "每页",
+    "events.perPageOption": "{n} / 页",
     "events.refresh": "刷新",
-    "events.loadMore": "加载更早",
+    "events.newer": "更新",
+    "events.older": "更早",
+    "events.page": "第 {n} 页 · {count} 条事件",
     "events.empty": "没有匹配的事件。",
     "controls.actingAs": "当前身份",
     "actor.human": "人类",
@@ -901,8 +913,9 @@ const DOCS_EN = [
         t: "p",
         text:
           "The Events page lists every operation on the board, newest first: who did it, through which door " +
-          "(cli, mcp, api, web), what changed, and which card it touched. Filter it, page back through the log, " +
-          "and click a row's card to open it. It is the same event log the board is built from, read straight.",
+          "(cli, mcp, api, web), what changed, and which card it touched. Filter by project, or by card, actor " +
+          "or action within a page; step older and newer with the pager, and click a row's card to open it. It " +
+          "is the same event log the board is built from, read straight.",
       },
       { t: "h", text: "Identity" },
       {
@@ -1328,7 +1341,7 @@ const DOCS_ZH = [
       { t: "h", text: "事件 —— 审计流水" },
       {
         t: "p",
-        text: "事件页按时间倒序列出看板上的每一个操作：谁做的、通过哪个入口（cli / mcp / api / web）、改了什么、动了哪张卡。可过滤、可向更早翻页，点行里的卡片即可打开它。它就是看板据以构建的那份事件日志，直接读出来。",
+        text: "事件页按时间倒序列出看板上的每一个操作：谁做的、通过哪个入口（cli / mcp / api / web）、改了什么、动了哪张卡。可按项目过滤（服务端过滤，翻页时搜的是整份日志而不是当前页），也能在页内按卡片 / 操作者 / 动作筛选；用分页器前后翻页，点行里的卡片即可打开它。它就是看板据以构建的那份事件日志，直接读出来。",
       },
       { t: "h", text: "身份" },
       {
@@ -1681,8 +1694,21 @@ function startApp() {
     dragCardId: null,
     route: currentRoute(),
     lang: loadLanguage(),
+    /** Projects in use, for the audit page's filter. Filled by `refresh`. */
+    projects: [],
     /** The audit page: a newest-first window over the event log. */
-    events: { items: [], hasMore: false, newestId: 0, query: "" },
+    events: {
+      items: [],
+      hasMore: false,
+      newestId: 0,
+      loading: false,
+      query: "",
+      project: "",
+      pageSize: 50,
+      page: 0,
+      /** The `before` cursor each page was fetched with; page 0 is newest. */
+      cursors: [null],
+    },
   };
 
   /** Guards against re-rendering the docs when only the section hash changes. */
@@ -1920,6 +1946,7 @@ function startApp() {
         ...board.review,
         ...board.done,
       ];
+      state.projects = board.projects ?? [];
       render();
     } catch (error) {
       toast(error.message, "error");
@@ -1942,7 +1969,8 @@ function startApp() {
       scheduleRefresh();
       if (state.route !== "events") return;
       // The server backfills the whole log on connect, so only events past the
-      // newest one we hold are genuinely new and belong at the top.
+      // newest one we hold are genuinely new. They belong at the top only on
+      // the newest page, and only if they pass the active project filter.
       try {
         const event = JSON.parse(message.data);
         if (
@@ -1951,7 +1979,12 @@ function startApp() {
         ) {
           return;
         }
-        state.events.items = mergeEvents(state.events.items, [event]);
+        if (state.events.page !== 0 || !eventInProject(event)) return;
+        state.events.items = mergeEvents(
+          state.events.items,
+          [event],
+          state.events.pageSize,
+        );
         state.events.newestId = event.id;
         renderEventList();
       } catch {
@@ -3107,13 +3140,17 @@ function startApp() {
 
   /* ------------------------------- events ------------------------------ */
 
-  /** How many events one page of the audit view holds. */
-  const EVENTS_PAGE = 100;
+  /** Page sizes the audit view offers. Paging is by event-id cursor. */
+  const EVENT_PAGE_SIZES = [25, 50, 100, 200];
   let eventsListEl = null;
-  let eventsMoreEl = null;
+  /** Every pager on screen (top and bottom), kept in step by `updateEventPager`. */
+  let eventsPagers = [];
 
   /** Build the Events page shell (once) and load its first page. */
   async function renderEvents() {
+    // Titles and the project list come from the board, which the docs route
+    // (the home page) never loads.
+    if (state.projects.length === 0) await refresh();
     els.events.textContent = "";
 
     const header = document.createElement("div");
@@ -3123,66 +3160,173 @@ function startApp() {
     const sub = document.createElement("p");
     sub.className = "events-sub";
     sub.textContent = t("events.subtitle");
+    header.append(title, sub);
 
     const controls = document.createElement("div");
     controls.className = "events-controls";
-    const query = document.createElement("input");
-    query.type = "search";
-    query.placeholder = t("events.filterPlaceholder");
-    query.value = state.events.query;
-    query.addEventListener("input", () => {
-      state.events.query = query.value;
-      renderEventList();
-    });
-    const refreshButton = document.createElement("button");
-    refreshButton.type = "button";
-    refreshButton.textContent = t("events.refresh");
-    refreshButton.addEventListener("click", () => void loadEvents());
-    controls.append(query, refreshButton);
-    header.append(title, sub, controls);
+    controls.append(
+      projectSelect(),
+      queryInput(),
+      pageSizeSelect(),
+      refreshButton(),
+    );
+    header.append(controls);
 
     eventsListEl = document.createElement("ul");
     eventsListEl.className = "event-list";
-    eventsMoreEl = document.createElement("button");
-    eventsMoreEl.type = "button";
-    eventsMoreEl.className = "event-more";
-    eventsMoreEl.textContent = t("events.loadMore");
-    eventsMoreEl.addEventListener(
-      "click",
-      () => void loadEvents({ more: true }),
-    );
 
-    els.events.append(header, eventsListEl, eventsMoreEl);
-
-    // Card titles come from the board, which the docs route (the home page)
-    // never loads. (Named `refreshButton` above so it cannot shadow `refresh`.)
-    if (state.cards.length === 0) await refresh();
+    // A pager above and below the list: landing puts one in reach, and finishing
+    // a page puts the next step in reach without scrolling all the way back.
+    eventsPagers = [];
+    els.events.append(header, buildPager(), eventsListEl, buildPager());
     await loadEvents();
   }
 
-  /** Fetch the newest page (or the next older one) and repaint. */
-  async function loadEvents({ more = false } = {}) {
-    const before = more ? state.events.items.at(-1)?.id : undefined;
-    if (more && before === undefined) return;
-    eventsMoreEl.disabled = true;
+  /** One pager bar — Newer · position · Older. Built twice, kept in step. */
+  function buildPager() {
+    const pager = document.createElement("div");
+    pager.className = "event-pager";
+    const newer = document.createElement("button");
+    newer.type = "button";
+    newer.textContent = `‹ ${t("events.newer")}`;
+    newer.addEventListener("click", newerPage);
+    const position = document.createElement("span");
+    position.className = "event-position";
+    const older = document.createElement("button");
+    older.type = "button";
+    older.textContent = `${t("events.older")} ›`;
+    older.addEventListener("click", olderPage);
+    pager.append(newer, position, older);
+    eventsPagers.push({ newer, older, position });
+    return pager;
+  }
+
+  /** The project filter: "all projects", then every slug in use. */
+  function projectSelect() {
+    const select = document.createElement("select");
+    select.className = "events-project";
+    select.setAttribute("aria-label", t("events.project"));
+    const any = document.createElement("option");
+    any.value = "";
+    any.textContent = t("events.anyProject");
+    select.append(any);
+    for (const slug of state.projects) {
+      const option = document.createElement("option");
+      option.value = slug;
+      option.textContent = slug;
+      select.append(option);
+    }
+    select.value = state.events.project;
+    select.addEventListener("change", () => {
+      state.events.project = select.value;
+      resetEventPaging();
+      void loadEvents();
+    });
+    return select;
+  }
+
+  function queryInput() {
+    const input = document.createElement("input");
+    input.type = "search";
+    input.placeholder = t("events.filterPlaceholder");
+    input.value = state.events.query;
+    // Free text is a find *within* the page: the server filters by project, the
+    // browser narrows what it already holds. No refetch, so typing stays cheap.
+    input.addEventListener("input", () => {
+      state.events.query = input.value;
+      renderEventList();
+    });
+    return input;
+  }
+
+  function pageSizeSelect() {
+    const select = document.createElement("select");
+    select.className = "events-size";
+    select.setAttribute("aria-label", t("events.perPage"));
+    for (const size of EVENT_PAGE_SIZES) {
+      const option = document.createElement("option");
+      option.value = String(size);
+      option.textContent = t("events.perPageOption", { n: size });
+      select.append(option);
+    }
+    select.value = String(state.events.pageSize);
+    select.addEventListener("change", () => {
+      state.events.pageSize = Number(select.value);
+      resetEventPaging();
+      void loadEvents();
+    });
+    return select;
+  }
+
+  function refreshButton() {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = t("events.refresh");
+    button.addEventListener("click", () => void loadEvents());
+    return button;
+  }
+
+  /** Fetch the page `state.events.page` names and repaint. */
+  async function loadEvents() {
+    if (state.events.loading) return;
+    state.events.loading = true;
+    const before = state.events.cursors[state.events.page] ?? null;
     try {
-      const params = new URLSearchParams({ limit: String(EVENTS_PAGE) });
-      if (before !== undefined) params.set("before", String(before));
+      const params = new URLSearchParams({
+        limit: String(state.events.pageSize),
+      });
+      if (before !== null) params.set("before", String(before));
+      if (state.events.project) params.set("project", state.events.project);
       const payload = await api(`/api/log?${params}`);
-      const incoming = payload.events ?? [];
-      // Keep anything already loaded (and older) when refetching the first
-      // page, so `Refresh` does not throw away the pages you paged back to.
-      state.events.items = mergeEvents(
-        more ? state.events.items : [],
-        incoming,
-      );
-      state.events.newestId = state.events.items[0]?.id ?? 0;
+      state.events.items = payload.events ?? [];
       state.events.hasMore = Boolean(payload.hasMore);
+      state.events.newestId = state.events.items[0]?.id ?? 0;
       renderEventList();
     } catch (error) {
       toast(error.message, "error");
     } finally {
-      eventsMoreEl.disabled = false;
+      state.events.loading = false;
+      updateEventPager();
+    }
+  }
+
+  function resetEventPaging() {
+    state.events.page = 0;
+    state.events.cursors = [null];
+  }
+
+  /** Step one page older: the cursor is the oldest id on the current page. */
+  function olderPage() {
+    if (!state.events.hasMore || state.events.loading) return;
+    const oldest = state.events.items.at(-1)?.id;
+    if (oldest === undefined) return;
+    state.events.page += 1;
+    state.events.cursors[state.events.page] = oldest;
+    void loadEvents();
+  }
+
+  function newerPage() {
+    if (state.events.page === 0 || state.events.loading) return;
+    state.events.page -= 1;
+    void loadEvents();
+  }
+
+  /** Whether a live event would pass the active project filter. */
+  function eventInProject(event) {
+    if (!state.events.project) return true;
+    const card = state.cards.find((entry) => entry.id === event.cardId);
+    return card?.project === state.events.project;
+  }
+
+  function updateEventPager() {
+    const label = t("events.page", {
+      n: state.events.page + 1,
+      count: state.events.items.length,
+    });
+    for (const { newer, older, position } of eventsPagers) {
+      newer.disabled = state.events.loading || state.events.page === 0;
+      older.disabled = state.events.loading || !state.events.hasMore;
+      position.textContent = label;
     }
   }
 
@@ -3201,7 +3345,7 @@ function startApp() {
       empty.textContent = t("events.empty");
       eventsListEl.append(empty);
     }
-    eventsMoreEl.hidden = !state.events.hasMore;
+    updateEventPager();
   }
 
   /** One audit row: when, who, through what, what happened, which card. */
@@ -3384,8 +3528,8 @@ export function describeEvent(event) {
 
 /**
  * Merge two event lists — each newest-first — into one, deduped by id, newest
- * first, capped at `limit`. Used both ways the page grows: a live event arriving
- * over SSE, and a page fetched by `Load more` or `Refresh`.
+ * first, capped at `limit`. Used when a live event arrives over SSE and has to
+ * land above the page the reader is looking at.
  */
 export function mergeEvents(existing, incoming, limit = Infinity) {
   const byId = new Map();

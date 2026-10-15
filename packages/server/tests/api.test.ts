@@ -697,4 +697,42 @@ describe("GET /api/log", () => {
     expect((await request("/api/log?limit=0")).status).toBe(400);
     expect((await request("/api/log?before=x")).status).toBe(400);
   });
+
+  it("filters by project, including a card that has since been deleted", async () => {
+    await request("/api/cards", {
+      method: "POST",
+      body: JSON.stringify({ title: "web card", project: "web" }),
+    });
+    await request("/api/cards", {
+      method: "POST",
+      body: JSON.stringify({ title: "api card", project: "api" }),
+    });
+    await request("/api/cards/1/move", {
+      method: "POST",
+      body: JSON.stringify({ to: "doing" }),
+    });
+    await request("/api/cards/1", { method: "DELETE" });
+
+    const web = (await (await request("/api/log?project=web")).json()) as {
+      events: { cardId: number; type: string }[];
+    };
+    // The project is not on the events: it is folded from the card, so the
+    // deleted card's own history still filters correctly.
+    expect(web.events.map((event) => event.type)).toEqual([
+      "card.deleted",
+      "card.moved",
+      "card.created",
+    ]);
+    expect(web.events.every((event) => event.cardId === 1)).toBe(true);
+
+    const api = (await (await request("/api/log?project=api")).json()) as {
+      events: { cardId: number }[];
+    };
+    expect(api.events.map((event) => event.cardId)).toEqual([2]);
+
+    const all = (await (await request("/api/log")).json()) as {
+      events: unknown[];
+    };
+    expect(all.events).toHaveLength(4);
+  });
 });

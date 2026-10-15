@@ -1297,14 +1297,15 @@ button.primary:hover {
 }
 
 .events-controls {
-  flex: 1 1 320px;
+  flex: 1 1 420px;
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
 }
 
 .events-controls input {
-  flex: 1;
+  flex: 1 1 200px;
   max-width: 340px;
 }
 
@@ -1391,13 +1392,18 @@ button.primary:hover {
   text-align: center;
 }
 
-.event-more {
-  display: block;
-  margin: 16px auto 0;
+.event-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  max-width: 1100px;
+  margin: 12px auto;
 }
 
-.event-more[hidden] {
-  display: none;
+.event-position {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
 }
 
 @media (max-width: 760px) {

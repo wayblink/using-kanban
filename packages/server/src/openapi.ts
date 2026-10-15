@@ -230,6 +230,12 @@ export function openApiSpec(): Record<string, unknown> {
               description:
                 "event id cursor — return events older than this one",
             },
+            {
+              name: "project",
+              in: "query",
+              schema: { type: "string" },
+              description: "only events that touched a card in this project",
+            },
           ],
           responses: {
             "200": {

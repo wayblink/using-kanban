@@ -126,8 +126,9 @@ newcomer.
 An **Events** page (`#/events`) is the audit view: every operation on the board
 — created, moved, edited, blocked, attached to an umbrella, noted, deleted —
 newest first, each row naming who did it, through which door, and which card it
-touched. It filters by card, actor or action, and pages back through the whole
-log; a live event lands at the top as it happens.
+touched. Filter by **project** (server-side, so paging searches the whole log
+rather than the page you are on) or by card/actor/action within a page; step
+older and newer with the pager, and a live event lands at the top as it happens.
 
 It is one self-contained file with no framework and no build step:
 

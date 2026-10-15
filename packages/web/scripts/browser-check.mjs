@@ -899,14 +899,20 @@ async function main() {
         rows: document.querySelectorAll('.event-row').length,
         cards: [...document.querySelectorAll('.event-card')].filter((el) => /^#\\d+/.test(el.textContent)).length,
         header: document.querySelector('.events-header h1')?.textContent ?? '',
+        projects: document.querySelectorAll('.events-project option').length,
+        pagerButtons: document.querySelectorAll('.event-pager button').length,
+        position: document.querySelector('.event-position')?.textContent ?? '',
       })`),
     );
     report.push([
-      "events page lists the log",
+      "events page lists the log, with a project filter and a pager",
       eventsPage.active === "events" &&
         eventsPage.rows > 0 &&
-        eventsPage.cards > 0,
-      `active=${eventsPage.active} · rows=${eventsPage.rows} · card refs=${eventsPage.cards} · header="${eventsPage.header}"`,
+        eventsPage.cards > 0 &&
+        eventsPage.projects >= 2 &&
+        eventsPage.pagerButtons === 4 &&
+        /Page 1/.test(eventsPage.position),
+      `active=${eventsPage.active} · rows=${eventsPage.rows} · card refs=${eventsPage.cards} · projects=${eventsPage.projects} · position="${eventsPage.position}"`,
     ]);
 
     // back to the board, so the final screenshot is the board
