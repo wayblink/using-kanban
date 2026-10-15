@@ -3,525 +3,161 @@
 > A headless kanban engine for AI agents **and** humans.
 > HTTP + SSE + MCP out of the box — bring your own UI.
 
-This is not a kanban with an API bolted on. **The API is the product**: a small,
-dependency-light engine that any front door can drive — a CLI, an MCP server,
-the bundled Web UI, or your own product embedding it.
+A human and several agents (Claude Code, Codex, opencode, Pi, …) share one
+board. The engine is small and event-sourced, and every surface is a thin client
+of the same core: a `ukb` CLI, an MCP server, a Web UI you can drop in, and an
+HTTP API your own product can embed. No teams, no daemon — one board per machine.
 
-Built for the world where a human and several agents (Claude Code, Codex,
-opencode, Pi, …) share one board. No team concept, no message bus, no daemon.
-
-## Status
-
-| Package                         | Status | What it is                                                           |
-| ------------------------------- | ------ | -------------------------------------------------------------------- |
-| `@wayblink/using-kanban-core`   | ✅     | Event-sourced engine: event log, projection, transition guards       |
-| `@wayblink/using-kanban-server` | ✅     | REST + SSE API, token auth, OpenAPI, static UI hosting, `ukb-server` |
-| `@wayblink/using-kanban-mcp`    | ✅     | MCP stdio server, 22 tools — the multi-framework front door          |
-| `@wayblink/using-kanban-web`    | ✅     | Default Web UI: drag & drop, live over SSE, one self-contained file  |
-| `@wayblink/using-kanban-cli`    | ✅     | `ukb` binary + `ukb init --for <framework>` installers               |
-
-## Why event-sourced
-
-The event log is the only source of truth; the board is a projection you can
-rebuild by replaying it. That single decision buys:
-
-- **Live UI for free** — tail the log, push over SSE, never poll
-- **Full history** — every card carries its audit trail (`history(id)`)
-- **Multi-process safety** — CLI, MCP servers, and the HTTP server all append
-  to the same log; SQLite (WAL) makes appends atomic across processes
-- **Swappable storage** — SQLite (default), JSONL (zero deps, git-friendly),
-  or memory (tests, ephemeral boards)
-
-A card's id is the id of its `card.created` event, so ids are stable and
-monotonic without a separate counter.
-
-## No daemon
-
-Every entry point opens the store directly — there is nothing to start, stop,
-or supervise. The HTTP server exists only when someone wants the Web UI or an
-external API consumer, and idles out on its own.
-
-```
-            ┌──────────┐  ┌──────────┐  ┌───────────┐
-            │   CLI    │  │   MCP    │  │  Web UI   │   front doors
-            └────┬─────┘  └────┬─────┘  └─────┬─────┘
-                 └─────────────┼──────────────┘
-                          ┌────▼────┐
-                          │  core   │  validation, guards, events
-                          └────┬────┘
-                     ┌─────────┴──────────┐
-                ┌────▼────┐          ┌────▼────┐
-                │ sqlite  │          │  jsonl  │   event log (source of truth)
-                └─────────┘          └─────────┘
-```
+![The board: five columns, an umbrella card with its parts, and the card drawer](docs/web-ui.png)
 
 ## Quick start
 
-```ts
-import { openKanban } from "@wayblink/using-kanban-core";
-
-const kanban = openKanban(); // ~/.ukb/board.db — one board for the machine
-
-const human = { type: "human", name: "jyxc" };
-const agent = { type: "agent", name: "claude-code" };
-
-kanban.add({ title: "Write OpenAPI spec", reviewer: "jyxc" }, human);
-
-const { card } = kanban.add(
-  { title: "Implement /api/cards", assignee: "claude-code" },
-  human,
-);
-
-kanban.claim(card.id, agent); // → doing, assigned to claude-code
-kanban.review(card.id, agent); // → review (notify the reviewer)
-kanban.done(card.id, human); // → done
-
-kanban.mine("claude-code"); // open cards assigned to me
-kanban.board(); // { someday, todo, doing, review, done }
-kanban.history(card.id); // full event trail
-```
-
-## The model
-
-- **States**: `someday | todo → doing → review → done` (`reopen` goes back to
-  `todo`). `someday` is a shelf: parked work that is out of `mine` but still
-  unfinished.
-- **Actors**: `{ type: "human" | "agent", name }` — one namespace, so a human
-  can review an agent's card and vice versa
-- **One centralised board.** The store is `~/.ukb/`, not a directory per project:
-  every project on the machine shares one board and separates its work with the
-  `project` field on cards. `--dir` / `UKB_DIR` still point elsewhere when you
-  want a separate store.
-- **No board yet?** Reads never create one. With no `~/.ukb/`, `ukb board` fails
-  with `board_not_found` (exit 2) rather than quietly reporting an empty board —
-  "there is no work here" and "you have not started" are different answers, and
-  an agent cannot tell them apart otherwise. Any write creates the store.
-- **Relations**: one edge, two directions, many-to-many. `block(id, blockedById)`
-  and the direction-aware `relate(id, other, "upstream" | "downstream")` both
-  write the same edge, so a card can be many cards' predecessor and many cards'
-  successor at once. Every card reads back both ends — `blockedBy` (upstream,
-  what it waits on) and `blocks` (downstream, what waits on it) — and either
-  side can manage the relation (`unrelate` works from either card). Cycles and
-  self-relations are rejected. A card with unfinished upstream work cannot be
-  claimed or moved into `doing` — the guard names the blockers so the failure is
-  actionable, and `done` is never gated, so an irrelevant blocker cannot become
-  a dead end.
-- **Hierarchy (umbrella cards)**: one level deep. A card can be an umbrella — a
-  big goal supported by smaller cards — and each child names its `parent`. This
-  is _composition_, not blocking: an umbrella does not block its children, and
-  the two relations are orthogonal, so a card can be someone's child and blocked
-  by a third card at once. `parent`/`unparent` manage it, `▸4/6` is derived
-  progress, and an umbrella with unfinished children cannot enter `doing` or
-  `review` — it is a container, not a work item. Deleting an umbrella orphans its
-  children rather than deleting them.
-- **Notes**: remarks on a card, each with an optional document link — the
-  design doc for the requirement, say. The link is either `https://…` or a path
-  to a file on this machine; the Web UI reads local markdown, HTML and text and
-  renders it in place (see `GET /api/doc`).
-- **Optimistic concurrency**: every mutation accepts `expectedRevision`; a
-  stale revision fails with `revision_conflict` instead of clobbering a
-  concurrent update (drag-drop vs. an agent claiming the same card)
-- **Permissions are cooperative, not cryptographic**: `delete` is creator-only,
-  `edit`/`block` are creator-or-assignee — same trust model as a local CLI
-- **Stable error codes**: `invalid_input`, `card_not_found`, `invalid_state`,
-  `claim_conflict`, `forbidden`, `revision_conflict` — front doors map these to
-  MCP tool errors and HTTP statuses
-
-## HTTP API (`@wayblink/using-kanban-server`)
-
-```
-GET    /api/board                     columns + cards
-GET    /api/cards?state=open&assignee=me&reviewer=me&q=text
-GET    /api/cards/:id                 card + event history
-POST   /api/cards                     { title, body, assignee, reviewer, blockedBy }
-PATCH  /api/cards/:id                 edit fields
-DELETE /api/cards/:id                 creator only
-GET    /api/cards/:id/history
-POST   /api/cards/:id/{claim,review,done,reopen,move}
-POST   /api/cards/:id/{parent,unparent}          umbrella ↔ child (one level)
-POST   /api/cards/:id/{block,unblock} { blockedBy: <id> }
-POST   /api/cards/:id/{relate,unrelate} { other: <id>, direction: upstream|downstream }
-POST   /api/cards/:id/notes         { text, url } — a remark with a document link
-PATCH  /api/cards/:id/notes/:noteId { text?, url? }
-DELETE /api/cards/:id/notes/:noteId
-GET    /api/doc?path=<path>[&raw=1] the document behind a note's link
-GET    /api/events                    SSE: card.created / card.moved / card.updated / card.deleted
-GET    /api/me                        current actor, storage info, column counts
-GET    /openapi.json                  full spec
-```
-
-Errors are a stable envelope: `{ "error": { "code", "message" } }` with codes
-`invalid_input` (400), `card_not_found` (404), `claim_conflict` / `invalid_state` /
-`revision_conflict` (409), `forbidden` (403), `unauthorized` (401).
-
-**Auth** — bound to `127.0.0.1` by default with a generated token. Mutations
-always need it (`Authorization: Bearer <token>` or `?token=`, which is how a
-browser `EventSource` passes it); reads are free on loopback and need the token
-once you bind elsewhere. `--host` + `--token` is the embedding configuration.
-
-**Identity** — every mutation carries an actor: `X-Actor-Name` +
-`X-Actor-Type: human|agent` headers (or `?actor=&actor-type=`), falling back to
-the configured default. `X-Source: web|api|cli|mcp` tags where the event came
-from, so history shows who did what.
-
-**Concurrency** — send `If-Match: <revision>` (or `expectedRevision` in the
-body); a stale revision gets `409 revision_conflict` instead of clobbering a
-concurrent edit.
-
-### Run it
+The packages aren't on npm yet, so run from a checkout:
 
 ```bash
-ukb-server --dir . --port 4173 --ui ./packages/web/dist
-# → http://127.0.0.1:4173/?token=<generated>
+git clone https://github.com/wayblink/using-kanban.git
+cd using-kanban
+pnpm install && pnpm build
+npm link ./packages/cli        # puts `ukb` on your PATH
 ```
-
-### Embed it
-
-The handler is a plain `(req, res) => void` function — drop it into any host:
-
-```ts
-import { createServer } from "node:http";
-import { createKanbanHandler } from "@wayblink/using-kanban-server";
-
-const handler = createKanbanHandler({
-  dir: ".",
-  token: "my-fixed-token",
-  corsOrigin: "*",
-});
-createServer(handler).listen(8080);
-// or: app.use(handler) inside Express / Fastify
-```
-
-`GET /api/events` is an SSE stream of the shared log, so a custom UI (or another
-product) gets live updates — including changes made by the CLI or an MCP server.
-
-## MCP (`@wayblink/using-kanban-mcp`)
-
-One stdio server, `ukb-mcp`, exposing the board as tools to any MCP-capable
-agent. It talks to the core in-process — no daemon, no HTTP hop.
-
-| Tool                                      | Purpose                                            |
-| ----------------------------------------- | -------------------------------------------------- |
-| `kanban_my_cards`                         | **Your open cards** — the call to act              |
-| `kanban_review_queue`                     | Cards waiting for your review                      |
-| `kanban_board`                            | Full board (someday/todo/doing/review/done)        |
-| `kanban_show`                             | Card detail: body, blockers, event history         |
-| `kanban_add`                              | Create a card (todo)                               |
-| `kanban_claim`                            | todo → doing, assigned to you                      |
-| `kanban_review`                           | → review                                           |
-| `kanban_done`                             | → done (idempotent)                                |
-| `kanban_reopen`                           | → todo                                             |
-| `kanban_move`                             | → any column                                       |
-| `kanban_edit`                             | Edit fields (creator or assignee)                  |
-| `kanban_delete`                           | Delete (creator only)                              |
-| `kanban_block` / `kanban_unblock`         | Dependencies                                       |
-| `kanban_relate` / `kanban_unrelate`       | Relations with a named direction, from either card |
-| `kanban_parent` / `kanban_unparent`       | Umbrella ↔ parts — composition, one level deep     |
-| `kanban_note_add` / `_update` / `_remove` | Notes — remarks and document links                 |
-
-Plus the `kanban://board` resource (the board as JSON).
-
-Domain failures come back as tool errors with the stable code prefix —
-`claim_conflict: card 3 is already being worked by codex` — so the agent knows
-exactly what happened and can recover.
-
-### Install into a framework
-
-The server takes its identity from `--agent`, which is what makes cards
-attributable per framework:
-
-```jsonc
-// Claude Code — .mcp.json or `claude mcp add`
-{
-  "mcpServers": {
-    "using-kanban": {
-      "command": "npx",
-      "args": ["-y", "@wayblink/using-kanban-mcp", "--agent", "claude-code"],
-    },
-  },
-}
-```
-
-```toml
-# Codex — ~/.codex/config.toml
-[mcp_servers.using-kanban]
-command = "npx"
-args = ["-y", "@wayblink/using-kanban-mcp", "--agent", "codex"]
-```
-
-```jsonc
-// opencode — opencode.json
-{
-  "mcp": {
-    "using-kanban": {
-      "type": "local",
-      "command": [
-        "npx",
-        "-y",
-        "@wayblink/using-kanban-mcp",
-        "--agent",
-        "opencode",
-      ],
-    },
-  },
-}
-```
-
-(Config shapes vary by harness version — `ukb init --for <framework>` will write
-them for you once the CLI lands.)
-
-Other flags/env: `--dir` / `UKB_DIR` (board directory, defaults to the project
-the agent runs in), `--storage` / `UKB_STORAGE`, `--agent-type` / `UKB_AGENT_TYPE`.
-
-**Why the workflow is in the descriptions:** `kanban_my_cards` reads as a call
-to act — _claim todo cards before starting work, move to review when ready_ — so
-even an agent that never sees your docs behaves correctly.
-
-## Web UI (`@wayblink/using-kanban-web`)
-
-The default UI is dependency-free — no framework, no build step, no
-`node_modules` in the browser. `ukb-server --ui ./packages/web/src` serves it,
-or drop the single inlined file anywhere:
 
 ```bash
-node packages/web/scripts/inline.mjs   # → dist/index.html (one self-contained file)
-ukb-server --dir . --ui ./packages/web/dist
+ukb add "Write the OpenAPI spec" --project api --reviewer you
+ukb add "Implement /api/cards" --project api --assignee claude-code
+ukb board                      # the whole board
+ukb web                        # → the Web UI, in a browser
 ```
 
-- **Five columns**: a `someday` shelf, then the four flow columns, drag & drop
-  between them. A drop maps to the matching intent verb — onto _Doing_ runs
-  `claim` (and assigns the card to you), onto _Review_ runs `review`, onto _Done_
-  runs `done`, back onto _Todo_ reopens. Onto _Someday_ runs `move`: the card is
-  parked and its assignee/reviewer are cleared. A failed claim (someone else got
-  there first) surfaces the server's error and the board snaps back to server
-  state.
-- **Live**: `EventSource` on `/api/events`, so cards moved by an agent — or by
-  the CLI, or another browser tab — appear without a refresh.
-- **Identity**: the top bar is _who this browser acts as_ (persisted in
-  `localStorage`, sent as `X-Actor-Name`/`X-Actor-Type`). The human and the
-  agents share one board and one namespace.
-- **Card drawer**: edit title/body/assignee/reviewer, run transitions, manage
-  both ends of the card's relations, attach notes, read the event history,
-  delete (creator only).
-- **Relations**: a card shows what it waits on and what waits on it; either end
-  adds or removes the same edge.
-- **Notes and documents**: a note carries a remark plus a link. A local markdown
-  or HTML file opens in the built-in document viewer (rendered markdown, or a
-  sandboxed frame for HTML, with relative images and links resolved through the
-  server); an `https://` link opens in a new tab.
-- **Filters** by text, assignee, and reviewer; **new card** modal with body
-  field for target files and acceptance criteria.
-- **Built-in docs at `/`** — the home page explains the workflow, the CLI, the
-  MCP tools, and the HTTP API, with a live board count and an _Open the board_
-  button. The board lives at `#/board`; the docs at `#/docs`. It is the first
-  thing a new user (or a new agent) sees, and it is just another consumer of
-  the API — so it doubles as a living example of building your own UI.
-- **Formal top navigation** — a tall sticky bar with the brand on the left,
-  _Docs / Board_ centred, and a version chip. The board's controls (identity,
-  filters, live indicator, new card) are a separate sticky strip that renders
-  only on the board route, so the docs read like a documentation site rather
-  than an app with a board bolted on.
-- Light and dark via `prefers-color-scheme`; single-column snap layout on
-  narrow screens; keyboard-openable cards; `Esc` closes panels.
-
-The UI is a _consumer_ like any other: `GET /api/board` + `POST
-/api/cards/:id/<verb>` + SSE. Build your own against the same API, or embed the
-handler in your product and point your own frontend at it.
-
-### Verifying the UI in a real browser
-
-Two harnesses, both runnable with zero setup:
+Then point your agent at it — this writes the MCP config and a workflow snippet
+the harness will actually read:
 
 ```bash
-pnpm --filter @wayblink/using-kanban-web browser-check   # zero-dependency CDP driver
-pnpm --filter @wayblink/using-kanban-web drag-check      # Playwright: real drag & drop
+ukb init --for claude-code     # or: codex | opencode | pi
 ```
 
-`browser-check` drives headless Chrome over the DevTools Protocol using Node's
-built-in WebSocket — no Playwright, no Puppeteer. It starts its own throwaway
-board, asserts the layout (hidden panels stay hidden, the board fills the
-viewport, five columns), clicks a card, presses Escape, opens and closes the
-modal, relates two cards, reads a local markdown document into the document
-viewer, and fails on any console error.
+## The board
 
-`drag-check` adds what synthetic mouse events cannot: HTML5 drag-and-drop. It
-drags a card onto **Doing** and asserts the card was _claimed_ and attributed to
-the identity shown in the top bar, then drags it back and asserts it reopened.
+Five columns: `someday | todo → doing → review → done`.
 
-## CLI (`@wayblink/using-kanban-cli`)
+| Column    | Meaning                  | How you get there       |
+| --------- | ------------------------ | ----------------------- |
+| `someday` | parked — meant, not now  | `ukb move <id> someday` |
+| `todo`    | ready to pick up         | created here            |
+| `doing`   | someone is working on it | `ukb claim <id>`        |
+| `review`  | waiting for its reviewer | `ukb review <id>`       |
+| `done`    | finished                 | `ukb done <id>`         |
 
-The `ukb` binary talks to the core in-process — same board, same events, no
-daemon and no server needed:
+**Claim before you work.** `ukb claim` moves a card to `doing` and assigns it to
+you, so nobody duplicates the effort; if someone got there first you get
+`claim_conflict`, not a silent overwrite.
+
+**Priorities** are `high · normal · low`, and only order rows inside a column.
+"Not now" is not a priority — it is the `someday` column, which takes a card out
+of `ukb mine` without calling it finished.
+
+**Dependencies** (`ukb block` / `ukb relate`) mean _cannot start until_. A card
+with unfinished upstream work cannot be claimed or moved into `doing`. `done` is
+never gated, so a stale blocker can never trap a card.
+
+**Umbrella cards.** A card can be an umbrella — a goal its children support:
 
 ```bash
-ukb                                # your open cards — a call to act, not a list
-ukb board                          # the whole board
-ukb board --json                   # …as { projects, someday, todo, doing, review, done }
-ukb board --json --brief           # list fields only; no bodies/notes/audit metadata
-ukb show 3                         # detail + event history
-ukb add "fix the flaky test" --body "AC: green on CI" --assignee codex --reviewer jyxc
-ukb claim 3                        # todo → doing, assigned to you
-ukb review 3                       # → review
-ukb done 3                         # → done
-ukb done 3 4 5                     # …or several at once
-ukb add "…" --priority high        # high | normal | low
-ukb reopen 3                       # → todo
-ukb move 3 doing
-ukb move 5 someday                 # park it: leaves the to-do list, owner cleared
-ukb edit 3 --body "…"              # empty string clears a field
-ukb block 4 --by 3                 # dependencies
-ukb relate 4 --with 3 --as upstream # name the direction instead
-ukb parent 4 --of 1                # umbrella: #4 becomes a part of #1
-ukb unparent 4                     # top-level again
-ukb unrelate 4 --with 3            # drop the relation, either way round
-ukb note 4 "design doc" --url docs/design.md   # a remark with a document link
-ukb web                            # start the API + Web UI and open a browser
-ukb doctor                         # is this project wired up?
+ukb parent 601 --of 38     # #601 is now a part of #38
+ukb unparent 601           # top-level again
+ukb show 38                # children: 4/6 (…) + the child list
 ```
 
-`done`, `review`, `reopen` and `delete` take several ids, because clearing a
-review queue one card per invocation is the kind of friction that stops people
-using the board. Each card gets its own line, and the run stops at the first card
-the board refuses — a later card is never transitioned on the strength of an
-earlier one that failed, and everything printed before the stop is what was
-applied. `claim` is the deliberate exception: the board allows exactly one card
-in `doing`, so `ukb claim 3 4` is refused with that reason rather than quietly
-claiming one of them.
+One level deep, and separate from dependencies: an umbrella does not block its
+parts, a part can be blocked by a third card, and parts may live in another
+project. An umbrella with unfinished children cannot enter `doing` or `review` —
+it is a container, not a work item.
 
-`--priority` takes `high`, `normal` (the default) or `low`, and rows sort
-`high → normal → low` inside each column. `normal` prints nothing, so the marker
-only appears when it says something.
+![The card drawer's Hierarchy section: progress plus each child with its state](docs/web-ui-drawer.png)
 
-"Not now" is deliberately **not** a priority. Park a card with
-`ukb move <id> someday`: it moves to its own column, its assignee and reviewer
-are cleared, and it drops out of `ukb`/`ukb mine` — while still counting as an
-unfinished blocker for anything downstream, because "later" is not "finished".
+**Projects** partition one board into many. `--project <slug>` filters every
+door; a card with no project matches no filter. `ukb list` prints each project
+with its counts.
 
-Agents pass `--agent <name> --agent-type agent` so cards are attributable
-(`UKB_AGENT` / `UKB_AGENT_TYPE` work too); `--dir` / `--storage` select the
-board. Domain failures exit non-zero with the stable code:
-`claim_conflict: card 3 is already being worked by codex`.
-
-### Projects
-
-Cards carry an optional project slug, so one board can hold several projects and
-every front door filters to just one. A card with no project is in no project — a
-project filter is a partition, not an overlay.
-
-```bash
-ukb add "Fix the login bug" --project web   # set it at creation
-ukb edit 7 --project api                    # move it later
-ukb list                                   # every project + its card counts
-ukb board --project web                     # just that project
-ukb mine --project web                      # my work in one project
-```
-
-`ukb list` counts `done` too, so the rows reconcile against the whole board, and
-it names the `(none)` bucket rather than hiding it — cards with no project match
-no filter, and an operator needs to see that before wondering where the missing
-cards went.
-
-The same three MCP verbs take a `project` argument (`kanban_board`,
-`kanban_my_cards`, `kanban_review_queue`), and `kanban_projects` lists each slug
-with its counts. Over REST, `?project=` works on `/api/board` and `/api/cards`.
-Slugs are lowercased and restricted to `[a-z0-9._-]`, because they end up in
-URLs and CLI flags — "Web" and "web"
-cannot become two different projects by accident.
-
-### Umbrella cards (a big goal and its parts)
-
-A card can be an **umbrella**: a goal that several smaller cards support. This
-is a _composition_ relation, separate from the dependency (`block` / `relate`)
-one — an umbrella does not block its parts, and a card can be someone's child
-and blocked by a third card at the same time:
-
-```bash
-ukb parent 601 --of 38   # #601 is now a part of #38
-ukb unparent 601         # top-level again
-ukb show 38              # parent: — · children: 4/6 (…) + the child list
-ukb board                # #38 ▸4/6, each part ⤷#38
-```
-
-Three rules, all deliberate:
-
-- **One level deep.** An umbrella has children; a child has none. `ukb parent`
-  refuses anything that would create a grandparent, so there is exactly one
-  shape to reason about and cycles are impossible by construction.
-- **Composition, not order.** Hanging a part under an umbrella does not block
-  it — that is what `ukb block` / `ukb relate` are for. Parts may live in
-  another project: the hierarchy is a relation, not a partition.
-- **An umbrella with unfinished children cannot enter `doing` or `review`.** It
-  is a container, not a work item: work the children instead. `done` is never
-  gated, so it can always be closed.
-
-`▸4/6` is derived from the children's own states — nothing is stored, so it
-cannot go stale — and deleting an umbrella orphans its children (they become
-top-level cards) rather than deleting them. The Pi panel draws the same
-relation as a tree, with the parts indented under the umbrella.
-
-### Notes and documents
-
-A card's body is for the work; a **note** is for the paperwork. Each note is a
-remark plus an optional link — the requirement's design doc, a runbook, a
-mockup:
+**Notes** are the paperwork — a remark plus a link to a document:
 
 ```bash
 ukb note 4 "requirement design doc" --url docs/design.md
-ukb note 4 "API review" --url https://example.com/review   # hosted: opens in a tab
-ukb note-edit 4 12 --url docs/design-v2.md
-ukb note-remove 4 12
 ```
 
-A link is either `https://…` or a path to a file on this machine. Local files are
-read by the server and rendered by the Web UI — markdown as a document, HTML in a
-sandboxed frame, anything else as text — so a note can point at a doc that lives
-in the repo the card is about without that doc being served anywhere.
+Local markdown and HTML open in the Web UI's document viewer; `https://` links
+open in a tab.
 
-Containment is deliberate: `GET /api/doc` only serves files that resolve inside
-a **document root** — the directories passed with `--doc-root`, the store
-directory, and the server's working directory. `..` cannot climb out, only
-document and image extensions are served, and the route always needs the token
-because it reads files off the machine rather than just the board.
+## Front doors
+
+### CLI — `ukb`
+
+Talks to the core in-process: same board, same events, no daemon and no server.
+
+| Command                                                                                                     | Does                                  |
+| ----------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| `ukb` / `ukb mine`                                                                                          | your open cards — a call to act       |
+| `ukb board [--project p] [--json]`                                                                          | the board, or a project's slice       |
+| `ukb show <id>`                                                                                             | detail, history, relations, children  |
+| `ukb add "<title>" [--assignee X] [--reviewer Y] [--project p] [--priority high\|normal\|low] [--body "…"]` | create a card                         |
+| `ukb claim` / `review` / `done` / `reopen` `<id> [<id> …]`                                                  | move with intent                      |
+| `ukb move <id> <someday\|todo\|doing\|review\|done>`                                                        | move anywhere                         |
+| `ukb edit <id> [--title/--body/--assignee/--reviewer/--project/--priority]`                                 | change fields                         |
+| `ukb block <id> --by <id>` / `ukb unblock`                                                                  | dependency                            |
+| `ukb parent <id> --of <id>` / `ukb unparent <id>`                                                           | umbrella ↔ parts                      |
+| `ukb relate <id> --with <id> --as upstream\|downstream` / `ukb unrelate`                                    | dependency, named direction           |
+| `ukb note <id> "…" [--url …]` / `ukb note-edit` / `ukb note-remove`                                         | remarks and document links            |
+| `ukb list`                                                                                                  | every project and its counts          |
+| `ukb delete <id> [<id> …]`                                                                                  | creator only                          |
+| `ukb web` / `ukb init --for <framework>` / `ukb doctor`                                                     | UI / wire a harness / check the setup |
+
+`done`, `review`, `reopen` and `delete` take several ids; the run stops at the
+first card the board refuses, so what you saw is what was applied.
+
+### Web UI
+
+`ukb web` starts the API and the UI and opens a browser. Drag a card between
+columns and the drop runs the matching verb (`claim`, `review`, `done`,
+`reopen`, or a `move` onto _Someday_); the card drawer edits fields, relations,
+the hierarchy and notes, and shows the event history. It is live over SSE —
+changes made by an agent or the CLI appear without a refresh. The same page
+serves its own docs at `/`, which is the friendliest thing to leave open for a
+newcomer.
+
+It is one self-contained file with no framework and no build step:
 
 ```bash
-ukb web --doc-root ~/yard/proma,~/yard/gala   # where the cards' docs live
+node packages/web/scripts/inline.mjs              # → dist/index.html
+ukb-server --dir ~ --ui ./packages/web/dist
 ```
 
-### Onboarding a framework in one command
+### MCP — 22 tools
 
-```bash
-ukb init --for claude-code           # writes .mcp.json + CLAUDE.md
-ukb init --for codex                 # marker block in ~/.codex/config.toml + AGENTS.md
-ukb init --for opencode              # merges opencode.json + AGENTS.md
-ukb init --for pi                    # registers the Pi package (extension + skill)
-ukb init --for claude-code --browser # …plus the Playwright MCP server
-```
+`ukb-mcp` is one stdio server exposing the board to any MCP-capable agent. The
+workflow lives in the tool descriptions (`kanban_my_cards` reads as a call to
+act), so an agent that never sees your docs still claims before it starts.
 
-ukb init --for claude-code --local # point at this checkout, not the npm package
+| Tools                                                                              | For                              |
+| ---------------------------------------------------------------------------------- | -------------------------------- |
+| `kanban_my_cards` / `kanban_review_queue`                                          | your work, and your review queue |
+| `kanban_board` / `kanban_projects` / `kanban_show`                                 | read the board                   |
+| `kanban_add` / `kanban_edit` / `kanban_delete`                                     | cards                            |
+| `kanban_claim` / `kanban_review` / `kanban_done` / `kanban_reopen` / `kanban_move` | transitions                      |
+| `kanban_block` / `kanban_unblock` / `kanban_relate` / `kanban_unrelate`            | dependencies                     |
+| `kanban_parent` / `kanban_unparent`                                                | umbrella ↔ parts                 |
+| `kanban_note_add` / `_update` / `_remove`                                          | remarks and document links       |
 
-````
+Plus the `kanban://board` resource. `ukb init --for <framework>` writes the
+config for you; `--local` points it at this checkout instead of npm.
 
-**Pi needs a package, not an MCP entry.** A server written to `mcp.json` defaults
-to `exposure: "codemode"`, so its tools are only reachable indirectly and never
-appear in the agent's tool list — the model does not know they exist and ignores
-them. `ukb init --for pi` instead registers `packages/pi`, which contributes a
-native `ukb` *tool* (plus a `/ukb` slash command) straight into the agent's tool
-list, and ships the skill. The tool is a thin shell over the same `ukb` CLI every
-other front door uses — no second copy of the board logic — and Pi draws each
-call in a colour-coded block (green on success, red on error) under a `ukb
-<action>` header, so the board reads like a first-class verb rather than a JSON
-argument dump. This is the difference between an agent using the board and never
-touching it.
+### Pi panel
 
-**Show the board when you need it.** Run `/ukb gui show` in Pi to mount a widget
-above the editor. It defaults to the current Git project's cards (repo-root
-basename → project slug), grouped by state, showing who each `doing`/`review`
-card is waiting on plus counts for the rest:
+`ukb init --for pi` registers the Pi package, which contributes a native `ukb`
+tool (and a `/ukb` slash command) plus the skill. On demand, `/ukb gui show`
+mounts a panel above the editor, scoped to the current Git project:
 
 ```
 ● ukb · using-kanban · 2 doing · 2 review · 3 todo
 ├─ [doing][high]    #1 Fix flaky retry backoff test        @pi
-├─ [doing][normal]  #2 Wire SSE replay for board events    @codex
 ├─ [todo][normal]   #4 Add terminal sanitizer to the CLI   @pi
 ├─ [todo][low]      #5 Umbrella: sanitize the renderers    ▸1/3
   ├─ [todo][normal]   #6 Split the sanitizer out of render @pi
@@ -529,148 +165,93 @@ card is waiting on plus counts for the rest:
 └─ [review][normal] #3 Overlay widget above the editor     → human
 ```
 
-An umbrella row is followed by its children, indented one level, whatever
-column they are in — a `review` child sits under a `todo` umbrella rather than
-in the review group, and it is not repeated there (one card, one row). The
-heading still counts it under `review`, because counts are per card. A child
-whose umbrella is not on screen (its state is hidden, or the scope filtered it
-out) stays a top-level row and keeps its `⤷#parent` marker; the `▸1/3` on the
-umbrella is derived from **all** its children — including the ones not
-displayed, which is why `#5` reads `1/3` while two child rows show.
+An umbrella's children follow it, indented one level, wherever they are in the
+flow. Which states the panel shows is a setting: `overlay.states` in
+`~/.config/ukb/config.json`, `UKB_OVERLAY_STATES`, or `states=…` for one
+session. The default is `doing`, `todo`, `review`, `someday` — the shelf is
+visible, history is not.
 
-It reads `ukb board --json --brief` — the same board's compact list projection,
-without transferring every body, note and audit field. While visible it repaints
-after any `ukb` tool call, at the start of each turn, and after any successful
-`ukb` slash command that changed the board; there is no polling or daemon.
+## Storage, identity and config
 
-Which states the panel shows is a setting, because "what is my board" is the
-reader's call: `overlay.states` (or `states=…` for one session) takes any subset
-of `doing todo review someday done`. **The default is the flow plus the shelf —
-`doing`, `todo`, `review`, `someday` — and not `done`**: a parked card you cannot
-see is a parked card you forget, while history is not what the panel is for. Add
-`done` back if you want it. Order is fixed (`someday` before `done`) so the two
-doors cannot disagree.
+- **One board per machine**, at `~/.ukb/`. Every project shares it, separated by
+  the `project` field; `--dir` / `UKB_DIR` points elsewhere.
+- **Storage**: SQLite (default, WAL — safe appends from several processes),
+  `--storage jsonl` (zero deps, git-friendly), or `memory` (tests).
+- **Identity**: every event carries an actor. `--agent <name> --agent-type
+human|agent` (or `UKB_AGENT` / `UKB_AGENT_TYPE`); the Web UI has an "acting as"
+  box. Humans and agents share one namespace.
+- **Config**: `~/.config/ukb/config.json` (or `$XDG_CONFIG_HOME/ukb/config.json`)
+  sets the default agent, the Pi tool's prompt copy (`guidance`), and the panel
+  (`overlay`). Environment variables override the file.
 
-That last trigger is not redundant with the tool one. A human typing
-`/ukb done 319` drives the CLI directly and never goes through the tool, so
-`tool_execution_end` does not fire for it — without it the panel kept drawing the
-pre-`done` board until the next agent turn, which is indistinguishable from a
-broken panel. Reads are skipped rather than paying for a subprocess to redraw
-identical lines, and the read-only verb list is a denylist: a verb added later
-repaints by default instead of silently going stale.
+Reads never create a board: with no `~/.ukb/`, `ukb board` fails with
+`board_not_found` rather than reporting an empty board — "no work here" and "not
+started" are different answers, and an agent cannot tell them apart otherwise.
 
-The default is **on demand**, because content above the editor competes with the
-latest conversation and reasoning. `/ukb gui hide` removes it; while visible,
-`ctrl+shift+k` collapses/expands it. Parameters are session-local previews:
+## Embed it
 
-```text
-/ukb gui help                                    # commands and accepted values
-/ukb gui show                                    # current project, state order
-/ukb gui show scope=mine group=owner             # assigned to/reviewed by me
-/ukb gui show scope=all group=project            # whole board by project
-/ukb gui show scope=project:civil-forest         # an explicit project
-/ukb gui more                                    # +10 rows; `less` takes them back
-/ukb gui show lines=40                           # or name the budget outright
-/ukb gui show states=doing,todo,someday          # which columns to show
-/ukb gui hide
+The API is the product. `createKanbanHandler` is a plain `(req, res) => void`
+you can drop into any host:
+
+```ts
+import { createServer } from "node:http";
+import { createKanbanHandler } from "@wayblink/using-kanban-server";
+
+const handler = createKanbanHandler({ dir: ".", token: "my-fixed-token" });
+createServer(handler).listen(8080);
 ```
 
-Rows are ordered `doing`, then `todo`, then `review`, then `someday` — what you
-can act on ahead of what you are waiting on, with the shelf after the flow — and
-by priority inside each state. Every row carries both tags, `[todo][normal]`
-included: a row missing one reads as malformed next to rows that have it, and
-`normal` has to be distinguishable from a card that predates priorities. The
-first cut put `review` second, and on a project with eleven review cards and
-fourteen todo cards that hid every piece of available work behind a queue the
-reader cannot clear, so the panel read as "nothing to do" when the opposite was
-true.
-
-When rows are trimmed the summary line names the command that reveals them, so a
-count of hidden cards is never a dead end. Raising the budget is a deliberate,
-session-local act: a panel taller than the terminal pushes the conversation out
-of view, which is the trade the whole on-demand default exists to avoid.
-
-Pi widgets only support `aboveEditor` / `belowEditor`. `setHeader()` would replace
-Pi's built-in header rather than append a top panel, so the package deliberately
-uses on-demand `aboveEditor` instead.
-
-**Tune the board's rules without forking it.** `~/.config/ukb/config.json` (or
-`$XDG_CONFIG_HOME/ukb/config.json`) carries the prompt copy the tool gives the
-model, the overlay's settings, and the default actor name. It is read at
-extension load, so a change needs a `/reload`:
-
-```json
-{
-  "agent": "pi",
-  "guidance": {
-    "promptSnippet": "Use the board for anything another agent may pick up.",
-    "promptGuidelines": [
-      "Keep exactly one card in doing.",
-      "Only create a card for work someone else could take over."
-    ]
-  },
-  "overlay": {
-    "enabled": true,
-    "display": "on-demand",
-    "scope": "current-project",
-    "groupBy": "state",
-    "states": ["doing", "todo", "review", "someday"],
-    "maxLines": 12,
-    "collapseKey": "ctrl+shift+k"
-  }
-}
+```
+GET    /api/board                     columns + cards
+GET    /api/cards?state=open&assignee=me&reviewer=me&q=text
+GET    /api/cards/:id                 card + event history
+POST   /api/cards                     { title, body, assignee, reviewer, blockedBy }
+PATCH  /api/cards/:id                 edit fields
+POST   /api/cards/:id/{claim,review,done,reopen,move}
+POST   /api/cards/:id/{parent,unparent}   umbrella ↔ parts (one level)
+POST   /api/cards/:id/{block,unblock}     { blockedBy }
+POST   /api/cards/:id/{relate,unrelate}   { other, direction }
+POST   /api/cards/:id/notes           { text, url }
+GET    /api/doc?path=…                the document behind a note's link
+GET    /api/events                    SSE stream of the log
+GET    /openapi.json                  full spec
 ```
 
-Set `overlay.project` when the repo basename and board slug differ; it overrides
-Git-root inference for `current-project`. `display: "always"` restores the
-original persistent panel.
+Errors are `{ "error": { "code", "message" } }` with stable codes —
+`invalid_input`, `card_not_found`, `invalid_state`, `claim_conflict`,
+`forbidden`, `revision_conflict` — so a caller can branch without parsing prose.
+Mutations carry an actor (`X-Actor-Name` / `X-Actor-Type`) and an optional
+`If-Match: <revision>` for optimistic concurrency.
 
-`guidance` replaces the built-in prompt copy — all-or-nothing per field, never
-merged item by item, so a half-edited list falls back cleanly instead of
-truncating the rules silently. The built-ins cover what the board depends on:
-**exactly one card in `doing`**, reading a card's body before claiming it, and
-not creating cards for trivial self-serve edits. These ship as tool
-`promptGuidelines`, which Pi injects into the system prompt — they are in front
-of the model whether or not it ever loads the skill.
+## Packages
 
-Environment overrides still beat the file: `UKB_OVERLAY` (`off` / `on`),
-`UKB_OVERLAY_DISPLAY` (`on-demand` / `always`), `UKB_OVERLAY_SCOPE`
-(`current-project` / `mine` / `all`), `UKB_OVERLAY_PROJECT`,
-`UKB_OVERLAY_GROUP` (`state` / `project` / `owner` / `none`),
-`UKB_OVERLAY_STATES` (comma-separated, e.g. `doing,todo,someday`),
-`UKB_OVERLAY_LINES`, and `UKB_OVERLAY_KEY`. Invalid values fall through to the
-next level, so a typo in a shell export does not silently discard the file.
+| Package                         | What it is                                               |
+| ------------------------------- | -------------------------------------------------------- |
+| `@wayblink/using-kanban-core`   | Event-sourced engine: log, projection, transition guards |
+| `@wayblink/using-kanban-cli`    | `ukb` binary + `ukb init` installers                     |
+| `@wayblink/using-kanban-server` | REST + SSE API, token auth, OpenAPI, static UI hosting   |
+| `@wayblink/using-kanban-web`    | The default Web UI — one self-contained file             |
+| `@wayblink/using-kanban-mcp`    | MCP stdio server — the multi-framework front door        |
 
-**Use `--local` before the packages are on npm.** The default config runs
-`npx -y @wayblink/using-kanban-mcp`, which only resolves once published.
-`--local` instead writes an absolute path to `packages/mcp/dist/bin.js` in this
-repo, run by the same `node` binary — so the config works from a source checkout
-and never depends on a registry. Everything else (the docs snippet, the browser
-server, idempotency) is identical.
-
-`--browser` adds a second MCP server (`@playwright/mcp`) to the same config, so
-the agents you onboard can also drive a browser — handy for letting them verify
-their own work against the running Web UI.
-
-Every installer is idempotent — re-running produces byte-identical files — and
-preserves whatever was already there. The `AGENTS.md` / `CLAUDE.md` snippet is
-the part that teaches the workflow (claim before working, review when ready),
-which is why it lands even for harnesses with no dedicated installer.
-
-`ukb doctor` reports node, store, sqlite, MCP server, default UI, wired
-frameworks, and your resolved identity — and exits non-zero when something needs
-attention.
+Storage is swappable and the log is append-only; the board is a projection you
+can rebuild by replaying it, which is what gives you history, live updates and
+multi-process safety for free. A card's id is the id of its `card.created`
+event, so ids are stable and monotonic.
 
 ## Development
 
 ```bash
 pnpm install
-pnpm test        # vitest, per package
-pnpm typecheck   # tsc --noEmit
-pnpm lint        # eslint
-pnpm format      # prettier
-pnpm build       # tsup
-````
+pnpm test         # vitest, per package
+pnpm typecheck    # tsc --noEmit
+pnpm lint         # eslint
+pnpm format       # prettier
+pnpm build        # tsup
+```
+
+Two browser harnesses check the real UI: `pnpm --filter
+@wayblink/using-kanban-web browser-check` (zero-dependency CDP driver) and
+`drag-check` (Playwright, real HTML5 drag & drop).
 
 ## License
 
