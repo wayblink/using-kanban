@@ -2160,9 +2160,22 @@ function startApp() {
     element.dataset.cardId = String(card.id);
     element.tabIndex = 0;
 
+    // The id leads the title the way it does in the dialog heading and the
+    // relation chips, so a card can be named in conversation — "#983 is
+    // blocked" — without opening it. It lives outside .card-title so that
+    // element still holds nothing but the title.
+    const head = document.createElement("div");
+    head.className = "card-head";
+
+    const id = document.createElement("span");
+    id.className = "card-id";
+    id.textContent = `#${card.id}`;
+
     const title = document.createElement("div");
     title.className = "card-title";
     title.textContent = card.title;
+
+    head.append(id, title);
 
     const meta = document.createElement("div");
     meta.className = "card-meta";
@@ -2214,7 +2227,7 @@ function startApp() {
     }
     meta.append(badge(formatRelativeTime(card.updatedAt, Date.now(), t), ""));
 
-    element.append(title, meta);
+    element.append(head, meta);
 
     element.addEventListener("click", () => openCardDialog(card.id));
     element.addEventListener("keydown", (event) => {
