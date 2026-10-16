@@ -27,6 +27,13 @@ import {
 } from "./overlay-config.js";
 import { BoardOverlay } from "./overlay.js";
 import type { OverlayView } from "./overlay-render.js";
+import {
+  WEB_VERB,
+  createDetachedWebSpawner,
+  launchWebServer,
+  parseWebCommand,
+  type WebServer,
+} from "./web-command.js";
 
 /**
  * Registers `ukb` as a native Pi tool (and a `/ukb` slash command) that drives
@@ -432,6 +439,85 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
     return { code: result.code, output: output || "(no output)" };
   };
 
+  /* -------------------------------- web ---------------------------------- */
+
+  /**
+   * `/ukb web`, alone among the CLI's verbs, does not return: it serves the API
+   * and the Web UI until it is signalled. Awaiting it here is what froze the
+   * TUI, so it is started detached instead, and the session that started it owns
+   * stopping it. See web-command.ts for the launch itself.
+   */
+  const spawnWebServer = createDetachedWebSpawner({ script: bin });
+
+  /** The server this session started, if any. */
+  let webServer: WebServer | null = null;
+
+  const handleWebCommand = async (
+    tokens: readonly string[],
+    ctx: ExtensionCommandContext,
+  ): Promise<void> => {
+    const command = parseWebCommand(tokens);
+    if (command.error) {
+      ctx.ui.notify(command.error, "warning");
+      return;
+    }
+
+    if (command.action === "stop") {
+      const server = webServer;
+      webServer = null;
+      if (server === null || server.exited) {
+        ctx.ui.notify("ukb web: no server started by this session", "info");
+        return;
+      }
+      await server.stop();
+      ctx.ui.notify(`ukb web: stopped ${server.url}`, "info");
+      return;
+    }
+
+    // A second server would only fail on the first one's port. Say where the
+    // first one is instead — the URL is the thing the reader wanted.
+    if (webServer !== null && !webServer.exited) {
+      ctx.ui.notify(`ukb web: already running at ${webServer.url}`, "info");
+      return;
+    }
+    if (!ready) {
+      ctx.ui.notify(`ukb CLI not built at ${bin}`, "error");
+      return;
+    }
+
+    const launch = await launchWebServer({
+      argv: [...IDENTITY, WEB_VERB, ...command.args],
+      spawn: spawnWebServer,
+    });
+    if (!launch.ok) {
+      // Code 0 without a URL is a deliberate non-server run (`--help`), so its
+      // own text is the answer rather than a warning about a failed launch.
+      ctx.ui.notify(
+        `ukb web: ${launch.error}`,
+        launch.code === 0 ? "info" : "warning",
+      );
+      return;
+    }
+    webServer = launch.server;
+    ctx.ui.notify(
+      `ukb web: ${launch.server.url} (stop with /ukb web stop)`,
+      "info",
+    );
+  };
+
+  // The session's server dies with the session. Registered outside the overlay
+  // block: `/ukb web` is independent of whether the panel is enabled.
+  pi.on("session_shutdown", async () => {
+    const server = webServer;
+    webServer = null;
+    if (server === null) return;
+    try {
+      await server.stop();
+    } catch {
+      // Shutting down: a server that will not stop must not hold the exit up.
+    }
+  });
+
   /* -------------------------------- panel --------------------------------- */
 
   // The board, above the editor. Read through the CLI's own `--json` door so
@@ -794,11 +880,15 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
 
   pi.registerCommand(TOOL_NAME, {
     description:
-      "using-kanban board — no args: open cards; gui help: panel commands",
+      "using-kanban board — no args: open cards; gui help: panel; web: Web UI",
     handler: async (input, ctx) => {
       const tokens = splitTokens(input.trim());
       if (isGuiNamespace(tokens[0])) {
         await handleOverlayCommand(tokens.slice(1).join(" "), ctx);
+        return;
+      }
+      if (tokens[0]?.toLowerCase() === WEB_VERB) {
+        await handleWebCommand(tokens.slice(1), ctx);
         return;
       }
       if (!ready) {

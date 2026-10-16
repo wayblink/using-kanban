@@ -213,6 +213,9 @@ gui (the Pi panel — /ukb gui, not a CLI verb):
 setup:
   ukb web [--port N] [--no-open]    start the API + Web UI
   ukb web --doc-root <dir>[,<dir>]  let card notes link docs from there
+                                     in Pi, /ukb web runs this in the background
+                                     so the session keeps going; /ukb web stop
+                                     winds it down again
   ukb init --for <framework> [--browser]
                                      wire this project into an agent framework
                                      (--browser also adds the Playwright MCP server)

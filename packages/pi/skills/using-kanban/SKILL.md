@@ -223,7 +223,10 @@ ukb note <id> "design doc" --url docs/design.md # a remark + document link
 ukb note-edit <id> <noteId> [--url …]
 ukb note-remove <id> <noteId>
 ukb delete <id>                  # creator only
-ukb web                          # API + Web UI for a human to watch
+ukb web                          # API + Web UI for a human to watch; it serves
+                                 # until it is stopped, so background it
+                                 # (`ukb web --no-open >/dev/null 2>&1 & disown`)
+                                 # or let the human run `/ukb web` in Pi
 ```
 
 A `ukb` tool is registered in your context (and a `/ukb` slash command for the human).
