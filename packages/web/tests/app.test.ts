@@ -4,6 +4,8 @@ import {
   DOCS,
   DOCS_SECTIONS,
   DONE_PREVIEW,
+  EVENT_MAX_PAGE_SIZE,
+  EVENT_MIN_PAGE_SIZE,
   I18N,
   LANGUAGES,
   actionForColumn,
@@ -13,6 +15,7 @@ import {
   docKindOf,
   escapeHtml,
   filterCards,
+  fitPageSize,
   formatRelativeTime,
   markdownToHtml,
   matchesEvent,
@@ -850,17 +853,51 @@ describe("matchesEvent", () => {
     from: "todo",
     to: "doing",
   });
-  const byId = new Map([[3, { id: 3, title: "Ship v2" }]]);
+  const byId = new Map([[3, { id: 3, title: "Ship v2", project: "gala" }]]);
 
   it("matches everything when the query is empty", () => {
     expect(matchesEvent(moved, "", byId)).toBe(true);
   });
 
-  it("matches the actor, the action, the id and the card title", () => {
+  it("matches the actor, the action, the id, the project and the card title", () => {
     expect(matchesEvent(moved, "pi", byId)).toBe(true);
     expect(matchesEvent(moved, "claim", byId)).toBe(true);
     expect(matchesEvent(moved, "#3", byId)).toBe(true);
     expect(matchesEvent(moved, "ship v2", byId)).toBe(true);
+    // The project column is part of the page, so it is part of the search.
+    expect(matchesEvent(moved, "gala", byId)).toBe(true);
     expect(matchesEvent(moved, "nothing", byId)).toBe(false);
+  });
+
+  it("finds the project of a row whose card is gone", () => {
+    // The server attributes the project to every event it returns, so a
+    // deleted card's rows still answer to its slug — and no board lookup can
+    // answer that one.
+    const orphaned = event("card.deleted", {}, { project: "gala" });
+    expect(matchesEvent(orphaned, "gala", new Map())).toBe(true);
+  });
+});
+
+describe("fitPageSize", () => {
+  it("asks for the rows that fit, not a round number", () => {
+    expect(fitPageSize(700, 42)).toBe(16);
+    expect(fitPageSize(420, 42)).toBe(10);
+  });
+
+  it("never goes below the floor, however short the window", () => {
+    expect(fitPageSize(0, 42)).toBe(EVENT_MIN_PAGE_SIZE);
+    expect(fitPageSize(-200, 42)).toBe(EVENT_MIN_PAGE_SIZE);
+    expect(fitPageSize(10, 42)).toBe(EVENT_MIN_PAGE_SIZE);
+  });
+
+  it("never goes above the ceiling, however tall the window", () => {
+    expect(fitPageSize(100_000, 42)).toBe(EVENT_MAX_PAGE_SIZE);
+  });
+
+  it("falls back to the floor when the layout cannot be measured", () => {
+    // A hidden page measures as NaN or zero; the caller re-measures once the
+    // page is on screen, so the floor is the safe answer meanwhile.
+    expect(fitPageSize(Number.NaN, 42)).toBe(EVENT_MIN_PAGE_SIZE);
+    expect(fitPageSize(600, 0)).toBe(EVENT_MIN_PAGE_SIZE);
   });
 });

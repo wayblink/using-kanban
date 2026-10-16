@@ -14,18 +14,36 @@ const MAX_LIMIT = 500;
  * audit view wants the last few hundred operations in one request, not a
  * connection it has to buffer itself. `before` is an event id cursor — pass the
  * oldest id you already hold to page further back — and `project` keeps only
- * the events that touched a card in that project.
+ * the events that touched a card in that project. `total` is the size of that
+ * whole filtered log, so a pager can say "25 of 340" without walking every page,
+ * and every returned event carries the `project` it was attributed to — so the
+ * column reads the same whether or not the card still exists.
  */
 export function listEvents(ctx: RequestContext): void {
   const limit = parseLimit(ctx);
   const before = parseBefore(ctx);
   const project = parseProject(ctx);
   const all = ctx.kanban.events();
-  const matching = project === null ? all : filterByProject(all, project);
+  // Attribution is folded once, from the whole log, so the filter and the
+  // project column cannot disagree — including for a card that is now gone.
+  const attributed = attributeProjects(all);
+  const matching =
+    project === null
+      ? all
+      : all.filter((event) => attributed.get(event.id) === project);
   const older =
     before === null ? matching : matching.filter((event) => event.id < before);
   const page = older.slice(Math.max(0, older.length - limit)).reverse();
-  sendJson(ctx.res, 200, { events: page, hasMore: older.length > limit });
+  sendJson(ctx.res, 200, {
+    events: page.map((event) => ({
+      ...event,
+      project: attributed.get(event.id) ?? null,
+    })),
+    hasMore: older.length > limit,
+    // The filtered log, not the window and not the cursor's remainder: the
+    // number an auditor counts pages against.
+    total: matching.length,
+  });
 }
 
 // --- project attribution for the audit filter -------------------------
@@ -45,12 +63,15 @@ function parseProject(ctx: RequestContext): string | null {
  * the card can be deleted. So fold it while walking the log in id order:
  * remember each card's project, apply a `patch.project` before using it, and
  * keep the deletion event (the card still belonged to that project when it
- * went). Without the fold a project filter could only ever see cards that still
- * exist — exactly what an audit view cannot afford.
+ * went). Without the fold the audit view could only ever name the projects of
+ * cards that still exist — and a deleted card's rows would read as belonging to
+ * nothing, which is exactly what an audit view cannot afford.
  */
-function filterByProject(events: readonly Event[], project: string): Event[] {
+function attributeProjects(
+  events: readonly Event[],
+): Map<number, string | null> {
   const byCard = new Map<number, string | null>();
-  const kept: Event[] = [];
+  const byEvent = new Map<number, string | null>();
   for (const event of events) {
     if (event.type === "card.created") {
       byCard.set(event.cardId, projectOf(event.payload.project));
@@ -60,10 +81,10 @@ function filterByProject(events: readonly Event[], project: string): Event[] {
         byCard.set(event.cardId, projectOf(patch.project));
       }
     }
-    if (byCard.get(event.cardId) === project) kept.push(event);
+    byEvent.set(event.id, byCard.get(event.cardId) ?? null);
     if (event.type === "card.deleted") byCard.delete(event.cardId);
   }
-  return kept;
+  return byEvent;
 }
 
 function projectOf(value: unknown): string | null {

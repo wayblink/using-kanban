@@ -8,7 +8,7 @@ board. The engine is small and event-sourced, and every surface is a thin client
 of the same core: a `ukb` CLI, an MCP server, a Web UI you can drop in, and an
 HTTP API your own product can embed. No teams, no daemon — one board per machine.
 
-![The board: five columns, an umbrella card with its parts, and the card drawer](docs/web-ui.png)
+![The board: five columns, with an umbrella card and its parts](docs/web-ui.png)
 
 ## Quick start
 
@@ -72,7 +72,7 @@ parts, a part can be blocked by a third card, and parts may live in another
 project. An umbrella with unfinished children cannot enter `doing` or `review` —
 it is a container, not a work item.
 
-![The card drawer's Hierarchy section: progress plus each child with its state](docs/web-ui-drawer.png)
+![The card dialog: what the card is on the left, how it connects on the right](docs/web-ui-card-dialog.png)
 
 **Projects** partition one board into many. `--project <slug>` filters every
 door; a card with no project matches no filter. `ukb list` prints each project
@@ -117,7 +117,7 @@ first card the board refuses, so what you saw is what was applied.
 
 `ukb web` starts the API and the UI and opens a browser. Drag a card between
 columns and the drop runs the matching verb (`claim`, `review`, `done`,
-`reopen`, or a `move` onto _Someday_); the card drawer edits fields, relations,
+`reopen`, or a `move` onto _Someday_); the card dialog edits fields, relations,
 the hierarchy and notes, and shows the event history. It is live over SSE —
 changes made by an agent or the CLI appear without a refresh. The same page
 serves its own docs at `/`, which is the friendliest thing to leave open for a
@@ -127,8 +127,11 @@ An **Events** page (`#/events`) is the audit view: every operation on the board
 — created, moved, edited, blocked, attached to an umbrella, noted, deleted —
 newest first, each row naming who did it, through which door, and which card it
 touched. Filter by **project** (server-side, so paging searches the whole log
-rather than the page you are on) or by card/actor/action within a page; step
-older and newer with the pager, and a live event lands at the top as it happens.
+rather than the page you are on) or by card, project, actor or action within a
+page. The pager
+says how many events there are in total — `Page 1 · 25 of 340` — and takes 25, 50,
+100, 200 or **Auto** (a screenful) to a page; a live event lands at the top as it
+happens.
 
 It is one self-contained file with no framework and no build step:
 
@@ -178,6 +181,12 @@ flow. Which states the panel shows is a setting: `overlay.states` in
 session. The default is `doing`, `todo`, `review`, `someday` — the shelf is
 visible, history is not.
 
+The same slash command is the door to the Web UI: `/ukb web` starts the API and
+the UI in the background — it is the CLI's `ukb web`, detached, because that
+verb serves until it is signalled and awaiting it would park the session — and
+prints the URL to open. Flags pass straight through (`/ukb web --port 4000`,
+`/ukb web --no-open`), and `/ukb web stop` winds the session's server down.
+
 ## Storage, identity and config
 
 - **One board per machine**, at `~/.ukb/`. Every project shares it, separated by
@@ -219,7 +228,8 @@ POST   /api/cards/:id/{parent,unparent}   umbrella ↔ parts (one level)
 POST   /api/cards/:id/{block,unblock}     { blockedBy }
 POST   /api/cards/:id/{relate,unrelate}   { other, direction }
 POST   /api/cards/:id/notes           { text, url }
-GET    /api/log?limit=&before=        the event log, newest first (audit)
+GET    /api/log?limit=&before=&project=  the event log, newest first (audit)
+                                      + `total`, and a `project` per event
 GET    /api/doc?path=…                the document behind a note's link
 GET    /api/events                    SSE stream of the log
 GET    /openapi.json                  full spec

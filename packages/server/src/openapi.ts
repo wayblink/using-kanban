@@ -239,7 +239,8 @@ export function openApiSpec(): Record<string, unknown> {
           ],
           responses: {
             "200": {
-              description: "{ events, hasMore } — events are newest first",
+              description:
+                "{ events, hasMore, total } — events are newest first and each carries its attributed project; total is the size of the filtered log",
             },
           },
         },

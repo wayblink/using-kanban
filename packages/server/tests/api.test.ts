@@ -675,10 +675,13 @@ describe("GET /api/log", () => {
     const page = (await first.json()) as {
       events: { id: number; type: string; payload: { title?: string } }[];
       hasMore: boolean;
+      total: number;
     };
     expect(page.events).toHaveLength(1);
     expect(page.events[0]?.payload.title).toBe("two");
     expect(page.hasMore).toBe(true);
+    // The pager counts against the whole filtered log, not the window.
+    expect(page.total).toBe(2);
 
     const newest = page.events[0]?.id ?? 0;
     const older = (await (
@@ -686,11 +689,14 @@ describe("GET /api/log", () => {
     ).json()) as {
       events: { id: number; payload: { title?: string } }[];
       hasMore: boolean;
+      total: number;
     };
     expect(older.events).toHaveLength(1);
     expect(older.events[0]?.payload.title).toBe("one");
     expect(older.events.every((event) => event.id < newest)).toBe(true);
     expect(older.hasMore).toBe(false);
+    // ...and a cursor does not shrink it: the second page still says "of 2".
+    expect(older.total).toBe(2);
   });
 
   it("rejects a bad limit or cursor", async () => {
@@ -714,25 +720,58 @@ describe("GET /api/log", () => {
     await request("/api/cards/1", { method: "DELETE" });
 
     const web = (await (await request("/api/log?project=web")).json()) as {
-      events: { cardId: number; type: string }[];
+      events: { cardId: number; type: string; project: string | null }[];
+      total: number;
     };
     // The project is not on the events: it is folded from the card, so the
-    // deleted card's own history still filters correctly.
+    // deleted card's own history still filters correctly — and still names its
+    // project in the response, which is what the audit column shows.
     expect(web.events.map((event) => event.type)).toEqual([
       "card.deleted",
       "card.moved",
       "card.created",
     ]);
     expect(web.events.every((event) => event.cardId === 1)).toBe(true);
+    expect(web.events.every((event) => event.project === "web")).toBe(true);
+    expect(web.total).toBe(3);
 
     const api = (await (await request("/api/log?project=api")).json()) as {
-      events: { cardId: number }[];
+      events: { cardId: number; project: string | null }[];
+      total: number;
     };
     expect(api.events.map((event) => event.cardId)).toEqual([2]);
+    expect(api.events[0]?.project).toBe("api");
+    expect(api.total).toBe(1);
 
     const all = (await (await request("/api/log")).json()) as {
-      events: unknown[];
+      events: { project: string | null }[];
+      total: number;
     };
     expect(all.events).toHaveLength(4);
+    expect(all.total).toBe(4);
+    expect(all.events.every((event) => typeof event.project === "string")).toBe(
+      true,
+    );
+  });
+
+  it("attributes each event to the project the card had at the time", async () => {
+    await request("/api/cards", {
+      method: "POST",
+      body: JSON.stringify({ title: "moves project", project: "web" }),
+    });
+    await request("/api/cards/1", {
+      method: "PATCH",
+      body: JSON.stringify({ project: "api" }),
+    });
+
+    const log = (await (await request("/api/log")).json()) as {
+      events: { type: string; project: string | null }[];
+    };
+    // Oldest first here, so the create reads as `web` and the edit as `api`: a
+    // column that showed the card's *current* project would misdate the past.
+    expect(log.events.map((event) => [event.type, event.project])).toEqual([
+      ["card.updated", "api"],
+      ["card.created", "web"],
+    ]);
   });
 });

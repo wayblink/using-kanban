@@ -5,7 +5,7 @@
  *
  *   node scripts/browser-check.mjs [--url <url>] [--out <file>] [--width 1600]
  *
- * It screenshots the page, asserts the layout, exercises the drawer and modal,
+ * It screenshots the page, asserts the layout, exercises the card dialog and modal,
  * and prints any console errors.
  */
 import { spawn, spawnSync } from "node:child_process";
@@ -131,6 +131,11 @@ class Cdp {
         // surface why: page errors, or simply nothing rendered
         return { missing: true, text: document.body.innerText.slice(0, 300) };
       }
+      // Bring it into view first, the way a real click would. A page whose
+      // container scrolls (the card dialog, a column) puts targets below the fold,
+      // and a synthetic click at those coordinates lands on nothing — or on the
+      // backdrop, which closes the very panel the next step reads.
+      el.scrollIntoView({ block: "center", inline: "center" });
       const r = el.getBoundingClientRect();
       return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
     })()`);
@@ -268,7 +273,7 @@ async function main() {
     }
     const [api, mcp] = created;
     // A relation (card 2 waits on card 1) and a note pointing at the document
-    // above — the two things the drawer has to render from either end.
+    // above — the two things the card dialog has to render from either end.
     await fetch(`${base}/api/cards/${mcp.card.id}/relate?token=browser-check`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Actor-Name": "jyxc" },
@@ -365,7 +370,7 @@ async function main() {
 
     const phantom = await cdp.evaluate(`(() => {
       const hidden = [];
-      for (const selector of ['#drawer', '#modal', '#drawer-backdrop', '#modal-backdrop']) {
+      for (const selector of ['#card-dialog', '#modal', '#card-dialog-backdrop', '#modal-backdrop']) {
         const el = document.querySelector(selector);
         hidden.push([selector, getComputedStyle(el).display]);
       }
@@ -408,24 +413,41 @@ async function main() {
       `tops=${JSON.stringify(layout.columnTops)}`,
     ]);
 
-    // open a card drawer with a real mouse click
+    // open a card dialog with a real mouse click
     await cdp.clickCenter(".card");
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    const drawer = await cdp.evaluate(`(() => {
-      const el = document.querySelector('#drawer');
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    const dialog = await cdp.evaluate(`(() => {
+      const el = document.querySelector('#card-dialog');
       const r = el.getBoundingClientRect();
       return {
         display: getComputedStyle(el).display,
         width: Math.round(r.width),
+        height: Math.round(r.height),
+        viewport: [window.innerWidth, window.innerHeight],
+        centredX: Math.abs(r.left + r.width / 2 - window.innerWidth / 2) <= 2,
+        centredY: Math.abs(r.top + r.height / 2 - window.innerHeight / 2) <= 2,
+        columns: getComputedStyle(el.querySelector('.dialog-columns')).gridTemplateColumns,
         heading: el.querySelector('h2')?.textContent ?? '',
         hasHistory: !!el.querySelector('.history'),
         historyItems: el.querySelectorAll('.history li').length,
       };
     })()`);
+    const wide = dialog.width / dialog.viewport[0];
+    const tall = dialog.height / dialog.viewport[1];
     report.push([
-      "drawer opens on click",
-      drawer.display !== "none" && drawer.heading.length > 0,
-      `"${drawer.heading}" · ${drawer.width}px wide · ${drawer.historyItems} history entries`,
+      "the card dialog opens centred, and big",
+      dialog.display !== "none" &&
+        dialog.heading.length > 0 &&
+        dialog.hasHistory &&
+        dialog.centredX &&
+        dialog.centredY &&
+        wide > 0.55 &&
+        wide < 0.65 &&
+        tall > 0.8 &&
+        tall < 0.92 &&
+        // Two columns — the panel is wide enough that one would stretch.
+        dialog.columns.split(" ").length === 2,
+      `"${dialog.heading}" · ${dialog.width}×${dialog.height} of ${dialog.viewport.join("×")} (${Math.round(wide * 100)}% × ${Math.round(tall * 100)}%) · centred=${dialog.centredX}/${dialog.centredY} · columns=${dialog.columns} · ${dialog.historyItems} history entries`,
     ]);
 
     // escape closes it
@@ -443,10 +465,10 @@ async function main() {
     });
     await new Promise((resolve) => setTimeout(resolve, 200));
     const closed = await cdp.evaluate(
-      `getComputedStyle(document.querySelector('#drawer')).display`,
+      `getComputedStyle(document.querySelector('#card-dialog')).display`,
     );
     report.push([
-      "Escape closes the drawer",
+      "Escape closes the card dialog",
       closed === "none",
       `display: ${closed}`,
     ]);
@@ -635,12 +657,12 @@ async function main() {
 
     const relations = JSON.parse(
       await cdp.evaluate(`JSON.stringify({
-        fields: [...document.querySelectorAll('#drawer .field > label')].map((l) => l.textContent),
-        downstream: [...document.querySelectorAll('#drawer .badge.relation')].map((b) => b.textContent),
+        fields: [...document.querySelectorAll('#card-dialog .field > label')].map((l) => l.textContent),
+        downstream: [...document.querySelectorAll('#card-dialog .badge.relation')].map((b) => b.textContent),
       })`),
     );
     report.push([
-      "the drawer shows both ends of a relation",
+      "the card dialog shows both ends of a relation",
       relations.fields.some((label) => label.startsWith("Upstream")) &&
         relations.fields.some((label) => label.startsWith("Downstream")) &&
         relations.downstream.some((chip) =>
@@ -651,8 +673,8 @@ async function main() {
 
     const noteUi = JSON.parse(
       await cdp.evaluate(`JSON.stringify({
-        text: document.querySelector('#drawer .note-text')?.textContent ?? '',
-        link: document.querySelector('#drawer .note-link')?.textContent ?? '',
+        text: document.querySelector('#card-dialog .note-text')?.textContent ?? '',
+        link: document.querySelector('#card-dialog .note-link')?.textContent ?? '',
         badge: document.querySelector('.badge.notes')?.textContent ?? '',
       })`),
     );
@@ -664,7 +686,7 @@ async function main() {
     ]);
 
     // clicking the link reads the document from the server and renders it here
-    await cdp.clickCenter("#drawer .note-link");
+    await cdp.clickCenter("#card-dialog .note-link");
     await new Promise((resolve) => setTimeout(resolve, 1200));
     const viewer = JSON.parse(
       await cdp.evaluate(`JSON.stringify({
@@ -720,7 +742,7 @@ async function main() {
 
     // and adding a relation from the UI writes the edge
     await cdp.evaluate(`(() => {
-      const fields = [...document.querySelectorAll('#drawer .field')];
+      const fields = [...document.querySelectorAll('#card-dialog .field')];
       const downstream = fields.find((f) => f.querySelector('label')?.textContent.startsWith('Downstream'));
       const input = downstream.querySelector('input');
       input.value = '3';
@@ -730,7 +752,7 @@ async function main() {
     await new Promise((resolve) => setTimeout(resolve, 900));
     const addedRelation = JSON.parse(
       await cdp.evaluate(`JSON.stringify({
-        downstream: [...document.querySelectorAll('#drawer .badge.relation')].map((b) => b.textContent),
+        downstream: [...document.querySelectorAll('#card-dialog .badge.relation')].map((b) => b.textContent),
         toasts: [...document.querySelectorAll('.toast')].map((toast) => toast.textContent),
       })`),
     );
@@ -759,6 +781,8 @@ async function main() {
         hero: docs.querySelector('.docs-hero h1')?.textContent ?? '',
         cta: docs.querySelector('.docs-cta')?.getAttribute('href') ?? '',
         activeNav: document.querySelector('.nav-link.active')?.dataset.route ?? '',
+        // The measure the audit log has to match, taken where it is defined.
+        layoutWidth: Math.round(document.querySelector('.docs-layout').getBoundingClientRect().width),
       };
     })()`);
     report.push([
@@ -866,16 +890,79 @@ async function main() {
     await new Promise((resolve) => setTimeout(resolve, 300));
     const modal = await cdp.evaluate(`(() => {
       const el = document.querySelector('#modal');
+      const box = el.getBoundingClientRect();
+      // Every field measured against the modal's own box: one that hangs out
+      // of it is the overflow this check exists for.
+      const strays = [...el.querySelectorAll('.field')].filter((f) => {
+        const b = f.getBoundingClientRect();
+        return b.right > box.right + 0.5 || b.left < box.left - 0.5;
+      }).length;
+      const project = el.querySelector('.project-picker select');
       return {
         display: getComputedStyle(el).display,
         inputs: el.querySelectorAll('input, textarea').length,
         buttons: [...el.querySelectorAll('button')].map((b) => b.textContent),
+        width: Math.round(box.width),
+        fitsWidth: el.scrollWidth <= el.clientWidth,
+        fitsHeight: box.top >= -0.5 && box.bottom <= window.innerHeight + 0.5,
+        strays,
+        // The caret is drawn in CSS, so the platform's own arrow must be off —
+        // two arrows on one select is what this pins down.
+        projectAppearance: project ? getComputedStyle(project).appearance : null,
+        projectCaret: el.querySelector('.project-picker')
+          ? getComputedStyle(el.querySelector('.project-picker'), '::after').content
+          : null,
+        projectOptions: project
+          ? [...project.options].map((o) => o.value || '(none)')
+          : null,
       };
     })()`);
     report.push([
       "new-card modal opens",
       modal.display !== "none" && modal.inputs >= 4,
       `${modal.inputs} fields, buttons: ${modal.buttons.join(" / ")}`,
+    ]);
+    report.push([
+      "the new-card modal holds its own box",
+      modal.fitsWidth && modal.fitsHeight && modal.strays === 0,
+      `${modal.width}px wide · ${modal.strays} fields outside the box · fits the window: ${modal.fitsHeight}`,
+    ]);
+    report.push([
+      "project is a dropdown of the projects in use",
+      Array.isArray(modal.projectOptions) &&
+        modal.projectOptions.includes("api") &&
+        modal.projectOptions.includes("web"),
+      `options: ${(modal.projectOptions ?? []).join(" / ")}`,
+    ]);
+    report.push([
+      "the project picker draws one arrow, not two",
+      modal.projectAppearance === "none" &&
+        modal.projectCaret !== "none" &&
+        modal.projectCaret !== "",
+      `appearance: ${modal.projectAppearance} · caret: ${modal.projectCaret}`,
+    ]);
+    // "new project…" trades the list for a text box, so a slug the board has
+    // not seen yet can still be typed.
+    await cdp.evaluate(`(() => {
+      const select = document.querySelector('.project-picker select');
+      select.value = '__new';
+      select.dispatchEvent(new Event('change'));
+    })()`);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const typer = JSON.parse(
+      await cdp.evaluate(`(() => {
+        const picker = document.querySelector('.project-picker');
+        return JSON.stringify({
+          listGone: picker.querySelector('select').hidden,
+          boxShown: !picker.querySelector('.project-typer').hidden,
+          focused: document.activeElement?.type ?? '',
+        });
+      })()`),
+    );
+    report.push([
+      "an unseen project can still be typed",
+      typer.listGone && typer.boxShown && typer.focused === "text",
+      `list hidden: ${typer.listGone} · text box shown: ${typer.boxShown} · focus: ${typer.focused}`,
     ]);
     // click a corner — the centre of the backdrop is covered by the modal itself
     await cdp.clickPoint(6, 6);
@@ -915,9 +1002,134 @@ async function main() {
       `active=${eventsPage.active} · rows=${eventsPage.rows} · card refs=${eventsPage.cards} · projects=${eventsPage.projects} · position="${eventsPage.position}"`,
     ]);
 
+    // The audit log is a page like the others, in the docs page's measure and
+    // one type size up from it, opening at 25 rows and saying how many events
+    // there are in total.
+    const eventsLook = JSON.parse(
+      await cdp.evaluate(`(() => {
+        const row = document.querySelector('.event-row');
+        const size = document.querySelector('.events-size');
+        const position = document.querySelector('.event-position')?.textContent ?? '';
+        const totals = /(\\d+) of (\\d+)/.exec(position);
+        return JSON.stringify({
+          panelWidth: Math.round(document.querySelector('.event-panel').getBoundingClientRect().width),
+          head: [...document.querySelectorAll('.event-head > *')].map((c) => c.textContent),
+          cells: [...document.querySelector('.event-row').children].map((c) => c.classList[0]),
+          titleFont: parseFloat(getComputedStyle(document.querySelector('.events-header h1')).fontSize),
+          rowFont: parseFloat(getComputedStyle(row).fontSize),
+          rowBorder: getComputedStyle(document.querySelector('.event-pager button')).borderTopWidth,
+          autoLabel: size?.querySelector('option[value="auto"]')?.textContent ?? '',
+          chosen: size?.value ?? '',
+          sizes: [...document.querySelectorAll('.events-size')].map((s) => s.value),
+          inPager: [...document.querySelectorAll('.events-size')].every((s) => s.closest('.event-pager')),
+          refreshIcon: Boolean(document.querySelector('.events-controls button svg')),
+          refreshText: document.querySelector('.events-controls button')?.textContent ?? '',
+          refreshLabel: document.querySelector('.events-controls button')?.getAttribute('aria-label') ?? '',
+          position,
+          shown: totals ? Number(totals[1]) : 0,
+          total: totals ? Number(totals[2]) : 0,
+        });
+      })()`),
+    );
+    report.push([
+      "events is laid out as the docs page, in the docs page's measure",
+      eventsLook.panelWidth === docs.layoutWidth &&
+        eventsLook.head.join(",") === "Time,Project,Card,Event,Actor,Source" &&
+        eventsLook.cells.join(",") ===
+          [
+            "event-time",
+            "event-project",
+            "event-card",
+            "event-desc",
+            "event-actor",
+            "event-source",
+          ].join(",") &&
+        eventsLook.titleFont >= 32 &&
+        eventsLook.rowFont >= 15.5 &&
+        // A real button, not the browser's default grey chrome.
+        eventsLook.rowBorder !== "auto" &&
+        eventsLook.rowBorder !== "0px",
+      `panel=${eventsLook.panelWidth}px · docs=${docs.layoutWidth}px · head=${eventsLook.head.join("/")} · cells=${eventsLook.cells.join("/")} · title=${eventsLook.titleFont}px · row=${eventsLook.rowFont}px · button border=${eventsLook.rowBorder}`,
+    ]);
+    report.push([
+      "the audit log opens at 25 a page, and the pager counts the whole log",
+      eventsLook.chosen === "25" &&
+        eventsPage.rows === 25 &&
+        eventsLook.shown === 25 &&
+        eventsLook.total > eventsLook.shown,
+      `per page=${eventsLook.chosen} · ${eventsPage.rows} rows · position="${eventsLook.position}"`,
+    ]);
+    report.push([
+      "the row budget rides with the pager, and refresh is a glyph",
+      eventsLook.inPager &&
+        eventsLook.sizes.length === 2 &&
+        eventsLook.sizes.every((value) => value === "25") &&
+        eventsLook.refreshIcon &&
+        eventsLook.refreshText.trim() === "" &&
+        eventsLook.refreshLabel !== "",
+      `size selects=${eventsLook.sizes.join("/")} in pager=${eventsLook.inPager} · refresh svg=${eventsLook.refreshIcon} text="${eventsLook.refreshText.trim()}" label="${eventsLook.refreshLabel}"`,
+    ]);
+
+    // ...and `auto` is the escape hatch for "give me a screenful", which is what
+    // it has to do if a reader is ever going to pick it.
+    await cdp.evaluate(`(() => {
+      const size = document.querySelector('.events-size');
+      size.value = 'auto';
+      size.dispatchEvent(new Event('change', { bubbles: true }));
+    })()`);
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    const autoFit = JSON.parse(
+      await cdp.evaluate(`JSON.stringify({
+        rows: document.querySelectorAll('.event-row').length,
+        listBottom: Math.round(document.querySelector('.event-list').getBoundingClientRect().bottom),
+        viewport: window.innerHeight,
+        // Choosing on one pager has to choose on the other, too.
+        sizes: [...document.querySelectorAll('.events-size')].map((s) => s.value),
+      })`),
+    );
+    report.push([
+      "choosing `auto` fits the window instead, on both pagers",
+      autoFit.rows > 0 &&
+        autoFit.rows !== 25 &&
+        autoFit.listBottom <= autoFit.viewport + 2 &&
+        autoFit.sizes.join(",") === "auto,auto",
+      `${autoFit.rows} rows · list ends at ${autoFit.listBottom}px of ${autoFit.viewport}px · size selects=${autoFit.sizes.join("/")}`,
+    ]);
+    // back to the default, so the screenshot is the page as it opens
+    await cdp.evaluate(`(() => {
+      const size = document.querySelector('.events-size');
+      size.value = '25';
+      size.dispatchEvent(new Event('change', { bubbles: true }));
+    })()`);
+    await new Promise((resolve) => setTimeout(resolve, 900));
+
     // back to the board, so the final screenshot is the board
     await cdp.clickCenter('.nav-link[data-route="board"]');
     await new Promise((resolve) => setTimeout(resolve, 500));
+
+    // The modal, end to end: fill it, create, and find the card on the board.
+    // Last, because it writes to the board the assertions above just read.
+    await cdp.clickCenter("#new-card");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await cdp.evaluate(`(() => {
+      const modal = document.querySelector('#modal');
+      // text inputs in document order: title, assignee, reviewer
+      modal.querySelectorAll('input[type="text"]')[0].value = 'created from the modal';
+      modal.querySelector('.project-picker select').value = 'web';
+    })()`);
+    await cdp.clickCenter(".modal-actions button.primary");
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    const created = await cdp.evaluate(
+      `[...document.querySelectorAll('.card-title')].some((n) => n.textContent === 'created from the modal')`,
+    );
+    const createdProject = await cdp.evaluate(
+      `[...document.querySelectorAll('.card')].find((c) => c.querySelector('.card-title')?.textContent === 'created from the modal')?.textContent ?? ''`,
+    );
+    report.push([
+      "a card created in the modal lands on the board, in its project",
+      created && /project:web/.test(createdProject),
+      `on the board: ${created} · ${createdProject.trim()}`,
+    ]);
 
     // screenshot the final state
     const shot = await cdp.send("Page.captureScreenshot", { format: "png" });

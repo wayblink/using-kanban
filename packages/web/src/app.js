@@ -92,7 +92,7 @@ function cardHaystack(card) {
 /** Priority bands, in the order the board's other doors use. */
 const PRIORITY_ORDER = ["high", "normal", "low"];
 
-/** The closed set, in sort order — the drawer and the modal both use it. */
+/** The closed set, in sort order — the card dialog and the modal both use it. */
 const PRIORITY_OPTIONS = [...PRIORITY_ORDER];
 
 function priorityRank(card) {
@@ -557,17 +557,24 @@ export const I18N = {
     "nav.board": "Board",
     "nav.events": "Events",
     "events.title": "Events",
-    "events.subtitle":
-      "Every operation on the board, newest first — the audit trail.",
     "events.project": "Project",
     "events.anyProject": "all projects",
-    "events.filterPlaceholder": "Filter this page by card, actor, or action…",
+    "events.filterPlaceholder":
+      "Filter this page by card, project, actor or action…",
     "events.perPage": "per page",
     "events.perPageOption": "{n} / page",
+    "events.perPageAuto": "Auto · {n} / page",
     "events.refresh": "Refresh",
+    "events.colTime": "Time",
+    "events.colProject": "Project",
+    "events.colActor": "Actor",
+    "events.colSource": "Source",
+    "events.colEvent": "Event",
+    "events.colCard": "Card",
     "events.newer": "Newer",
     "events.older": "Older",
-    "events.page": "Page {n} · {count} events",
+    "events.page": "Page {n} · {count} of {total} events",
+    "events.pageNoTotal": "Page {n} · {count} events",
     "events.empty": "No events match.",
     "controls.actingAs": "acting as",
     "actor.human": "human",
@@ -656,10 +663,17 @@ export const I18N = {
     "drawer.unblock": "unblock {id}",
     "drawer.confirmDelete": "Delete card #{id}? This cannot be undone.",
     "modal.newCard": "New card",
+    "modal.hint":
+      "One unit of work: a title the next person understands, and a body naming the files to touch and what done means.",
     "modal.body": "Body — target files, acceptance criteria",
     "modal.cancel": "Cancel",
     "modal.create": "Create card",
     "modal.needsTitle": "a card needs a title",
+    "modal.noProject": "no project",
+    "modal.newProject": "new project…",
+    "modal.projectPlaceholder": "slug — letters, digits, dot, dash",
+    "modal.back": "back to the project list",
+    "modal.submitHint": "{key}+Enter creates the card",
     "modal.enterId": "enter a card id to block on",
     "error.claim_conflict": "claim conflict",
     "error.forbidden": "not allowed",
@@ -679,16 +693,23 @@ export const I18N = {
     "nav.board": "看板",
     "nav.events": "事件",
     "events.title": "事件",
-    "events.subtitle": "看板上的所有操作，最新的在前——用于审计。",
     "events.project": "项目",
     "events.anyProject": "全部项目",
-    "events.filterPlaceholder": "在本页按卡片 / 操作者 / 动作筛选…",
+    "events.filterPlaceholder": "在本页按卡片 / 项目 / 操作者 / 动作筛选…",
     "events.perPage": "每页",
     "events.perPageOption": "{n} / 页",
+    "events.perPageAuto": "自适应 · {n} / 页",
+    "events.colTime": "时间",
+    "events.colProject": "项目",
+    "events.colActor": "操作者",
+    "events.colSource": "来源",
+    "events.colEvent": "事件",
+    "events.colCard": "卡片",
     "events.refresh": "刷新",
     "events.newer": "更新",
     "events.older": "更早",
-    "events.page": "第 {n} 页 · {count} 条事件",
+    "events.page": "第 {n} 页 · 本页 {count} / 共 {total} 条",
+    "events.pageNoTotal": "第 {n} 页 · 本页 {count} 条",
     "events.empty": "没有匹配的事件。",
     "controls.actingAs": "当前身份",
     "actor.human": "人类",
@@ -775,10 +796,17 @@ export const I18N = {
     "drawer.unblock": "解除阻塞 {id}",
     "drawer.confirmDelete": "删除卡片 #{id}？此操作无法撤销。",
     "modal.newCard": "新建卡片",
+    "modal.hint":
+      "一件待办的事：写一个别人能看懂的标题，描述里列出要动的文件和“完成”的标准。",
     "modal.body": "描述 — 目标文件、验收标准",
     "modal.cancel": "取消",
     "modal.create": "创建卡片",
     "modal.needsTitle": "卡片需要标题",
+    "modal.noProject": "无项目",
+    "modal.newProject": "新建项目…",
+    "modal.projectPlaceholder": "标识 — 小写字母、数字、点、中划线",
+    "modal.back": "返回项目列表",
+    "modal.submitHint": "{key}+回车 创建卡片",
     "modal.enterId": "请输入要阻塞的卡片编号",
     "error.claim_conflict": "认领冲突",
     "error.forbidden": "无权操作",
@@ -913,9 +941,11 @@ const DOCS_EN = [
         t: "p",
         text:
           "The Events page lists every operation on the board, newest first: who did it, through which door " +
-          "(cli, mcp, api, web), what changed, and which card it touched. Filter by project, or by card, actor " +
-          "or action within a page; step older and newer with the pager, and click a row's card to open it. It " +
-          "is the same event log the board is built from, read straight.",
+          "(cli, mcp, api, web), what changed, and which project and card it touched. Filter by project, or by " +
+          "card, project, actor or action within a page. The pager says how many events there are in all — " +
+          "Page 1 · 25 of 340 — and " +
+          "takes 25, 50, 100, 200 or Auto (a screenful) to a page; step older and newer with it, and click a " +
+          "row's card to open it. It is the same event log the board is built from, read straight.",
       },
       { t: "h", text: "Identity" },
       {
@@ -930,7 +960,7 @@ const DOCS_EN = [
         t: "ul",
         items: [
           [
-            "Card drawer",
+            "Card dialog",
             "click any card to edit title/body/assignee/reviewer, run transitions, manage its upstream and downstream relations, attach notes, read the event history, or delete it (creator only).",
           ],
           [
@@ -1341,7 +1371,7 @@ const DOCS_ZH = [
       { t: "h", text: "事件 —— 审计流水" },
       {
         t: "p",
-        text: "事件页按时间倒序列出看板上的每一个操作：谁做的、通过哪个入口（cli / mcp / api / web）、改了什么、动了哪张卡。可按项目过滤（服务端过滤，翻页时搜的是整份日志而不是当前页），也能在页内按卡片 / 操作者 / 动作筛选；用分页器前后翻页，点行里的卡片即可打开它。它就是看板据以构建的那份事件日志，直接读出来。",
+        text: "事件页按时间倒序列出看板上的每一个操作：谁做的、通过哪个入口（cli / mcp / api / web）、改了什么、动了哪个项目和哪张卡。可按项目过滤（服务端过滤，翻页时搜的是整份日志而不是当前页），也能在页内按卡片 / 项目 / 操作者 / 动作筛选。分页器会告诉你日志总共有多少 —— 第 1 页 · 本页 25 / 共 340 —— 每页可选 25 / 50 / 100 / 200 或「自适应」（一屏）；前后翻页，点行里的卡片即可打开它。它就是看板据以构建的那份事件日志，直接读出来。",
       },
       { t: "h", text: "身份" },
       {
@@ -1353,7 +1383,7 @@ const DOCS_ZH = [
         t: "ul",
         items: [
           [
-            "卡片抽屉",
+            "卡片详情弹窗",
             "点击任意卡片可编辑标题/描述/负责人/审查者、执行状态流转、管理上下游关系、添加备注、查看事件历史，或删除卡片（仅创建者）。",
           ],
           [
@@ -1660,6 +1690,10 @@ function startApp() {
   const TOKEN = new URLSearchParams(window.location.search).get("token") ?? "";
   const STORAGE_KEY = "using-kanban.actor";
   const LANG_KEY = "using-kanban.lang";
+  /** How this keyboard labels the submit chord — spelled in the modal's hint. */
+  const SUBMIT_KEY = /mac|iphone|ipad/i.test(navigator.userAgent)
+    ? "⌘"
+    : "Ctrl";
 
   const els = {
     board: document.getElementById("board"),
@@ -1675,8 +1709,8 @@ function startApp() {
     filterReviewer: document.getElementById("filter-reviewer"),
     live: document.getElementById("live"),
     newCard: document.getElementById("new-card"),
-    drawerBackdrop: document.getElementById("drawer-backdrop"),
-    drawer: document.getElementById("drawer"),
+    cardBackdrop: document.getElementById("card-dialog-backdrop"),
+    cardDialog: document.getElementById("card-dialog"),
     modalBackdrop: document.getElementById("modal-backdrop"),
     modal: document.getElementById("modal"),
     docBackdrop: document.getElementById("doc-backdrop"),
@@ -1704,7 +1738,13 @@ function startApp() {
       loading: false,
       query: "",
       project: "",
-      pageSize: 50,
+      /** `auto` (fit the window) or a fixed count from EVENT_PAGE_SIZES. */
+      pageSize: 25,
+      /** The count the current page was fetched with; see `scheduleEventFit`. */
+      resolvedSize: null,
+      /** Size of the whole filtered log — what the pager counts against.
+       *  null when the server did not report one (an older server). */
+      total: null,
       page: 0,
       /** The `before` cursor each page was fetched with; page 0 is newest. */
       cursors: [null],
@@ -1744,11 +1784,11 @@ function startApp() {
       button.classList.toggle("active", active);
       button.setAttribute("aria-pressed", active ? "true" : "false");
     }
-    // the drawer is built from translated labels, so rebuild it if it is open
+    // the card dialog is built from translated labels, so rebuild it if it is open
     const openCardId = state.openCardId;
     if (openCardId !== null) {
       state.openCardId = null;
-      void openDrawer(openCardId);
+      void openCardDialog(openCardId);
     }
     render();
     if (state.route === "docs") void renderDocs();
@@ -1786,7 +1826,7 @@ function startApp() {
     }
 
     if (onEvents) {
-      closeDrawer();
+      closeCardDialog();
       closeModal();
       void renderEvents();
       return;
@@ -1801,7 +1841,7 @@ function startApp() {
     // re-rendering would reset the scroll position.
     if (!docsRendered) {
       docsRendered = true;
-      closeDrawer();
+      closeCardDialog();
       closeModal();
       void renderDocs();
       return;
@@ -1948,6 +1988,10 @@ function startApp() {
       ];
       state.projects = board.projects ?? [];
       render();
+      // The audit rows carry card titles, and a live event can land before the
+      // board it names has arrived — so the row is redrawn once the cards are
+      // here, instead of showing a bare `#31` until the next load.
+      if (state.route === "events") renderEventList();
     } catch (error) {
       toast(error.message, "error");
     }
@@ -1979,13 +2023,23 @@ function startApp() {
         ) {
           return;
         }
-        if (state.events.page !== 0 || !eventInProject(event)) return;
+        state.events.newestId = event.id;
+        if (!eventInProject(event)) return;
+        // The log grew, so the pager's total grows with it — whatever page the
+        // reader is on (and only when there is a total to grow).
+        if (state.events.total !== null) state.events.total += 1;
+        if (state.events.page !== 0) {
+          updateEventPager();
+          return;
+        }
+        // ...but the row itself only belongs at the top of the newest page.
         state.events.items = mergeEvents(
           state.events.items,
           [event],
-          state.events.pageSize,
+          // The window the page was fetched with — never `pageSize` itself,
+          // which is `"auto"` when the reader asked for a screenful.
+          state.events.resolvedSize ?? EVENT_PAGE_SIZES[0],
         );
-        state.events.newestId = event.id;
         renderEventList();
       } catch {
         // A frame we cannot parse is not worth breaking the page over.
@@ -2010,7 +2064,7 @@ function startApp() {
     if (state.route !== "board") return;
     renderBoard();
     renderFilterOptions();
-    if (state.openCardId !== null) renderDrawer();
+    if (state.openCardId !== null) renderCardDialog();
   }
 
   function renderBoard() {
@@ -2162,11 +2216,11 @@ function startApp() {
 
     element.append(title, meta);
 
-    element.addEventListener("click", () => openDrawer(card.id));
+    element.addEventListener("click", () => openCardDialog(card.id));
     element.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
-        openDrawer(card.id);
+        openCardDialog(card.id);
       }
     });
     element.addEventListener("dragstart", (event) => {
@@ -2289,23 +2343,23 @@ function startApp() {
     }
   }
 
-  /* ------------------------------- drawer ---------------------------- */
+  /* ----------------------------- card dialog -------------------------- */
 
-  async function openDrawer(id) {
+  async function openCardDialog(id) {
     state.openCardId = id;
-    els.drawerBackdrop.hidden = false;
-    els.drawer.hidden = false;
-    await renderDrawer();
+    els.cardBackdrop.hidden = false;
+    els.cardDialog.hidden = false;
+    await renderCardDialog();
   }
 
-  function closeDrawer() {
+  function closeCardDialog() {
     state.openCardId = null;
-    els.drawerBackdrop.hidden = true;
-    els.drawer.hidden = true;
-    els.drawer.textContent = "";
+    els.cardBackdrop.hidden = true;
+    els.cardDialog.hidden = true;
+    els.cardDialog.textContent = "";
   }
 
-  async function renderDrawer() {
+  async function renderCardDialog() {
     const id = state.openCardId;
     if (id === null) return;
     let card = state.cards.find((entry) => entry.id === id);
@@ -2314,15 +2368,15 @@ function startApp() {
         const payload = await api(`/api/cards/${id}`);
         card = payload.card;
       } catch {
-        closeDrawer();
+        closeCardDialog();
         return;
       }
     }
 
-    els.drawer.textContent = "";
+    els.cardDialog.textContent = "";
 
     const header = document.createElement("div");
-    header.className = "drawer-header";
+    header.className = "dialog-head";
     const heading = document.createElement("h2");
     heading.textContent = `#${card.id} ${card.title}`;
     const pill = document.createElement("span");
@@ -2333,14 +2387,26 @@ function startApp() {
     close.type = "button";
     close.textContent = "✕";
     close.setAttribute("aria-label", t("drawer.close"));
-    close.addEventListener("click", closeDrawer);
+    close.addEventListener("click", closeCardDialog);
     header.append(heading, pill, close);
 
     const body = document.createElement("div");
-    body.className = "drawer-body";
+    body.className = "dialog-body";
+
+    // Two columns: what the card *is* on the left, how it connects on the
+    // right. A panel this wide with one column would stretch every input to
+    // half a metre.
+    const columns = document.createElement("div");
+    columns.className = "dialog-columns";
+    const main = document.createElement("div");
+    main.className = "dialog-main";
+    const side = document.createElement("div");
+    side.className = "dialog-side";
+    columns.append(main, side);
+    body.append(columns);
 
     // editable fields
-    body.append(
+    main.append(
       field(
         t("drawer.title"),
         textInput(card.title, async (value) => {
@@ -2355,9 +2421,9 @@ function startApp() {
       ),
     );
 
-    const assignee = document.createElement("div");
-    assignee.className = "row";
-    assignee.append(
+    const fields = document.createElement("div");
+    fields.className = "row";
+    fields.append(
       field(
         t("drawer.assignee"),
         textInput(card.assignee ?? "", async (value) => {
@@ -2372,9 +2438,10 @@ function startApp() {
       ),
       field(
         t("drawer.project"),
-        textInput(card.project ?? "", async (value) => {
-          await saveCard(id, { project: value });
-        }),
+        projectPicker(card.project ?? "", async (value) => {
+          // "no project" is not the empty string — the API spells it null.
+          await saveCard(id, { project: value || null });
+        }).element,
       ),
       field(
         t("drawer.priority"),
@@ -2390,9 +2457,10 @@ function startApp() {
         ),
       ),
     );
-    body.append(assignee);
+    main.append(fields, notesField(card));
 
-    // actions
+    // The transitions live in the footer, next to the one destructive action —
+    // the same shape the new-card modal's footer uses.
     const actions = document.createElement("div");
     actions.className = "actions";
     for (const [labelKey, action, enabled, actionBody] of [
@@ -2422,12 +2490,11 @@ function startApp() {
       );
       actions.append(button);
     }
-    body.append(actions);
 
-    body.append(hierarchyField(card));
+    side.append(hierarchyField(card));
 
     // relations — one edge, shown from both ends
-    body.append(
+    side.append(
       relationField(
         card,
         "blockedBy",
@@ -2442,13 +2509,44 @@ function startApp() {
       ),
     );
 
-    // notes — remarks and the documents they link to
-    body.append(notesField(card));
-
-    // history
+    // history — best-effort, and filled in after the panel is on screen so a
+    // slow read never delays opening a card
     const historyField = field(t("drawer.history"));
-    const list = document.createElement("ul");
-    list.className = "history";
+    const historyList = document.createElement("ul");
+    historyList.className = "history";
+    historyField.append(historyList);
+    side.append(historyField);
+
+    // delete
+    const danger = document.createElement("div");
+    danger.className = "actions";
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "danger";
+    del.textContent = t("drawer.delete");
+    del.addEventListener("click", async () => {
+      if (!window.confirm(t("drawer.confirmDelete", { id }))) return;
+      try {
+        await api(`/api/cards/${id}`, { method: "DELETE" });
+        toast(`deleted #${id}`);
+        closeCardDialog();
+        await refresh();
+      } catch (error) {
+        toast(error.message, "error");
+      }
+    });
+    danger.append(del);
+
+    const foot = document.createElement("div");
+    foot.className = "dialog-foot";
+    foot.append(danger, actions);
+
+    els.cardDialog.append(header, body, foot);
+    void fillHistory(historyList, id);
+  }
+
+  /** The card's history, appended to a list that is already on screen. */
+  async function fillHistory(list, id) {
     try {
       const payload = await api(`/api/cards/${id}/history`);
       for (const event of payload.events) {
@@ -2464,31 +2562,6 @@ function startApp() {
     } catch {
       // history is best-effort
     }
-    historyField.append(list);
-    body.append(historyField);
-
-    // delete
-    const danger = document.createElement("div");
-    danger.className = "actions";
-    const del = document.createElement("button");
-    del.type = "button";
-    del.className = "danger";
-    del.textContent = t("drawer.delete");
-    del.addEventListener("click", async () => {
-      if (!window.confirm(t("drawer.confirmDelete", { id }))) return;
-      try {
-        await api(`/api/cards/${id}`, { method: "DELETE" });
-        toast(`deleted #${id}`);
-        closeDrawer();
-        await refresh();
-      } catch (error) {
-        toast(error.message, "error");
-      }
-    });
-    danger.append(del);
-    body.append(danger);
-
-    els.drawer.append(header, body);
   }
 
   /**
@@ -2508,7 +2581,7 @@ function startApp() {
       chip.className = "badge relation";
       chip.textContent = `⤷ #${card.parent}${parent ? ` ${parent.title} (${parent.state})` : ""}`;
       chip.title = parent?.title ?? `#${card.parent}`;
-      chip.addEventListener("click", () => void openDrawer(card.parent));
+      chip.addEventListener("click", () => void openCardDialog(card.parent));
       const detach = document.createElement("button");
       detach.className = "icon-button";
       detach.type = "button";
@@ -2578,7 +2651,7 @@ function startApp() {
         chip.className = "badge relation";
         chip.textContent = `#${child.id} [${child.state}] ${child.title}`;
         chip.title = child.title;
-        chip.addEventListener("click", () => void openDrawer(child.id));
+        chip.addEventListener("click", () => void openCardDialog(child.id));
         chips.append(chip);
       }
     }
@@ -2635,7 +2708,7 @@ function startApp() {
       chip.className = "badge relation";
       chip.textContent = `#${otherId}${other ? ` ${other.title} (${other.state})` : ""}`;
       chip.title = other?.title ?? `#${otherId}`;
-      chip.addEventListener("click", () => void openDrawer(otherId));
+      chip.addEventListener("click", () => void openCardDialog(otherId));
       const remove = document.createElement("button");
       remove.className = "icon-button";
       remove.type = "button";
@@ -2764,6 +2837,7 @@ function startApp() {
     noteUrl.placeholder = t("drawer.noteUrl");
     const add = document.createElement("button");
     add.type = "button";
+    add.className = "secondary";
     add.textContent = t("drawer.addNote");
     add.addEventListener("click", async () => {
       const text = noteText.value.trim();
@@ -2891,16 +2965,102 @@ function startApp() {
 
   /* -------------------------------- modal ---------------------------- */
 
-  function openModal() {
+  /**
+   * The project control: a dropdown of the slugs in use, so nobody has to
+   * remember one, with an escape hatch for a slug the board has not seen yet.
+   *
+   * It hands back the control and a `value()` reader rather than just the node,
+   * because a form can be submitted without any change event firing — ⌘↵ on a
+   * slug typed a moment ago, say — and the caller still has to know the answer.
+   */
+  function projectPicker(value, onChange) {
+    const NEW = "__new";
+    const slugs = state.projects;
+
+    const select = document.createElement("select");
+    select.setAttribute("aria-label", t("drawer.project"));
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = t("modal.noProject");
+    select.append(none);
+    for (const slug of slugs) {
+      const option = document.createElement("option");
+      option.value = slug;
+      option.textContent = slug;
+      select.append(option);
+    }
+    const fresh = document.createElement("option");
+    fresh.value = NEW;
+    fresh.textContent = t("modal.newProject");
+    select.append(fresh);
+    select.value = slugs.includes(value) ? value : "";
+
+    const typed = textInput(value, (next) => onChange(next.trim()));
+    typed.placeholder = t("modal.projectPlaceholder");
+    typed.autocomplete = "off";
+    typed.spellcheck = false;
+
+    const back = document.createElement("button");
+    back.type = "button";
+    back.className = "icon-button";
+    back.textContent = "←";
+    back.setAttribute("aria-label", t("modal.back"));
+
+    const typer = document.createElement("div");
+    typer.className = "project-typer";
+    typer.hidden = true;
+    typer.append(typed, back);
+
+    select.addEventListener("change", () => {
+      if (select.value !== NEW) {
+        onChange(select.value);
+        return;
+      }
+      // A slug the board has not seen yet: trade the list for a text box.
+      select.hidden = true;
+      typer.hidden = false;
+      typed.value = "";
+      typed.focus();
+    });
+
+    back.addEventListener("click", () => {
+      typer.hidden = true;
+      select.hidden = false;
+      select.value = slugs.includes(value) ? value : "";
+      select.focus();
+    });
+
+    const element = document.createElement("div");
+    element.className = "project-picker";
+    element.append(select, typer);
+    return {
+      element,
+      value: () => (typer.hidden ? select.value : typed.value),
+    };
+  }
+
+  async function openModal() {
+    // The project dropdown lists the slugs in use, and only the board response
+    // knows them. The button lives on the board, so they are normally loaded
+    // already; this covers a cold open that lands straight on #/board.
+    if (state.projects.length === 0) await refresh();
+
     els.modal.textContent = "";
+
+    const head = document.createElement("div");
+    head.className = "modal-head";
     const heading = document.createElement("h2");
     heading.textContent = t("modal.newCard");
+    const hint = document.createElement("p");
+    hint.className = "modal-hint";
+    hint.textContent = t("modal.hint");
+    head.append(heading, hint);
 
     const title = textInput("", () => {});
     const bodyInput = textArea("", () => {});
     const assignee = textInput(state.actor.name, () => {});
     const reviewer = textInput("", () => {});
-    const project = textInput("", () => {});
+    const project = projectPicker("", () => {});
     const priority = selectInput(
       "normal",
       PRIORITY_OPTIONS.map((value) => ({
@@ -2915,31 +3075,22 @@ function startApp() {
     row.append(
       field(t("drawer.assignee"), assignee),
       field(t("drawer.reviewer"), reviewer),
-      field(t("drawer.project"), project),
+      field(t("drawer.project"), project.element),
       field(t("drawer.priority"), priority),
     );
 
     const form = document.createElement("div");
-    form.className = "drawer-body";
+    form.className = "dialog-body";
     form.append(
       field(t("drawer.title"), title),
       field(t("modal.body"), bodyInput),
       row,
     );
 
-    const actions = document.createElement("div");
-    actions.className = "modal-actions";
-    const cancel = document.createElement("button");
-    cancel.type = "button";
-    cancel.textContent = t("modal.cancel");
-    cancel.addEventListener("click", closeModal);
-    const create = document.createElement("button");
-    create.type = "button";
-    create.className = "primary";
-    create.textContent = t("modal.create");
-    create.addEventListener("click", async () => {
+    const submit = async () => {
       if (!title.value.trim()) {
         toast(t("modal.needsTitle"), "error");
+        title.focus();
         return;
       }
       try {
@@ -2950,7 +3101,9 @@ function startApp() {
             body: bodyInput.value.trim() || undefined,
             assignee: assignee.value.trim() || undefined,
             reviewer: reviewer.value.trim() || undefined,
-            project: project.value.trim() || undefined,
+            // No project is not a project: the field stays unset rather than
+            // becoming the empty string, which the schema rejects.
+            project: project.value() || undefined,
             priority: priority.value,
           },
         });
@@ -2959,10 +3112,34 @@ function startApp() {
       } catch (error) {
         toast(error.message, "error");
       }
-    });
-    actions.append(cancel, create);
+    };
 
-    els.modal.append(heading, form, actions);
+    // The chord saves without reaching for the mouse, and a select swallows
+    // Enter to cycle its options — so only the modifier counts as a submit.
+    form.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        void submit();
+      }
+    });
+
+    const actions = document.createElement("div");
+    actions.className = "modal-actions";
+    const submitHint = document.createElement("span");
+    submitHint.className = "modal-submit-hint";
+    submitHint.textContent = t("modal.submitHint", { key: SUBMIT_KEY });
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.textContent = t("modal.cancel");
+    cancel.addEventListener("click", closeModal);
+    const create = document.createElement("button");
+    create.type = "button";
+    create.className = "primary";
+    create.textContent = t("modal.create");
+    create.addEventListener("click", () => void submit());
+    actions.append(submitHint, cancel, create);
+
+    els.modal.append(head, form, actions);
     els.modalBackdrop.hidden = false;
     els.modal.hidden = false;
     title.focus();
@@ -3142,9 +3319,30 @@ function startApp() {
 
   /** Page sizes the audit view offers. Paging is by event-id cursor. */
   const EVENT_PAGE_SIZES = [25, 50, 100, 200];
+  /**
+   * A row's design height, for `auto`.
+   *
+   * A constant rather than a measurement on purpose: measuring a rendered row
+   * makes `auto` chase its own tail — a page whose rows wrapped measures
+   * taller, so the next page is smaller, so those rows may not wrap. A row only
+   * wraps on a narrow window, and there the list scrolling a little is the
+   * honest outcome. Kept in step with `.event-row` in style.css.
+   */
+  const EVENT_ROW_HEIGHT = 42;
+  /**
+   * Room below the last row: the bottom pager with its margins, the page's own
+   * bottom padding (see `.events` in style.css), and a little air. Reserving the
+   * whole stack is what makes an auto-sized page one screen with nothing to
+   * scroll — pager included.
+   */
+  const EVENT_PAGE_BOTTOM_GAP = 126;
   let eventsListEl = null;
+  /** Every per-page select on screen — one per pager — kept in step. */
+  let eventsSizeSelects = [];
   /** Every pager on screen (top and bottom), kept in step by `updateEventPager`. */
   let eventsPagers = [];
+  /** Debounce for `auto` following a window resize. */
+  let eventsFitTimer = null;
 
   /** Build the Events page shell (once) and load its first page. */
   async function renderEvents() {
@@ -3157,46 +3355,124 @@ function startApp() {
     header.className = "events-header";
     const title = document.createElement("h1");
     title.textContent = t("events.title");
-    const sub = document.createElement("p");
-    sub.className = "events-sub";
-    sub.textContent = t("events.subtitle");
-    header.append(title, sub);
-
     const controls = document.createElement("div");
     controls.className = "events-controls";
-    controls.append(
-      projectSelect(),
-      queryInput(),
-      pageSizeSelect(),
-      refreshButton(),
-    );
-    header.append(controls);
+    header.append(title, controls);
 
     eventsListEl = document.createElement("ul");
     eventsListEl.className = "event-list";
 
+    // The head is a sibling of the list, not a row inside it: `renderEventList`
+    // clears the list wholesale, and the fit measurement wants the chrome above
+    // the rows counted where it actually sits.
+    const panel = document.createElement("div");
+    panel.className = "event-panel";
+    panel.append(eventHead(), eventsListEl);
+
     // A pager above and below the list: landing puts one in reach, and finishing
-    // a page puts the next step in reach without scrolling all the way back.
+    // a page puts the next step in reach without scrolling all the way back. The
+    // per-page control rides with them — that is the paging it governs.
     eventsPagers = [];
-    els.events.append(header, buildPager(), eventsListEl, buildPager());
+    eventsSizeSelects = [];
+    els.events.append(header, buildPager(), panel, buildPager());
+
+    controls.append(projectSelect(), queryInput(), refreshButton());
+    // Same task as the markup above, so the `auto` label never paints a guess.
+    syncPageSizeSelects();
     await loadEvents();
   }
 
-  /** One pager bar — Newer · position · Older. Built twice, kept in step. */
+  /** The column labels — what makes the list read as a table. */
+  function eventHead() {
+    const head = document.createElement("div");
+    head.className = "event-head";
+    // The rows speak for themselves; the labels are for the eye, not the reader.
+    head.setAttribute("aria-hidden", "true");
+    for (const key of [
+      "events.colTime",
+      "events.colProject",
+      "events.colCard",
+      "events.colEvent",
+      "events.colActor",
+      "events.colSource",
+    ]) {
+      const cell = document.createElement("span");
+      cell.textContent = t(key);
+      head.append(cell);
+    }
+    return head;
+  }
+
+  /**
+   * How many rows fit between the top of the list and the bottom of the window.
+   *
+   * Measured from the live layout rather than assumed: the chrome above the list
+   * (topbar, heading, controls, pager, head row) is what `auto` is about, and it
+   * is the browser that knows how tall it came out. Adding the page's scroll
+   * offset keeps the answer the same whether or not the reader has scrolled.
+   */
+  function autoPageSize() {
+    if (!eventsListEl) return EVENT_PAGE_SIZES[0];
+    const top = eventsListEl.getBoundingClientRect().top + els.events.scrollTop;
+    return fitPageSize(
+      window.innerHeight - top - EVENT_PAGE_BOTTOM_GAP,
+      EVENT_ROW_HEIGHT,
+    );
+  }
+
+  /** The limit this load asks for: `auto` resolves now, a number is already one. */
+  function effectivePageSize() {
+    return state.events.pageSize === "auto"
+      ? autoPageSize()
+      : Number(state.events.pageSize);
+  }
+
+  /**
+   * `auto` follows the window; a fixed choice does not.
+   *
+   * Debounced, and it refetches only when the count actually moved: a resize
+   * drag fires hundreds of events, and each one would be a page-0 reload.
+   */
+  function scheduleEventFit() {
+    if (state.events.pageSize !== "auto") return;
+    clearTimeout(eventsFitTimer);
+    eventsFitTimer = setTimeout(() => {
+      if (autoPageSize() === state.events.resolvedSize) {
+        syncPageSizeSelects();
+        return;
+      }
+      resetEventPaging();
+      void loadEvents();
+    }, 200);
+  }
+
+  /**
+   * One pager bar — Newer · position · Older, with the row budget beside them.
+   *
+   * Built twice (above and below the list), so the size control exists twice
+   * too; `syncPageSizeSelects` is what keeps the copies in step.
+   */
   function buildPager() {
     const pager = document.createElement("div");
     pager.className = "event-pager";
+
+    const nav = document.createElement("div");
+    nav.className = "event-pager-nav";
     const newer = document.createElement("button");
     newer.type = "button";
+    newer.className = "secondary";
     newer.textContent = `‹ ${t("events.newer")}`;
     newer.addEventListener("click", newerPage);
     const position = document.createElement("span");
     position.className = "event-position";
     const older = document.createElement("button");
     older.type = "button";
+    older.className = "secondary";
     older.textContent = `${t("events.older")} ›`;
     older.addEventListener("click", olderPage);
-    pager.append(newer, position, older);
+    nav.append(newer, position, older);
+
+    pager.append(nav, pageSizeSelect());
     eventsPagers.push({ newer, older, position });
     return pager;
   }
@@ -3243,25 +3519,56 @@ function startApp() {
     const select = document.createElement("select");
     select.className = "events-size";
     select.setAttribute("aria-label", t("events.perPage"));
+    // Fixed sizes first: 25 is the default, and a reader who wants a screenful
+    // instead picks `auto`, which names the count it resolved to.
     for (const size of EVENT_PAGE_SIZES) {
       const option = document.createElement("option");
       option.value = String(size);
       option.textContent = t("events.perPageOption", { n: size });
       select.append(option);
     }
+    const auto = document.createElement("option");
+    auto.value = "auto";
+    auto.textContent = t("events.perPageAuto", { n: autoPageSize() });
+    select.append(auto);
     select.value = String(state.events.pageSize);
+    eventsSizeSelects.push(select);
     select.addEventListener("change", () => {
-      state.events.pageSize = Number(select.value);
+      state.events.pageSize =
+        select.value === "auto" ? "auto" : Number(select.value);
+      syncPageSizeSelects();
       resetEventPaging();
       void loadEvents();
     });
     return select;
   }
 
+  /**
+   * Keep every per-page select in step — same value, and an `auto` option that
+   * names the count it resolved to. Choosing a size on one pager must visibly
+   * choose it on the other, or the two bars disagree about the page you are on.
+   */
+  function syncPageSizeSelects() {
+    for (const select of eventsSizeSelects) {
+      select.value = String(state.events.pageSize);
+      const auto = select.querySelector('option[value="auto"]');
+      if (auto)
+        auto.textContent = t("events.perPageAuto", { n: autoPageSize() });
+    }
+  }
+
+  /**
+   * Refresh, as an icon: the header already carries a dropdown and a search box,
+   * and a re-read is a glyph everyone recognises. The name is not lost — it
+   * lives in `aria-label`/`title`, so this is still a button, not a mystery.
+   */
   function refreshButton() {
     const button = document.createElement("button");
     button.type = "button";
-    button.textContent = t("events.refresh");
+    button.className = "secondary icon-only";
+    button.setAttribute("aria-label", t("events.refresh"));
+    button.title = t("events.refresh");
+    button.innerHTML = REFRESH_ICON;
     button.addEventListener("click", () => void loadEvents());
     return button;
   }
@@ -3271,15 +3578,17 @@ function startApp() {
     if (state.events.loading) return;
     state.events.loading = true;
     const before = state.events.cursors[state.events.page] ?? null;
+    const limit = effectivePageSize();
+    state.events.resolvedSize = limit;
     try {
-      const params = new URLSearchParams({
-        limit: String(state.events.pageSize),
-      });
+      const params = new URLSearchParams({ limit: String(limit) });
       if (before !== null) params.set("before", String(before));
       if (state.events.project) params.set("project", state.events.project);
       const payload = await api(`/api/log?${params}`);
       state.events.items = payload.events ?? [];
       state.events.hasMore = Boolean(payload.hasMore);
+      state.events.total =
+        typeof payload.total === "number" ? payload.total : null;
       state.events.newestId = state.events.items[0]?.id ?? 0;
       renderEventList();
     } catch (error) {
@@ -3314,20 +3623,35 @@ function startApp() {
   /** Whether a live event would pass the active project filter. */
   function eventInProject(event) {
     if (!state.events.project) return true;
-    const card = state.cards.find((entry) => entry.id === event.cardId);
-    return card?.project === state.events.project;
+    return eventProject(event) === state.events.project;
+  }
+
+  /**
+   * An event's project: the one the server attributed, or the card's own when
+   * the row arrived over SSE (where there is no attribution to read).
+   */
+  function eventProject(event) {
+    if (typeof event.project === "string") return event.project;
+    return (
+      state.cards.find((card) => card.id === event.cardId)?.project ?? null
+    );
   }
 
   function updateEventPager() {
-    const label = t("events.page", {
-      n: state.events.page + 1,
-      count: state.events.items.length,
-    });
+    const n = state.events.page + 1;
+    const count = state.events.items.length;
+    // "of 25" when the page *is* the whole log reads like a bug, so a server
+    // that does not report a total gets the count on its own.
+    const label =
+      state.events.total === null
+        ? t("events.pageNoTotal", { n, count })
+        : t("events.page", { n, count, total: state.events.total });
     for (const { newer, older, position } of eventsPagers) {
       newer.disabled = state.events.loading || state.events.page === 0;
       older.disabled = state.events.loading || !state.events.hasMore;
       position.textContent = label;
     }
+    syncPageSizeSelects();
   }
 
   function renderEventList() {
@@ -3349,15 +3673,38 @@ function startApp() {
   }
 
   /** One audit row: when, who, through what, what happened, which card. */
+  /**
+   * One audit row, in the order the head reads: when, which project, which
+   * card, what happened, who, through which door. The project is not on the
+   * event — it lives on the card, so a card that has since been deleted reads
+   * as a dash rather than as belonging to nothing.
+   */
   function eventRow(event, byId) {
     const row = document.createElement("li");
     row.className = "event-row";
     row.dataset.type = event.type;
 
+    const card = byId.get(event.cardId);
+
     const time = document.createElement("time");
     time.className = "event-time";
     time.dateTime = event.ts;
     time.textContent = formatTimestamp(event.ts);
+
+    const project = document.createElement("span");
+    project.className = "event-project";
+    project.textContent = eventProject(event) ?? "—";
+    project.title = project.textContent;
+
+    const ref = document.createElement("button");
+    ref.type = "button";
+    ref.className = "event-card";
+    ref.textContent = `#${event.cardId}${card?.title ? ` ${card.title}` : ""}`;
+    ref.addEventListener("click", () => void openCardDialog(event.cardId));
+
+    const desc = document.createElement("span");
+    desc.className = "event-desc";
+    desc.textContent = describeEvent(event);
 
     const actor = document.createElement("span");
     actor.className = `event-actor ${event.actor.type}`;
@@ -3367,18 +3714,7 @@ function startApp() {
     source.className = "event-source";
     source.textContent = event.source;
 
-    const desc = document.createElement("span");
-    desc.className = "event-desc";
-    desc.textContent = describeEvent(event);
-
-    const ref = document.createElement("button");
-    ref.type = "button";
-    ref.className = "event-card";
-    const title = byId.get(event.cardId)?.title;
-    ref.textContent = `#${event.cardId}${title ? ` ${title}` : ""}`;
-    ref.addEventListener("click", () => void openDrawer(event.cardId));
-
-    row.append(time, actor, source, desc, ref);
+    row.append(time, project, ref, desc, actor, source);
     return row;
   }
 
@@ -3395,13 +3731,15 @@ function startApp() {
 
   /* ------------------------------- wiring ---------------------------- */
 
-  els.newCard.addEventListener("click", openModal);
+  els.newCard.addEventListener("click", () => void openModal());
   for (const button of document.querySelectorAll(".lang-option")) {
     button.addEventListener("click", () => setLanguage(button.dataset.lang));
   }
-  els.drawerBackdrop.addEventListener("click", closeDrawer);
+  els.cardBackdrop.addEventListener("click", closeCardDialog);
   els.modalBackdrop.addEventListener("click", closeModal);
   els.docBackdrop.addEventListener("click", closeDoc);
+  // Auto-sized audit pages follow the window; a fixed choice ignores it.
+  window.addEventListener("resize", scheduleEventFit);
   els.actorName.addEventListener("change", saveIdentity);
   els.actorType.addEventListener("change", saveIdentity);
   els.filterQ.addEventListener("input", () => {
@@ -3422,13 +3760,13 @@ function startApp() {
   });
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
-    // The document viewer sits on top of the drawer, so Escape peels one layer:
+    // The document viewer sits on top of the card dialog, so Escape peels one layer:
     // closing both at once loses the card the reader came from.
     if (!els.docViewer.hidden) {
       closeDoc();
       return;
     }
-    closeDrawer();
+    closeCardDialog();
     closeModal();
   });
 
@@ -3491,7 +3829,7 @@ function textArea(value, onChange) {
 }
 
 /**
- * One line saying what an event did. Pure and exported so the drawer history
+ * One line saying what an event did. Pure and exported so the card dialog's
  * and the Events page say the same thing, and so it can be tested without a
  * browser. Covers every `EventType`; the fallback is the raw type, which is
  * still true, just not friendly.
@@ -3526,6 +3864,42 @@ export function describeEvent(event) {
   }
 }
 
+/** How few rows an auto-sized audit page will settle for. */
+export const EVENT_MIN_PAGE_SIZE = 5;
+
+/**
+ * The refresh glyph: an open circle with an arrowhead, drawn in the same 24-box
+ * and with the same stroke as the rest of the UI's line work. Inline rather than
+ * a file because the UI ships as one self-contained page with no assets.
+ */
+const REFRESH_ICON =
+  '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" ' +
+  'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<polyline points="21 3 21 9 15 9" />' +
+  '<path d="M20.49 15a9 9 0 1 1-2.12-9.36L21 9" />' +
+  "</svg>";
+
+/** How many rows an auto-sized audit page will ask for at most. */
+export const EVENT_MAX_PAGE_SIZE = 200;
+
+/**
+ * How many rows fit in `available` pixels, clamped to the page-size range.
+ *
+ * Pure, and therefore testable without a browser: the measurement is the
+ * caller's job, the arithmetic is this one's.
+ */
+export function fitPageSize(
+  available,
+  rowHeight,
+  min = EVENT_MIN_PAGE_SIZE,
+  max = EVENT_MAX_PAGE_SIZE,
+) {
+  // A hidden or not-yet-laid-out page measures as nonsense; the floor is the
+  // honest answer there, and the caller re-measures once it is on screen.
+  if (!Number.isFinite(available) || !(rowHeight > 0)) return min;
+  return Math.min(max, Math.max(min, Math.floor(available / rowHeight)));
+}
+
 /**
  * Merge two event lists — each newest-first — into one, deduped by id, newest
  * first, capped at `limit`. Used when a live event arrives over SSE and has to
@@ -3543,12 +3917,13 @@ export function mergeEvents(existing, incoming, limit = Infinity) {
 
 /**
  * Whether an event matches the audit page's free-text filter. It looks at the
- * actor, source, action, and the card it touched (id and title), because a
- * reader auditing "what happened to #38" types the id, not the event type.
+ * actor, source, action, the project, and the card it touched (id and title),
+ * because a reader auditing "what happened to #38" types the id, not the event
+ * type — and one auditing a project types its slug.
  */
 export function matchesEvent(event, query, byId) {
   if (!query) return true;
-  const title = byId?.get?.(event.cardId)?.title ?? "";
+  const card = byId?.get?.(event.cardId);
   return [
     event.type,
     event.actor?.type,
@@ -3557,7 +3932,10 @@ export function matchesEvent(event, query, byId) {
     describeEvent(event),
     `#${event.cardId}`,
     String(event.cardId),
-    title,
+    card?.title ?? "",
+    // The column shows the server's attribution when it has one; the card is
+    // the fallback for a row that arrived live.
+    typeof event.project === "string" ? event.project : (card?.project ?? ""),
   ]
     .join(" ")
     .toLowerCase()

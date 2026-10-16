@@ -14,6 +14,9 @@
   --shadow: 0 1px 2px rgb(20 22 40 / 8%), 0 4px 14px rgb(20 22 40 / 6%);
   --shadow-lg: 0 12px 40px rgb(20 22 40 / 18%);
   --radius: 10px;
+  /* One measure for the long-form pages. Docs and the audit log are the same
+     page with different content, and they look it. */
+  --page-width: 1560px;
 
   --col-todo: #64748b;
   --col-doing: #2563eb;
@@ -75,15 +78,32 @@ textarea {
   color: inherit;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 7px;
-  padding: 6px 9px;
+  border-radius: 8px;
+  padding: 8px 10px;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
 }
 
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-dim);
+}
+
+input:hover,
+select:hover,
+textarea:hover {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+
+/* A ring rather than an outline: it reads as focus without shifting anything,
+   and it sits inside the border box so the row does not jitter. */
 input:focus,
 select:focus,
 textarea:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 /* ------------------------------- top bar ------------------------------- */
@@ -242,6 +262,42 @@ button.primary {
 
 button.primary:hover {
   filter: brightness(1.08);
+}
+
+/* The product's secondary button: a real control, not the browser's default
+   chrome. The card dialog's footer is the same recipe; this is the name for it
+   elsewhere. */
+button.secondary {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 7px 13px;
+  font-weight: 550;
+  white-space: nowrap;
+}
+
+button.secondary:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+button.secondary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* The one control in a bar that needs no words: a glyph, named by aria-label and
+   title. Sized to sit level with the bordered controls around it. */
+button.icon-only {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 9px;
+  color: var(--text-dim);
+}
+
+button.icon-only:hover:not(:disabled) {
+  color: var(--accent);
 }
 
 /* -------------------------------- board -------------------------------- */
@@ -454,7 +510,7 @@ button.primary:hover {
   border-radius: 8px;
 }
 
-/* -------------------------------- drawer ------------------------------- */
+/* ------------------------------ card dialog ---------------------------- */
 
 .backdrop {
   position: fixed;
@@ -465,49 +521,88 @@ button.primary:hover {
 
 .board[hidden],
 .docs[hidden],
-.drawer[hidden],
+.card-dialog[hidden],
 .modal[hidden] {
   display: none;
 }
 
-.drawer {
+/* The card detail: a big centred dialog, not a side panel. Roughly three
+   fifths of the window wide and most of its height — the room the card's fields
+   and history were always asking for. */
+.card-dialog {
   position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: min(460px, 100vw);
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: clamp(720px, 59vw, 2000px);
+  height: clamp(560px, 86vh, 1200px);
+  max-width: calc(100vw - 32px);
+  max-height: calc(100dvh - 32px);
   background: var(--surface);
-  border-left: 1px solid var(--border);
+  border: 1px solid var(--border);
+  border-radius: 14px;
   box-shadow: var(--shadow-lg);
   z-index: 21;
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
+  overflow: hidden;
 }
 
-.drawer-header {
+.dialog-head {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  padding: 14px 16px;
+  gap: 12px;
+  padding: 18px 24px;
   border-bottom: 1px solid var(--border);
-  position: sticky;
-  top: 0;
   background: var(--surface);
-  z-index: 1;
 }
 
-.drawer-header h2 {
+/* The title takes the room, so the state pill and the close button stay put on
+   the right however many lines a long title needs. */
+.dialog-head h2 {
+  flex: 1;
   margin: 0;
-  font-size: 16px;
+  font-size: 19px;
+  line-height: 1.35;
   word-break: break-word;
 }
 
-.drawer-body {
-  padding: 16px;
+/* Only this scrolls: the head and the footer stay put on a long card. */
+.dialog-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 22px 24px 26px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 18px;
+}
+
+/* What the card *is* on the left, how it connects on the right. */
+.dialog-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(320px, 1fr);
+  gap: 24px 34px;
+  align-items: start;
+}
+
+.dialog-main,
+.dialog-side {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+.dialog-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px 24px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
 }
 
 .field {
@@ -525,19 +620,30 @@ button.primary:hover {
 }
 
 .field textarea {
-  min-height: 110px;
+  min-height: 120px;
   resize: vertical;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 13px;
+  line-height: 1.55;
 }
 
+/* The card dialog is a tall panel with room to spare, and the body is what the
+   reader came to read — the new-card modal keeps the shared 120px because its
+   form has to fit the window. */
+.card-dialog .dialog-body textarea {
+  min-height: 200px;
+  font-size: 13.5px;
+}
+
+/* Two fields to a row. This used to be a flex row of four, and flex items
+   refuse to shrink below the width of their own inputs — so the project and
+   priority controls hung out of the modal's right edge. A grid with
+   minmax(0, 1fr) columns can shrink, because the track, not the content,
+   decides the width. */
 .row {
-  display: flex;
-  gap: 10px;
-}
-
-.row > * {
-  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 14px;
 }
 
 .actions {
@@ -550,7 +656,7 @@ button.primary:hover {
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: 7px;
-  padding: 7px 12px;
+  padding: 8px 14px;
   font-weight: 550;
 }
 
@@ -562,6 +668,12 @@ button.primary:hover {
 .actions button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+/* Deleting is not something to discover on hover. */
+.actions button.danger {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
 }
 
 .actions button.danger:hover:not(:disabled) {
@@ -629,6 +741,26 @@ button.primary:hover {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+/* "no notes yet" is a badge, not a bar: a stretched pill reads as an empty
+   input. */
+.notes > .badge {
+  align-self: flex-start;
+}
+
+/* The compose row: two inputs, then a button no wider than its word. */
+.notes > input {
+  font-size: 13.5px;
+}
+
+.notes > input + input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+}
+
+.notes > button {
+  align-self: flex-end;
 }
 
 .note {
@@ -884,27 +1016,154 @@ button.primary:hover {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: min(520px, calc(100vw - 32px));
+  /* Wider than the card dialog: four fields to a row need the room, and a form
+     this short reads better with air around it than boxed into 520px. */
+  width: min(680px, calc(100vw - 48px));
+  /* A short window must never push the actions out of reach — the form
+     scrolls, the heading and the buttons stay put. */
+  max-height: calc(100vh - 48px);
+  max-height: calc(100dvh - 48px);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 14px;
   box-shadow: var(--shadow-lg);
   z-index: 21;
-  padding: 18px;
+  padding: 24px 26px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
+  overflow: hidden;
+}
+
+/* The body is the scroll container in both dialogs; the modal's form brings its
+   own padding, the card dialog's columns do their own spacing. */
+.modal .dialog-body {
+  padding: 0;
+  gap: 16px;
+}
+
+.modal-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .modal h2 {
   margin: 0;
-  font-size: 16px;
+  font-size: 18px;
+  letter-spacing: -0.01em;
+}
+
+.modal-hint {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-dim);
 }
 
 .modal-actions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.modal-submit-hint {
+  margin-right: auto;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.modal-actions button {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  transition:
+    border-color 120ms ease,
+    color 120ms ease,
+    filter 120ms ease;
+}
+
+.modal-actions button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.modal-actions button.primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 1px 2px rgb(20 22 40 / 20%);
+}
+
+.modal-actions button.primary:hover {
+  color: #fff;
+  filter: brightness(1.08);
+}
+
+/* ----------------------------- project picker --------------------------- */
+
+/* A caret drawn in CSS, so it follows the theme — a native select's arrow is
+   whatever the platform feels like drawing. */
+.project-picker {
+  position: relative;
+}
+
+.project-picker::after {
+  content: "";
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid var(--text-dim);
+  border-bottom: 1.5px solid var(--text-dim);
+  transform: translateY(-50%) rotate(45deg);
+  pointer-events: none;
+}
+
+/* Typing a new slug: the list is gone, so the caret goes with it. */
+.project-picker:has(.project-typer:not([hidden]))::after {
+  display: none;
+}
+
+/* The native arrow has to go, or the picker shows two: the platform's and the
+   one drawn below. `-webkit-` because Safari still wants it spelled out. */
+.project-picker select {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  padding-right: 30px;
+  text-overflow: ellipsis;
+}
+
+.project-typer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.project-typer[hidden] {
+  display: none;
+}
+
+.project-typer input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* A phone: one field to a row, so nothing is squeezed down to a stub. */
+@media (max-width: 520px) {
+  .row {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* -------------------------------- toasts ------------------------------- */
@@ -1075,7 +1334,7 @@ button.primary:hover {
 }
 
 .docs-layout {
-  max-width: 1560px;
+  max-width: var(--page-width);
   margin: 0 auto;
   display: grid;
   grid-template-columns: 240px minmax(0, 1fr);
@@ -1270,67 +1529,90 @@ button.primary:hover {
 
 /* ------------------------------- events ------------------------------- */
 
+/* The audit log is a page like any other: the docs page's measure, the docs
+   page's card, the shared control chrome. */
 .events {
   flex: 1;
   overflow-y: auto;
-  padding: 32px clamp(16px, 4vw, 44px) 80px;
+  padding: 56px 44px 48px;
 }
 
 .events-header {
-  max-width: 1100px;
-  margin: 0 auto 14px;
+  max-width: var(--page-width);
+  margin: 0 auto 18px;
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  gap: 8px 16px;
+  align-items: flex-end;
+  gap: 8px 20px;
 }
 
 .events-header h1 {
   margin: 0;
-  font-size: 22px;
-}
-
-.events-sub {
-  flex: 1 1 320px;
-  margin: 0;
-  color: var(--text-dim);
+  font-size: 33px;
+  letter-spacing: -0.025em;
 }
 
 .events-controls {
-  flex: 1 1 420px;
+  flex: 1 1 440px;
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-end;
   gap: 8px;
 }
 
 .events-controls input {
-  flex: 1 1 200px;
-  max-width: 340px;
+  flex: 1 1 220px;
+  max-width: 360px;
 }
 
-.event-list {
-  max-width: 1100px;
+/* One card for the head and the rows, so the two share a frame and a width. */
+.event-panel {
+  max-width: var(--page-width);
   margin: 0 auto;
-  padding: 0;
-  list-style: none;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: 14px;
   box-shadow: var(--shadow);
   overflow: hidden;
 }
 
+/* Column widths live here once, so a change moves the head and every row.
+   Read across: when, which project, which card, what happened, who, through
+   which door — the event column is the one that stretches. */
+.event-head,
 .event-row {
   display: grid;
-  grid-template-columns: 158px 148px 54px minmax(0, 1fr) auto;
-  gap: 12px;
+  grid-template-columns:
+    184px 132px minmax(240px, 460px) minmax(0, 1fr)
+    186px 64px;
+  gap: 14px;
   align-items: baseline;
-  padding: 9px 14px;
-  border-top: 1px solid var(--border);
-  font-size: 13px;
+  padding: 10px 18px;
 }
 
+.event-head {
+  background: var(--surface-2);
+  border-bottom: 2px solid var(--border);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.event-list {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.event-row {
+  border-top: 1px solid var(--border);
+  font-size: 15.5px;
+}
+
+/* The head's 2px rule is the separator for the first row. */
 .event-row:first-child {
   border-top: 0;
 }
@@ -1345,10 +1627,20 @@ button.primary:hover {
   white-space: nowrap;
 }
 
+/* The project slug, quiet enough to scan past: the accent is for the actor,
+   and the card is what the eye is usually looking for. */
+.event-project {
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .event-actor {
   overflow: hidden;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
+  font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1359,7 +1651,7 @@ button.primary:hover {
 
 .event-source {
   color: var(--text-dim);
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -1369,14 +1661,13 @@ button.primary:hover {
 }
 
 .event-card {
-  max-width: 340px;
   overflow: hidden;
   padding: 0;
   border: 0;
   background: none;
   color: var(--accent);
   font: inherit;
-  text-align: right;
+  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
@@ -1387,7 +1678,7 @@ button.primary:hover {
 }
 
 .event-empty {
-  padding: 28px 14px;
+  padding: 34px 14px;
   color: var(--text-dim);
   text-align: center;
 }
@@ -1396,9 +1687,22 @@ button.primary:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  max-width: 1100px;
-  margin: 12px auto;
+  gap: 14px;
+  max-width: var(--page-width);
+  margin: 14px auto;
+  font-size: 15px;
+}
+
+/* The nav and the row budget travel as one centred group: the size control is
+   part of the paging, not a footnote at the edge of the page. */
+.event-pager-nav {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.event-pager button {
+  min-width: 104px;
 }
 
 .event-position {
@@ -1407,13 +1711,35 @@ button.primary:hover {
 }
 
 @media (max-width: 760px) {
+  /* The card dialog takes the window, and its two columns become one. */
+  .card-dialog {
+    width: calc(100vw - 20px);
+    height: calc(100dvh - 20px);
+  }
+
+  .dialog-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .events {
+    padding: 40px 20px 32px;
+  }
+
+  /* The head labels a grid that is no longer a grid. */
+  .event-head {
+    display: none;
+  }
+
   .event-row {
     grid-template-columns: 1fr;
     gap: 1px;
   }
 
+  .event-project {
+    font-size: 13.5px;
+  }
+
   .event-card {
-    max-width: none;
     text-align: left;
   }
 }
