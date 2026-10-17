@@ -65,9 +65,7 @@ export function actionForColumn(column) {
 }
 
 export function filterCards(cards, filter = {}) {
-  const q = String(filter.q ?? "")
-    .trim()
-    .toLowerCase();
+  const q = searchQuery(filter.q);
   const assignee = String(filter.assignee ?? "").trim();
   const reviewer = String(filter.reviewer ?? "").trim();
   const project = String(filter.project ?? "").trim();
@@ -81,12 +79,26 @@ export function filterCards(cards, filter = {}) {
   });
 }
 
-/** Everything a text search looks at — notes included, links and all. */
+/**
+ * The needle a text search runs on.
+ *
+ * Cards are named `#983` everywhere the id is shown, so `#983` is what people
+ * type — but the haystack holds the bare number. Dropping a leading `#` (and
+ * the whitespace around it) makes both spellings hit the same card.
+ */
+export function searchQuery(raw) {
+  return String(raw ?? "")
+    .trim()
+    .replace(/^#+/, "")
+    .toLowerCase();
+}
+
+/** Everything a text search looks at — the id, notes included, links and all. */
 function cardHaystack(card) {
   const notes = (card.notes ?? [])
     .map((note) => `${note.text ?? ""} ${note.url ?? ""}`)
     .join(" ");
-  return `${card.title} ${card.body ?? ""} ${notes}`.toLowerCase();
+  return `${card.id} ${card.title} ${card.body ?? ""} ${notes}`.toLowerCase();
 }
 
 /** Priority bands, in the order the board's other doors use. */
@@ -576,16 +588,10 @@ export const I18N = {
     "events.page": "Page {n} · {count} of {total} events",
     "events.pageNoTotal": "Page {n} · {count} events",
     "events.empty": "No events match.",
-    "controls.actingAs": "acting as",
-    "actor.human": "human",
-    "actor.agent": "agent",
-    "controls.filterPlaceholder": "Filter title / body…",
+    "controls.filterPlaceholder": "Search #id / title / body…",
     "controls.anyAssignee": "any assignee",
     "controls.anyReviewer": "any reviewer",
     "controls.newCard": "+ New card",
-    "live.connecting": "connecting…",
-    "live.live": "live",
-    "live.offline": "reconnecting…",
     "column.someday": "Someday",
     "column.todo": "Todo",
     "column.doing": "Doing",
@@ -711,16 +717,10 @@ export const I18N = {
     "events.page": "第 {n} 页 · 本页 {count} / 共 {total} 条",
     "events.pageNoTotal": "第 {n} 页 · 本页 {count} 条",
     "events.empty": "没有匹配的事件。",
-    "controls.actingAs": "当前身份",
-    "actor.human": "人类",
-    "actor.agent": "智能体",
-    "controls.filterPlaceholder": "筛选标题 / 内容…",
+    "controls.filterPlaceholder": "搜索编号 / 标题 / 内容…",
     "controls.anyAssignee": "所有负责人",
     "controls.anyReviewer": "所有审查者",
     "controls.newCard": "+ 新建卡片",
-    "live.connecting": "连接中…",
-    "live.live": "实时",
-    "live.offline": "重连中…",
     "column.someday": "搁置",
     "column.todo": "待办",
     "column.doing": "进行中",
@@ -951,8 +951,10 @@ const DOCS_EN = [
       {
         t: "p",
         text:
-          "The top bar is who this browser acts as. Humans and agents share one namespace, so you can be " +
-          "jyxc (human) reviewing a card that claude-code (agent) implemented. Every event in a card's history " +
+          "The browser acts as whoever the server's default actor is — the same " +
+          "name the CLI would use on this machine. Humans and agents share one " +
+          "namespace, so a human reviewing a card an agent implemented still reads " +
+          "as two different people in the history. Every event in a card's history " +
           "records who did it.",
       },
       { t: "h", text: "Everything else" },
@@ -971,7 +973,10 @@ const DOCS_EN = [
             "Notes",
             "remarks with a document link. A local markdown or HTML file opens right here in the document viewer; an https link opens in a new tab.",
           ],
-          ["Filters", "filter by text, assignee, and reviewer."],
+          [
+            "Filters",
+            "search by id (#983), title or body, then narrow by assignee and reviewer.",
+          ],
           [
             "Live",
             "the board updates over SSE — cards moved by an agent, the CLI, or another browser tab appear without a refresh.",
@@ -1376,7 +1381,7 @@ const DOCS_ZH = [
       { t: "h", text: "身份" },
       {
         t: "p",
-        text: "顶栏显示的是这个浏览器以谁的身份操作。人类与智能体共用同一套命名空间，因此你可以是审查 claude-code（智能体）所实现卡片的人类用户 jyxc。每张卡片的历史记录都会标注是谁做的。",
+        text: "浏览器以服务端默认身份操作看板——也就是命令行在这台机器上会用的那个名字。人类与智能体共用同一套命名空间，因此人类审查智能体实现的卡片时，历史里仍是两个不同的人。每张卡片的历史记录都会标注是谁做的。",
       },
       { t: "h", text: "其他功能" },
       {
@@ -1394,7 +1399,7 @@ const DOCS_ZH = [
             "备注",
             "带文档链接的说明。本机的 markdown 或 HTML 文件会直接在文档查看器中打开；https 链接则在新标签页打开。",
           ],
-          ["筛选", "按文本、负责人、审查者筛选。"],
+          ["筛选", "按编号（#983）、标题、内容搜索，再按负责人、审查者收窄。"],
           [
             "实时",
             "看板通过 SSE 更新——智能体、命令行或其他浏览器标签页移动的卡片都会自动出现，无需刷新。",
@@ -1688,7 +1693,6 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
 
 function startApp() {
   const TOKEN = new URLSearchParams(window.location.search).get("token") ?? "";
-  const STORAGE_KEY = "using-kanban.actor";
   const LANG_KEY = "using-kanban.lang";
   /** How this keyboard labels the submit chord — spelled in the modal's hint. */
   const SUBMIT_KEY = /mac|iphone|ipad/i.test(navigator.userAgent)
@@ -1700,14 +1704,11 @@ function startApp() {
     docs: document.getElementById("docs"),
     events: document.getElementById("events"),
     boardControls: document.getElementById("board-controls"),
-    actorName: document.getElementById("actor-name"),
-    actorType: document.getElementById("actor-type"),
     filterQ: document.getElementById("filter-q"),
     filters: document.getElementById("filters"),
     filterProject: document.getElementById("filter-project"),
     filterAssignee: document.getElementById("filter-assignee"),
     filterReviewer: document.getElementById("filter-reviewer"),
-    live: document.getElementById("live"),
     newCard: document.getElementById("new-card"),
     cardBackdrop: document.getElementById("card-dialog-backdrop"),
     cardDialog: document.getElementById("card-dialog"),
@@ -1770,12 +1771,8 @@ function startApp() {
     document.documentElement.lang = state.lang === "zh" ? "zh-CN" : "en";
 
     // static markup that is not re-rendered per route
-    document.querySelector(".identity label").textContent =
-      t("controls.actingAs");
     els.filterQ.placeholder = t("controls.filterPlaceholder");
     els.newCard.textContent = t("controls.newCard");
-    els.actorType.options[0].textContent = t("actor.human");
-    els.actorType.options[1].textContent = t("actor.agent");
     for (const link of document.querySelectorAll(".nav-link")) {
       link.textContent = t(`nav.${link.dataset.route}`);
     }
@@ -1904,14 +1901,21 @@ function startApp() {
   }
 
   async function api(path, options = {}) {
+    // `identity: false` asks the server who we are without telling it — see
+    // `loadActor`. Otherwise every call carries the acting identity.
+    const anonymous = options.identity === false;
     const response = await fetch(apiUrl(path), {
       method: options.method ?? "GET",
       headers: {
         ...(options.body === undefined
           ? {}
           : { "Content-Type": "application/json" }),
-        "X-Actor-Name": state.actor.name,
-        "X-Actor-Type": state.actor.type,
+        ...(anonymous
+          ? {}
+          : {
+              "X-Actor-Name": state.actor.name,
+              "X-Actor-Type": state.actor.type,
+            }),
         ...(options.headers ?? {}),
       },
       body:
@@ -1954,23 +1958,22 @@ function startApp() {
     applyLanguage();
   }
 
-  function loadIdentity() {
+  /**
+   * Who this browser acts as. There is no picker for it any more: the board
+   * speaks with one voice per machine, the same one the CLI uses, so the
+   * server's default actor is the answer and `X-Actor-Name` is just an echo of
+   * it. Cards stay attributable, and the "mine" badge still lights up.
+   */
+  async function loadActor() {
     const fallback = { name: "me", type: "human" };
-    state.actor = parseActor(
-      window.localStorage.getItem(STORAGE_KEY),
-      fallback,
-    );
-    els.actorName.value = state.actor.name;
-    els.actorType.value = state.actor.type;
-  }
-
-  function saveIdentity() {
-    state.actor = {
-      name: els.actorName.value.trim() || "me",
-      type: els.actorType.value === "agent" ? "agent" : "human",
-    };
-    els.actorName.value = state.actor.name;
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state.actor));
+    try {
+      // Asked anonymously: the server answers with its own default actor, which
+      // is the name this browser then acts as.
+      const info = await api("/api/me", { identity: false });
+      state.actor = parseActor(JSON.stringify(info?.actor), fallback);
+    } catch {
+      state.actor = fallback;
+    }
     render();
   }
 
@@ -2007,8 +2010,10 @@ function startApp() {
   }
 
   function connectLive() {
+    // No status pill: the stream reconnecting is not something the reader has
+    // to act on, and a badge that is right 99% of the time only trains people
+    // to ignore it. The board simply stops moving if the connection drops.
     const source = new EventSource(apiUrl("/api/events"));
-    source.onopen = () => setLive("live");
     source.onmessage = (message) => {
       scheduleRefresh();
       if (state.route !== "events") return;
@@ -2045,17 +2050,8 @@ function startApp() {
         // A frame we cannot parse is not worth breaking the page over.
       }
     };
-    source.onerror = () => setLive("offline"); // EventSource reconnects on its own
-  }
-
-  function setLive(next) {
-    els.live.dataset.state = next;
-    els.live.textContent =
-      next === "live"
-        ? t("live.live")
-        : next === "offline"
-          ? t("live.offline")
-          : t("live.connecting");
+    // No `onerror` handler: EventSource reconnects on its own, and there is no
+    // status pill left to tell anyone about it.
   }
 
   /* ----------------------------- rendering --------------------------- */
@@ -3753,8 +3749,6 @@ function startApp() {
   els.docBackdrop.addEventListener("click", closeDoc);
   // Auto-sized audit pages follow the window; a fixed choice ignores it.
   window.addEventListener("resize", scheduleEventFit);
-  els.actorName.addEventListener("change", saveIdentity);
-  els.actorType.addEventListener("change", saveIdentity);
   els.filterQ.addEventListener("input", () => {
     state.filter.q = els.filterQ.value;
     renderBoard();
@@ -3795,7 +3789,7 @@ function startApp() {
     toast(`ui error: ${reason}`, "error");
   });
 
-  loadIdentity();
+  void loadActor();
   applyLanguage();
   applyRoute();
   connectLive();

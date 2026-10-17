@@ -247,6 +247,9 @@ async function main() {
       port: Number(new URL(url).port) || 48080,
       token: "browser-check",
       docRoots: [docRoot],
+      // The browser has no identity picker any more — it acts as the server's
+      // default actor, so the seeded cards must be created by that same name.
+      actor: { name: "jyxc", type: "human" },
     });
     const base = `http://127.0.0.1:${server.port}`;
     const created = [];
@@ -495,7 +498,7 @@ async function main() {
           lang: document.documentElement.lang,
           active: document.querySelector('.lang-option.active')?.dataset.route ?? document.querySelector('.lang-option.active')?.dataset.lang,
           columns: [...document.querySelectorAll('.column-header span:nth-child(2)')].map((e) => e.textContent),
-          actingAs: document.querySelector('.identity label').textContent,
+          searchPlaceholder: document.getElementById('filter-q').placeholder,
           newCard: document.getElementById('new-card').textContent,
         })`),
       );
@@ -507,7 +510,7 @@ async function main() {
       en.columns.join(",") === "Someday,Todo,Doing,Review,Done" &&
         en.active === "en" &&
         en.lang === "en",
-      `columns=${en.columns.join("/")} · ${en.actingAs} · ${en.newCard}`,
+      `columns=${en.columns.join("/")} · search="${en.searchPlaceholder}" · ${en.newCard}`,
     ]);
 
     await clickLang("zh");
@@ -517,7 +520,7 @@ async function main() {
       zh.columns.join(",") === "搁置,待办,进行中,审查中,已完成" &&
         zh.active === "zh" &&
         zh.lang === "zh-CN",
-      `columns=${zh.columns.join("/")} · ${zh.actingAs} · ${zh.newCard}`,
+      `columns=${zh.columns.join("/")} · search="${zh.searchPlaceholder}" · ${zh.newCard}`,
     ]);
 
     // the choice must survive a reload
@@ -640,12 +643,8 @@ async function main() {
 
     await cdp.send("Page.navigate", { url: `${url}#/board` });
     await new Promise((resolve) => setTimeout(resolve, 600));
-    // Act as the card's creator, so the mutations below are permitted — the
-    // board's permissions are cooperative and based on the actor name.
-    await cdp.evaluate(
-      `localStorage.setItem('using-kanban.actor', JSON.stringify({ name: 'jyxc', type: 'human' }))`,
-    );
-    // a same-document navigation would keep the old identity in memory
+    // The browser acts as the server's default actor, which created every
+    // seeded card — so the mutations below are permitted.
     await cdp.send("Page.reload");
     await new Promise((resolve) => setTimeout(resolve, 900));
 

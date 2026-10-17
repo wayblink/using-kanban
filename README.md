@@ -194,8 +194,9 @@ prints the URL to open. Flags pass straight through (`/ukb web --port 4000`,
 - **Storage**: SQLite (default, WAL — safe appends from several processes),
   `--storage jsonl` (zero deps, git-friendly), or `memory` (tests).
 - **Identity**: every event carries an actor. `--agent <name> --agent-type
-human|agent` (or `UKB_AGENT` / `UKB_AGENT_TYPE`); the Web UI has an "acting as"
-  box. Humans and agents share one namespace.
+human|agent` (or `UKB_AGENT` / `UKB_AGENT_TYPE`); the Web UI acts as that same
+  default actor, so a browser and a terminal on one machine are one person.
+  Humans and agents share one namespace.
 - **Config**: `~/.config/ukb/config.json` (or `$XDG_CONFIG_HOME/ukb/config.json`)
   sets the default agent, the Pi tool's prompt copy (`guidance`), and the panel
   (`overlay`). Environment variables override the file.

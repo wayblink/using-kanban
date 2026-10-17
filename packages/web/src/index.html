@@ -35,33 +35,19 @@
     </header>
 
     <div id="board-controls" class="board-controls" hidden>
-      <div class="identity" title="Who this browser acts as on the board">
-        <label for="actor-name">acting as</label>
-        <input
-          id="actor-name"
-          type="text"
-          autocomplete="off"
-          spellcheck="false"
-        />
-        <select id="actor-type" aria-label="actor type">
-          <option value="human">human</option>
-          <option value="agent">agent</option>
-        </select>
-      </div>
-
       <div class="filters" id="filters">
         <input
           id="filter-q"
           type="search"
-          placeholder="Filter title / body…"
+          placeholder="Search #id / title / body…"
           autocomplete="off"
+          spellcheck="false"
         />
         <select id="filter-project" aria-label="filter by project"></select>
         <select id="filter-assignee" aria-label="filter by assignee"></select>
         <select id="filter-reviewer" aria-label="filter by reviewer"></select>
       </div>
 
-      <span id="live" class="live" data-state="connecting">connecting…</span>
       <button id="new-card" class="primary" type="button">+ New card</button>
     </div>
 

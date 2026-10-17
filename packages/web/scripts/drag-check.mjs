@@ -19,6 +19,9 @@ const server = await startServer({
   uiDir: new URL("../src", import.meta.url).pathname,
   port: 48099,
   token: "drag-check",
+  // The browser has no identity picker — it acts as the server's default
+  // actor, so that is the name the drag below is expected to claim as.
+  actor: { name: "playwright", type: "agent" },
 });
 const base = `http://127.0.0.1:${server.port}`;
 
@@ -60,9 +63,7 @@ try {
   const before = await page.locator(cardSelector).count();
   check("card rendered in TODO", before === 1);
 
-  // set the browser's identity, then drag onto DOING
-  await page.fill("#actor-name", "playwright");
-  await page.selectOption("#actor-type", "agent");
+  // the browser acts as the server's default actor — playwright, an agent
   await page.dragAndDrop(
     cardSelector,
     '.column[data-column="doing"] .card-list',
@@ -78,7 +79,7 @@ try {
     `state=${after.card.state} assignee=${after.card.assignee}`,
   );
   check(
-    "assigned to the identity in the top bar",
+    "assigned to the acting identity",
     after.card.assignee === "playwright",
   );
 

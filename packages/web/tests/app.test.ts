@@ -26,6 +26,7 @@ import {
   resolveDocRef,
   rewriteDocRefs,
   sortCards,
+  searchQuery,
 } from "../src/app.js";
 
 const card = (overrides = {}) => ({
@@ -113,6 +114,38 @@ describe("filterCards", () => {
   it("treats empty filters as no-ops", () => {
     expect(filterCards(cards, {})).toHaveLength(2);
     expect(filterCards(cards, { q: "   " })).toHaveLength(2);
+  });
+
+  it("searches by id, with or without the # people see on the card", () => {
+    expect(filterCards(cards, { q: "2" }).map((c) => c.id)).toEqual([2]);
+    expect(filterCards(cards, { q: "#2" }).map((c) => c.id)).toEqual([2]);
+    expect(filterCards(cards, { q: "  #2  " }).map((c) => c.id)).toEqual([2]);
+    expect(filterCards(cards, { q: "#9" })).toHaveLength(0);
+  });
+
+  it("treats an id search as a substring match, like any other", () => {
+    // Searching 10 finds card 10 by id and card 11 by its title — the same
+    // rule a text search has always had. The id is one more haystack, not a
+    // privileged exact-match field.
+    const digits = [
+      card({ id: 10, title: "SIFT1M benchmark" }),
+      card({ id: 11, title: "SIFT10M benchmark" }),
+    ];
+    expect(filterCards(digits, { q: "10" }).map((c) => c.id)).toEqual([10, 11]);
+    expect(filterCards(digits, { q: "SIFT1M" }).map((c) => c.id)).toEqual([10]);
+  });
+});
+
+describe("searchQuery", () => {
+  it("strips the # people copy off a card id", () => {
+    expect(searchQuery("#983")).toBe("983");
+    expect(searchQuery("  ##983 ")).toBe("983");
+    expect(searchQuery("983")).toBe("983");
+  });
+
+  it("leaves anything that is not an id alone", () => {
+    expect(searchQuery("Fix #login")).toBe("fix #login");
+    expect(searchQuery(null)).toBe("");
   });
 });
 
