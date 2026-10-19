@@ -213,6 +213,32 @@ export function openApiSpec(): Record<string, unknown> {
           responses: { "200": { description: "board" } },
         },
       },
+      "/api/insights": {
+        get: {
+          summary: "The board over time — throughput, flow, aging, cycle time",
+          parameters: [
+            {
+              name: "days",
+              in: "query",
+              schema: { type: "integer", minimum: 1, maximum: 365 },
+              description: "window length in days, ending today (default 30)",
+            },
+            {
+              name: "tz",
+              in: "query",
+              schema: { type: "string" },
+              description:
+                "IANA time zone used to cut days, e.g. Asia/Shanghai (default UTC)",
+            },
+          ],
+          responses: {
+            "200": {
+              description:
+                "{ days, from, to, series, states, projects, previous, aging, cycle }",
+            },
+          },
+        },
+      },
       "/api/log": {
         get: {
           summary: "The event log, newest first — the audit view",

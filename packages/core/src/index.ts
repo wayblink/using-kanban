@@ -9,3 +9,4 @@ export * from "./sanitize.js";
 export * from "./mutation.js";
 export * from "./kanban.js";
 export * from "./open.js";
+export * from "./insights.js";

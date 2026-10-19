@@ -775,3 +775,96 @@ describe("GET /api/log", () => {
     ]);
   });
 });
+
+describe("insights", () => {
+  interface InsightsBody {
+    days: number;
+    from: string;
+    to: string;
+    series: {
+      date: string;
+      created: number;
+      done: number;
+      states: Record<string, number>;
+    }[];
+    states: Record<string, number>;
+    projects: { project: string | null; done: number }[];
+    previous: { created: number; done: number };
+    aging: { doing: unknown[]; review: unknown[]; blocked: number };
+    cycle: { completed: number; medianDays: number } | null;
+  }
+
+  function today(): string {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  it("returns a dense window that matches the board", async () => {
+    const first = await createCard("one", { project: "web" });
+    const second = await createCard("two", { project: "web" });
+    await createCard("three", { project: "api" });
+
+    await request(`/api/cards/${first.id}/claim`, { method: "POST" });
+    await request(`/api/cards/${first.id}/done`, { method: "POST" });
+    await request(`/api/cards/${second.id}/claim`, { method: "POST" });
+
+    const response = await request("/api/insights?days=7");
+    expect(response.status).toBe(200);
+    const body = await json<InsightsBody>(response);
+
+    expect(body.days).toBe(7);
+    expect(body.series).toHaveLength(7);
+    // Every day is present, even the ones with no events.
+    expect(body.series.every((day) => day.date.length === 10)).toBe(true);
+    expect(body.series.at(-1)?.date).toBe(today());
+
+    // Creation happened today, so every card is in today's bucket.
+    expect(body.series.at(-1)?.created).toBe(3);
+    expect(body.series.at(-1)?.done).toBe(1);
+    expect(body.series.at(-1)?.states).toEqual({
+      someday: 0,
+      todo: 1,
+      doing: 1,
+      review: 0,
+      done: 1,
+    });
+
+    expect(body.states).toEqual({
+      someday: 0,
+      todo: 1,
+      doing: 1,
+      review: 0,
+      done: 1,
+    });
+    expect(body.projects.map((project) => project.project).sort()).toEqual([
+      "api",
+      "web",
+    ]);
+    expect(body.cycle?.completed).toBe(1);
+    expect(body.previous).toMatchObject({ created: 0, done: 0 });
+  });
+
+  it("rejects a window or a zone it cannot honour", async () => {
+    for (const query of ["days=0", "days=366", "days=2.5", "days=abc"]) {
+      const response = await request(`/api/insights?${query}`);
+      expect(response.status, query).toBe(400);
+      const body = await json<{ error: { code: string } }>(response);
+      expect(body.error.code).toBe("invalid_input");
+    }
+
+    const zone = await request("/api/insights?tz=Mars/Olympus");
+    expect(zone.status).toBe(400);
+  });
+
+  it("cuts days in the requested zone", async () => {
+    await createCard("zone test");
+    const response = await request("/api/insights?days=1&tz=Asia/Shanghai");
+    const body = await json<InsightsBody>(response);
+    expect(body.series).toHaveLength(1);
+    // Shanghai is ahead of UTC, so its date can only be equal or one day later.
+    const utc = new Date().toISOString().slice(0, 10);
+    expect([
+      utc,
+      new Date(Date.now() + 86_400_000).toISOString().slice(0, 10),
+    ]).toContain(body.series[0]?.date);
+  });
+});

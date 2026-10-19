@@ -40,6 +40,7 @@ import {
 } from "./routes/cards.js";
 import { getDoc } from "./routes/docs.js";
 import { listEvents, streamEvents } from "./routes/events.js";
+import { getInsights } from "./routes/insights.js";
 import { health, me, openapi } from "./routes/meta.js";
 import { serveStaticUi } from "./static.js";
 
@@ -48,6 +49,12 @@ const ROUTES: readonly Route[] = [
   { method: "GET", path: "/api/me", mutation: false, handler: me },
   { method: "GET", path: "/openapi.json", mutation: false, handler: openapi },
   { method: "GET", path: "/api/board", mutation: false, handler: getBoard },
+  {
+    method: "GET",
+    path: "/api/insights",
+    mutation: false,
+    handler: getInsights,
+  },
   { method: "GET", path: "/api/cards", mutation: false, handler: listCards },
   { method: "POST", path: "/api/cards", mutation: true, handler: createCard },
   { method: "GET", path: "/api/cards/:id", mutation: false, handler: getCard },

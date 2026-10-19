@@ -361,15 +361,37 @@ async function main() {
         setTimeout(() => reject(new Error("page never loaded")), 15000),
       ),
     ]);
-    await new Promise((resolve) => setTimeout(resolve, 400));
+    await new Promise((resolve) => setTimeout(resolve, 600));
 
     /* ---------------------------- assertions ---------------------------- */
+
+    const report = [];
+
+    // The home page is the board: a tool people open every day should not land
+    // on its own manual.
+    const home = JSON.parse(
+      await cdp.evaluate(`JSON.stringify({
+        hash: window.location.hash,
+        boardVisible: getComputedStyle(document.querySelector('#board')).display !== 'none',
+        docsHidden: getComputedStyle(document.querySelector('#docs')).display === 'none',
+        active: document.querySelector('.nav-link.active')?.dataset.route ?? '',
+        nav: [...document.querySelectorAll('.nav-link')].map((a) => a.dataset.route),
+      })`),
+    );
+    report.push([
+      "the empty hash lands on the board",
+      home.boardVisible && home.docsHidden && home.active === "board",
+      `hash="${home.hash}" · nav=${home.nav.join(" / ")}`,
+    ]);
+    report.push([
+      "the nav runs board, insights, events, docs",
+      home.nav.join(",") === "board,insights,events,docs",
+      home.nav.join(" / "),
+    ]);
 
     // start on the board view for the board assertions below
     await cdp.send("Page.navigate", { url: `${url}#/board` });
     await new Promise((resolve) => setTimeout(resolve, 600));
-
-    const report = [];
 
     const phantom = await cdp.evaluate(`(() => {
       const hidden = [];
@@ -761,10 +783,101 @@ async function main() {
       `downstream=${addedRelation.downstream.join(" / ")} · toasts=${JSON.stringify(addedRelation.toasts)}`,
     ]);
 
+    /* ---------------------------- insights page --------------------------- */
+
+    await cdp.send("Page.navigate", { url: `${url}#/insights` });
+    await new Promise((resolve) => setTimeout(resolve, 900));
+
+    const insights = JSON.parse(
+      await cdp.evaluate(`JSON.stringify({
+        visible: getComputedStyle(document.querySelector('#insights')).display !== 'none',
+        boardHidden: getComputedStyle(document.querySelector('#board')).display === 'none',
+        active: document.querySelector('.nav-link.active')?.dataset.route ?? '',
+        panels: document.querySelectorAll('.insights .panel').length,
+        kpis: document.querySelectorAll('.kpi').length,
+        charts: document.querySelectorAll('.chart-svg').length,
+        projectRows: document.querySelectorAll('.project-row').length,
+        ranges: [...document.querySelectorAll('.segmented-option')].map((b) => b.dataset.days),
+        window: document.querySelector('#insights').dataset.days ?? '',
+        lead: document.querySelector('.insights-lead')?.textContent ?? '',
+      })`),
+    );
+    report.push([
+      "insights renders its five panels from the log",
+      insights.visible &&
+        insights.boardHidden &&
+        insights.active === "insights" &&
+        insights.panels >= 5 &&
+        insights.kpis === 5 &&
+        insights.charts === 2 &&
+        insights.projectRows > 0 &&
+        insights.lead.length > 0,
+      `${insights.panels} panels · ${insights.kpis} tiles · ${insights.charts} charts · ` +
+        `${insights.projectRows} project rows · lead "${insights.lead}"`,
+    ]);
+
+    // The window switch refetches: the page records the window it drew.
+    const rangeBefore = insights.window;
+    await cdp.clickCenter('.segmented-option[data-days="90"]');
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    const widened = JSON.parse(
+      await cdp.evaluate(`JSON.stringify({
+        active: document.querySelector('.segmented-option.active')?.dataset.days ?? '',
+        window: document.querySelector('#insights').dataset.days ?? '',
+        charts: document.querySelectorAll('.chart-svg').length,
+      })`),
+    );
+    report.push([
+      "the 7/30/90 switch refetches the window",
+      widened.active === "90" &&
+        widened.window === "90" &&
+        widened.window !== rangeBefore &&
+        widened.charts === 2,
+      `${rangeBefore}d → ${widened.window}d · active=${widened.active}`,
+    ]);
+
+    // A project bar drills through to the board, filtered to that project.
+    const projectHref = await cdp.evaluate(
+      `document.querySelector('a.project-row')?.getAttribute('href') ?? ''`,
+    );
+    const projectSlug = decodeURIComponent(
+      projectHref.split("project=")[1] ?? "",
+    );
+    await cdp.clickCenter("a.project-row");
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    const drilled = JSON.parse(
+      await cdp.evaluate(`JSON.stringify({
+        hash: window.location.hash,
+        boardVisible: getComputedStyle(document.querySelector('#board')).display !== 'none',
+        filter: document.querySelector('#filter-project')?.value ?? '',
+        cards: document.querySelectorAll('.card').length,
+      })`),
+    );
+    report.push([
+      "a project row opens the board filtered to it",
+      drilled.hash === `#/board?project=${projectSlug}` &&
+        drilled.boardVisible &&
+        drilled.filter === projectSlug &&
+        drilled.cards > 0,
+      `hash=${drilled.hash} filter=${drilled.filter} cards=${drilled.cards}`,
+    ]);
+
+    // Keep a picture of the page for whoever reviews the change.
+    await cdp.send("Page.navigate", { url: `${url}#/insights` });
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    const insightShot = await cdp.send("Page.captureScreenshot", {
+      format: "png",
+      captureBeyondViewport: true,
+    });
+    writeFileSync(
+      out.replace(/\.png$/, "") + "-insights.png",
+      Buffer.from(insightShot.data, "base64"),
+    );
+
     /* ------------------------------ docs page ----------------------------- */
 
-    await cdp.send("Page.navigate", { url });
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await cdp.send("Page.navigate", { url: `${url}#/docs` });
+    await new Promise((resolve) => setTimeout(resolve, 700));
 
     const docs = await cdp.evaluate(`(() => {
       const docs = document.querySelector('#docs');
@@ -785,7 +898,7 @@ async function main() {
       };
     })()`);
     report.push([
-      "docs is the home page",
+      "the docs page stands on its own",
       docs.docsVisible && docs.boardHidden && docs.activeNav === "docs",
       `hero "${docs.hero}" · nav=${docs.activeNav} · board hidden=${docs.boardHidden}`,
     ]);

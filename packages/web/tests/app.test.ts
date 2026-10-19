@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  CHART_STATES,
   COLUMNS,
   DOCS,
   DOCS_SECTIONS,
@@ -10,7 +11,9 @@ import {
   LANGUAGES,
   actionForColumn,
   actorOptions,
+  axisTicks,
   blockedCardIds,
+  bodyExcerpt,
   describeEvent,
   docKindOf,
   escapeHtml,
@@ -20,13 +23,19 @@ import {
   markdownToHtml,
   matchesEvent,
   mergeEvents,
+  movingAverage,
+  niceMax,
   normaliseDocPath,
   parseActor,
+  polylinePath,
   previewCards,
   resolveDocRef,
   rewriteDocRefs,
   sortCards,
   searchQuery,
+  shortDate,
+  stackedTotals,
+  tickIndices,
 } from "../src/app.js";
 
 const card = (overrides = {}) => ({
@@ -220,6 +229,45 @@ describe("blockedCardIds", () => {
   it("treats a missing blocker as blocking (defensive)", () => {
     const cards = [card({ id: 2, blockedBy: [99] })];
     expect([...blockedCardIds(cards)]).toEqual([2]);
+  });
+});
+
+describe("bodyExcerpt", () => {
+  it("collapses hard-wrapped prose onto one line", () => {
+    expect(bodyExcerpt("场景：\n1. 建索引后 INSERT\n2. refresh 后再查")).toBe(
+      "场景： 1. 建索引后 INSERT 2. refresh 后再查",
+    );
+  });
+
+  it("strips markdown noise so the gist reads as prose", () => {
+    expect(bodyExcerpt("## 决策 · 先做 B\n- **一行日志**，见 `ukb show`")).toBe(
+      "决策 · 先做 B 一行日志，见 ukb show",
+    );
+    expect(bodyExcerpt("见 [设计文档](https://example.com/a)")).toBe(
+      "见 设计文档",
+    );
+  });
+
+  it("drops fenced code, which is never a gist", () => {
+    expect(bodyExcerpt("跑这个：\n```bash\nukb claim 1\n```\n然后看结果")).toBe(
+      "跑这个： 然后看结果",
+    );
+  });
+
+  it("cuts on a word boundary and marks the cut", () => {
+    const body = "alpha bravo charlie delta echo foxtrot golf hotel india";
+    const excerpt = bodyExcerpt(body, 30);
+    expect(excerpt.endsWith("…")).toBe(true);
+    expect(excerpt.length).toBeLessThanOrEqual(31);
+    // No half word at the tail: the char before the ellipsis is a letter of a
+    // word that exists in the body.
+    expect(body).toContain(excerpt.slice(0, -1));
+  });
+
+  it("keeps text that already fits, and returns empty for no body", () => {
+    expect(bodyExcerpt("短句")).toBe("短句");
+    expect(bodyExcerpt(null)).toBe("");
+    expect(bodyExcerpt("   \n\n  ")).toBe("");
   });
 });
 
@@ -932,5 +980,67 @@ describe("fitPageSize", () => {
     // page is on screen, so the floor is the safe answer meanwhile.
     expect(fitPageSize(Number.NaN, 42)).toBe(EVENT_MIN_PAGE_SIZE);
     expect(fitPageSize(600, 0)).toBe(EVENT_MIN_PAGE_SIZE);
+  });
+});
+
+describe("insight charts", () => {
+  it("stacks bands bottom-up, in workflow order", () => {
+    const rows = [
+      { someday: 1, todo: 2, doing: 3, review: 4, done: 5 },
+      { someday: 0, todo: 1, doing: 0, review: 2, done: 9 },
+    ];
+    const totals = stackedTotals(rows, CHART_STATES);
+    expect(totals).toHaveLength(CHART_STATES.length);
+    // The bottom band is the first state alone...
+    expect(totals[0]).toEqual([1, 0]);
+    // ...and the top band is the whole board.
+    expect(totals[CHART_STATES.length - 1]).toEqual([15, 12]);
+    expect(totals[1]).toEqual([3, 1]);
+  });
+
+  it("averages a trailing window, starting on day one", () => {
+    expect(movingAverage([1, 2, 3, 4, 5, 6, 7, 8], 7)).toEqual([
+      1, 1.5, 2, 2.5, 3, 3.5, 4, 5,
+    ]);
+    expect(movingAverage([], 7)).toEqual([]);
+  });
+
+  it("rounds the value axis up to a human step", () => {
+    expect(niceMax(0)).toBe(1);
+    expect(niceMax(1)).toBe(1);
+    expect(niceMax(3)).toBe(3);
+    expect(niceMax(7)).toBe(8);
+    expect(niceMax(23)).toBe(24);
+    expect(niceMax(100)).toBe(100);
+  });
+
+  it("ticks a count axis on whole numbers", () => {
+    expect(axisTicks(1)).toEqual([0, 1]);
+    expect(axisTicks(3)).toEqual([0, 1, 2, 3]);
+    expect(axisTicks(8)).toEqual([0, 2, 4, 6, 8]);
+    expect(axisTicks(16)).toEqual([0, 4, 8, 12, 16]);
+    expect(axisTicks(24)).toEqual([0, 6, 12, 18, 24]);
+  });
+
+  it("builds a polyline path with one decimal", () => {
+    expect(
+      polylinePath([
+        [1, 2],
+        [3.14, 4.56],
+      ]),
+    ).toBe("M1.0 2.0 L3.1 4.6");
+    expect(polylinePath([])).toBe("");
+  });
+
+  it("spaces x labels so 90 days do not collide", () => {
+    expect(tickIndices(7)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+    expect(tickIndices(30)).toEqual([0, 5, 10, 15, 20, 25, 29]);
+    expect(tickIndices(90)).toEqual([0, 15, 30, 45, 60, 75, 89]);
+    expect(tickIndices(1)).toEqual([0]);
+  });
+
+  it("shortens a date to month and day", () => {
+    expect(shortDate("2026-10-19")).toBe("10-19");
+    expect(shortDate("")).toBe("");
   });
 });

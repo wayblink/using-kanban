@@ -101,6 +101,148 @@ function cardHaystack(card) {
   return `${card.id} ${card.title} ${card.body ?? ""} ${notes}`.toLowerCase();
 }
 
+/**
+ * The gist of a card body, for the board.
+ *
+ * A board card has room for a hint and no more: the title says what the card
+ * is, the excerpt says whether it matters to the reader right now. Three rules
+ * keep it readable at card size — markdown noise (`#`, `-`, `**`, fences,
+ * link targets) is stripped so it reads as prose, whitespace collapses because
+ * bodies are hard-wrapped by whoever wrote them, and the cut lands on a word
+ * boundary so the tail is a word and an ellipsis rather than half a word.
+ */
+export function bodyExcerpt(body, maxChars = 140) {
+  const text = String(body ?? "")
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/\*\*([^*]*)\*\*/g, "$1")
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .replace(/^\s{0,3}[-*+]\s+/gm, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (text.length <= maxChars) return text;
+  // Look one character past the limit so a space sitting exactly on the edge
+  // still counts as a boundary.
+  const cut = text.slice(0, maxChars + 1);
+  const boundary = cut.lastIndexOf(" ");
+  // A boundary in the first half means the text has no spaces to speak of
+  // (a long URL, CJK) — cutting mid-run beats truncating to almost nothing.
+  const head =
+    boundary > maxChars * 0.5
+      ? cut.slice(0, boundary)
+      : text.slice(0, maxChars);
+  return `${head.trimEnd()}…`;
+}
+
+/* ------------------------------------------------------------------ *
+ * Charts
+ *
+ * Inline SVG, hand-built: the Web UI ships as one self-contained page with no
+ * assets and no dependencies, so a chart library is a non-starter. These
+ * helpers are pure and exported so the geometry can be tested without a DOM.
+ * ------------------------------------------------------------------ */
+
+/** The columns in the order the charts stack them (the workflow order). */
+export const CHART_STATES = ["someday", "todo", "doing", "review", "done"];
+
+/**
+ * A trailing average that starts on day one.
+ *
+ * A fixed window would leave the first six days of a 7-day view blank, which
+ * is exactly the stretch a reader is looking at. Averaging the days that exist
+ * gives an honest — if noisier — start.
+ */
+export function movingAverage(values, window = 7) {
+  const out = [];
+  let sum = 0;
+  for (let index = 0; index < values.length; index += 1) {
+    sum += values[index];
+    if (index >= window) sum -= values[index - window];
+    out.push(sum / Math.min(index + 1, window));
+  }
+  return out;
+}
+
+/**
+ * The top of a value axis: `0` stays `0`, anything else rounds up to a step a
+ * human would have picked. The steps are finer than the usual 1/2/5 so a
+ * maximum of 3 does not stretch to 5 and flatten the line.
+ *
+ * Above 4 the result is a multiple of 4, so the four grid intervals land on
+ * whole numbers — an axis labelled 0 / 3.75 / 7.5 reads like a bug. Below 4 it
+ * is simply the next whole number, because a 0–4 axis with four intervals is
+ * still fractional.
+ */
+export function niceMax(value) {
+  if (!(value > 0)) return 1;
+  if (value <= 4) return Math.ceil(value);
+  return Math.ceil(value / 4) * 4;
+}
+
+/** The values the gridlines sit on — four intervals, and integers by then. */
+export function axisTicks(max) {
+  if (max <= 4) {
+    return Array.from({ length: Math.round(max) + 1 }, (_, index) => index);
+  }
+  const step = max / 4;
+  return [0, step, step * 2, step * 3, max];
+}
+
+/** An SVG path through `[x, y]` points, with one decimal of precision. */
+export function polylinePath(points) {
+  return points
+    .map(
+      ([x, y], index) =>
+        `${index === 0 ? "M" : "L"}${x.toFixed(1)} ${y.toFixed(1)}`,
+    )
+    .join(" ");
+}
+
+/**
+ * Cumulative totals per band, bottom-up.
+ *
+ * `stackedTotals(rows, keys)[band][day]` is the height of that band's ceiling —
+ * the number the area chart needs to draw the day. Bands lower in the stack sum
+ * the ones below them, which is why a flow diagram reads as a set of steps.
+ */
+export function stackedTotals(rows, keys) {
+  const totals = [];
+  for (let band = 0; band < keys.length; band += 1) {
+    const line = [];
+    for (let day = 0; day < rows.length; day += 1) {
+      let sum = 0;
+      for (let below = 0; below <= band; below += 1) {
+        sum += Number(rows[day]?.[keys[below]] ?? 0);
+      }
+      line.push(sum);
+    }
+    totals.push(line);
+  }
+  return totals;
+}
+
+/** Which day indexes get an x-axis label, so 90 labels do not collide. */
+export function tickIndices(count) {
+  if (count <= 7) return [...Array(count).keys()];
+  const step = count <= 30 ? 5 : 15;
+  const ticks = [];
+  for (let index = 0; index < count; index += step) ticks.push(index);
+  const last = count - 1;
+  const tail = ticks[ticks.length - 1];
+  if (tail === undefined) return [0];
+  // A final label that nearly touches the previous one is a smudge, not a
+  // tick: move the previous one to the end instead of adding a second.
+  if (last - tail >= step * 0.6) ticks.push(last);
+  else ticks[ticks.length - 1] = last;
+  return ticks;
+}
+
+/** `2026-10-19` → `10-19`, the shortest label that still reads as a date. */
+export function shortDate(date) {
+  return String(date ?? "").slice(5);
+}
+
 /** Priority bands, in the order the board's other doors use. */
 const PRIORITY_ORDER = ["high", "normal", "low"];
 
@@ -567,7 +709,48 @@ export const I18N = {
   en: {
     "nav.docs": "Docs",
     "nav.board": "Board",
+    "nav.insights": "Insights",
     "nav.events": "Events",
+    "insights.title": "Insights",
+    "insights.lead":
+      "Where the work is going. The Events page is the per-event record.",
+    "insights.window": "window",
+    "insights.range7": "7 days",
+    "insights.range30": "30 days",
+    "insights.range90": "90 days",
+    "insights.loading": "Reading the log…",
+    "insights.failed": "Could not load insights.",
+    "insights.retry": "Retry",
+    "insights.states": "Board right now",
+    "insights.statesLead": "Every card, by the column it sits in.",
+    "insights.open": "Open",
+    "insights.inPlay": "In play",
+    "insights.period": "{created} created · {done} done",
+    "insights.vsPrevious": "vs previous {n}d",
+    "insights.noBaseline": "no earlier data",
+    "insights.throughput": "Throughput",
+    "insights.throughputLead":
+      "Cards finished per day, against the cards created.",
+    "insights.createdSeries": "Created",
+    "insights.average": "7-day average",
+    "insights.projects": "Projects",
+    "insights.projectsLead":
+      "Current cards by project and state. Click one to open it on the board.",
+    "insights.noProject": "No project",
+    "insights.openProject": "Open {project} on the board",
+    "insights.flow": "Cumulative flow",
+    "insights.flowLead": "The board's shape at the end of each day.",
+    "insights.bottlenecks": "Where it is stuck",
+    "insights.agingDoing": "Longest in doing",
+    "insights.agingReview": "Longest in review",
+    "insights.ageDays": "{n}d",
+    "insights.agingNone": "Nothing has been sitting here.",
+    "insights.blocked": "{n} waiting on an upstream card",
+    "insights.cycle": "{n} finished — median {median}d, P85 {p85}d",
+    "insights.cycleNone": "Nothing finished in this window.",
+    "insights.empty": "No cards yet.",
+    "insights.chartThroughput": "Throughput over time",
+    "insights.chartFlow": "Cumulative flow over time",
     "events.title": "Events",
     "events.project": "Project",
     "events.anyProject": "all projects",
@@ -697,7 +880,45 @@ export const I18N = {
   zh: {
     "nav.docs": "文档",
     "nav.board": "看板",
+    "nav.insights": "洞察",
     "nav.events": "事件",
+    "insights.title": "洞察",
+    "insights.lead": "工作往哪儿走。逐条流水在「事件」页。",
+    "insights.window": "时间范围",
+    "insights.range7": "7 天",
+    "insights.range30": "30 天",
+    "insights.range90": "90 天",
+    "insights.loading": "正在读取事件日志…",
+    "insights.failed": "洞察加载失败。",
+    "insights.retry": "重试",
+    "insights.states": "当前看板",
+    "insights.statesLead": "每张卡片，按它所在的列统计。",
+    "insights.open": "未完成",
+    "insights.inPlay": "在办",
+    "insights.period": "本期新建 {created} · 完成 {done}",
+    "insights.vsPrevious": "较前 {n} 天",
+    "insights.noBaseline": "此前无数据",
+    "insights.throughput": "吞吐",
+    "insights.throughputLead": "每天完成的卡片数，对照当天新建数。",
+    "insights.createdSeries": "新建",
+    "insights.average": "7 日平均",
+    "insights.projects": "项目",
+    "insights.projectsLead": "当前各项目的卡片与状态。点一行，看板只看该项目。",
+    "insights.noProject": "无项目",
+    "insights.openProject": "在看板中只看 {project}",
+    "insights.flow": "累积流",
+    "insights.flowLead": "每天结束时，整块看板的形状。",
+    "insights.bottlenecks": "卡在哪",
+    "insights.agingDoing": "进行中停留最久",
+    "insights.agingReview": "审查中停留最久",
+    "insights.ageDays": "{n} 天",
+    "insights.agingNone": "这里没有积压。",
+    "insights.blocked": "{n} 张在等上游卡片",
+    "insights.cycle": "本期完成 {n} 张 · 中位数 {median} 天 · P85 {p85} 天",
+    "insights.cycleNone": "本期没有完成的卡片。",
+    "insights.empty": "还没有卡片。",
+    "insights.chartThroughput": "吞吐趋势",
+    "insights.chartFlow": "累积流趋势",
     "events.title": "事件",
     "events.project": "项目",
     "events.anyProject": "全部项目",
@@ -824,7 +1045,7 @@ export const I18N = {
 };
 
 /* ------------------------------------------------------------------ *
- * Documentation — the product home page
+ * Documentation — the product manual (the board is the home page)
  * ------------------------------------------------------------------ */
 
 const DOCS_EN = [
@@ -933,6 +1154,14 @@ const DOCS_EN = [
       {
         t: "p",
         text:
+          "A card is fixed-size and says three things in the same order every time: the title, a few lines " +
+          "of the body's gist (markdown stripped, so it reads as prose), and the labels — who has it, its " +
+          "priority and project, what it waits on. Only the three labels a reader acts on are printed; the " +
+          "rest collapse into `+N`, whose tooltip names them. The card dialog has all of them.",
+      },
+      {
+        t: "p",
+        text:
           "If a claim fails — someone else is already working the card — you get the server's reason as a toast and " +
           "the board snaps back to server state. Nothing is ever silently overwritten.",
       },
@@ -983,6 +1212,85 @@ const DOCS_EN = [
           ],
           ["Keyboard", "Enter opens a focused card, Escape closes panels."],
         ],
+      },
+    ],
+  },
+  {
+    id: "insights",
+    title: "Insights — the board over time",
+    lead: "What the work is doing, not who did what.",
+    blocks: [
+      {
+        t: "p",
+        text:
+          "The board shows the present; Insights (`#/insights`) shows the recent past. It is computed from the " +
+          "same event log the board is a projection of — one replay, aggregated server-side — so the two cannot " +
+          "disagree. The Events page stays the per-operation record; Insights is the aggregate.",
+      },
+      {
+        t: "table",
+        head: ["Panel", "The question it answers"],
+        rows: [
+          [
+            "Board right now",
+            "how many cards sit in each column, with the unfinished and in-play totals and a comparison against the window before",
+          ],
+          [
+            "Throughput",
+            "cards finished per day against cards created — is the pile growing or shrinking?",
+          ],
+          [
+            "Projects",
+            "where the open work is, by project and state; click a row to open that project on the board",
+          ],
+          [
+            "Cumulative flow",
+            "the board's shape at the end of each day — WIP that keeps growing, or a review queue that never drains, shows up here",
+          ],
+          [
+            "Where it is stuck",
+            "the cards sitting longest in doing and review, the median and P85 cycle time, and how many cards wait on an unfinished upstream",
+          ],
+        ],
+      },
+      { t: "h", text: "How the numbers are made" },
+      {
+        t: "ul",
+        items: [
+          [
+            "Window",
+            "7, 30 or 90 days ending today, cut in the browser's time zone. Events are stored in UTC; an evening's work east of Greenwich must not be filed under yesterday.",
+          ],
+          [
+            "Completions",
+            "one per card per day. A card finished, reopened and finished again the same day counts once. The done tile is the current column count — a different number from the window's throughput.",
+          ],
+          [
+            "Deleted cards",
+            "their history still counts — they really were created and finished — but they are not in the current counts.",
+          ],
+          [
+            "Cycle time",
+            "created to finished, for the cards that finished inside the window; the median and the 85th percentile, in days.",
+          ],
+          [
+            "Cost",
+            "one replay of the log per request, server-side. The browser never pages through `/api/log` to draw a chart.",
+          ],
+        ],
+      },
+      {
+        t: "p",
+        text:
+          "Clicking a project row opens `#/board?project=<slug>`, so a filtered board is a link you can share. " +
+          "The page follows the live log over SSE and recomputes in the background when something changes.",
+      },
+      {
+        t: "p",
+        text:
+          "Not here yet: a per-person or per-agent breakdown, a 90-day contribution heatmap, arbitrary ranges, " +
+          "and saved dashboard layouts. The event log holds the data for the first two; the endpoint would have " +
+          "to aggregate them before the page could draw them.",
       },
     ],
   },
@@ -1133,6 +1441,7 @@ const DOCS_EN = [
         head: ["Method", "Path", "Purpose"],
         rows: [
           ["GET", "/api/board", "columns + cards"],
+          ["GET", "/api/insights?days=&tz=", "throughput, flow, aging"],
           ["GET", "/api/cards?state=open&assignee=me&q=text", "filtered cards"],
           ["GET", "/api/cards/:id", "card + event history"],
           ["POST", "/api/cards", "create a card (todo)"],
@@ -1371,6 +1680,10 @@ const DOCS_ZH = [
       },
       {
         t: "p",
+        text: "每张卡片高度固定，且总是按同一顺序说三件事：标题、正文梗概（去掉 markdown，按散文读），以及标签——谁在处理、优先级和项目、在等什么。标签只印读者会真正动手的那三个，其余收进 `+N`，悬停可看全；卡片详情里有完整的一份。",
+      },
+      {
+        t: "p",
         text: "如果认领失败——已经有别人在处理这张卡片——你会看到服务端返回的原因提示，看板也会回退到服务端状态。任何操作都不会被悄悄覆盖。",
       },
       { t: "h", text: "事件 —— 审计流水" },
@@ -1406,6 +1719,76 @@ const DOCS_ZH = [
           ],
           ["键盘", "聚焦卡片后按回车打开，按 Esc 关闭面板。"],
         ],
+      },
+    ],
+  },
+  {
+    id: "insights",
+    title: "洞察 —— 看板的时间维度",
+    lead: "工作本身在怎么走，而不是谁做了什么。",
+    blocks: [
+      {
+        t: "p",
+        text:
+          "看板显示现在，洞察（`#/insights`）显示最近的过去。它和看板来自同一份事件日志——一次回放、在服务端聚合——" +
+          "所以两者不可能对不上。事件页仍然是逐条流水，洞察是汇总。",
+      },
+      {
+        t: "table",
+        head: ["面板", "它回答的问题"],
+        rows: [
+          [
+            "当前看板",
+            "每列各有多少卡片，连同未完成、在办的总数，以及与前一个同长窗口的对比",
+          ],
+          ["吞吐", "每天完成的卡片数对照当天新建数——积压在变大还是变小？"],
+          [
+            "项目",
+            "未完成的工作分布在哪些项目、哪些状态；点一行就在看板里只看该项目",
+          ],
+          [
+            "累积流",
+            "每天结束时整块看板的形状——WIP 一直涨，或者审查队列只进不出，在这里都看得见",
+          ],
+          [
+            "卡在哪",
+            "在做和审查里停留最久的卡片、周期时间的中位数与 P85，以及多少卡片在等未完成的上游",
+          ],
+        ],
+      },
+      { t: "h", text: "数字是怎么算出来的" },
+      {
+        t: "ul",
+        items: [
+          [
+            "窗口",
+            "截止今天的 7 / 30 / 90 天，按浏览器的时区切日。事件存的是 UTC；在东八区晚上干的活，不能被算到前一天。",
+          ],
+          [
+            "完成数",
+            "同一张卡同一天只算一次。完成、打回、当天又完成，仍然只算一张。状态块里的「已完成」是当前这一列的张数，和窗口内的完成量是两个数。",
+          ],
+          [
+            "已删除的卡片",
+            "历史仍然算数——它们确实被创建、被完成过——但不进入当前统计。",
+          ],
+          [
+            "周期时间",
+            "从创建到完成，只统计窗口内完成的卡片；给出中位数和第 85 百分位，单位是天。",
+          ],
+          [
+            "开销",
+            "每个请求在服务端做一次日志回放。浏览器不会为了画一张图去翻 `/api/log` 的分页。",
+          ],
+        ],
+      },
+      {
+        t: "p",
+        text: "点项目行会打开 `#/board?project=<slug>`，所以筛选后的看板本身就是一条可以分享的链接。页面通过 SSE 跟随实时日志，有变化时在后台重新计算。",
+      },
+      {
+        t: "p",
+        text: "暂时没有：按人 / 按智能体拆分、90 天热力图、任意时间范围、可保存的仪表盘布局。前两项的数据在事件日志里，接口需要先聚合，页面才能画。",
       },
     ],
   },
@@ -1541,6 +1924,7 @@ const DOCS_ZH = [
         head: ["方法", "路径", "用途"],
         rows: [
           ["GET", "/api/board", "各列与卡片"],
+          ["GET", "/api/insights?days=&tz=", "吞吐、流动、积压"],
           ["GET", "/api/cards?state=open&assignee=me&q=文本", "筛选卡片"],
           ["GET", "/api/cards/:id", "卡片与事件历史"],
           ["POST", "/api/cards", "创建卡片（待办）"],
@@ -1701,6 +2085,7 @@ function startApp() {
 
   const els = {
     board: document.getElementById("board"),
+    insights: document.getElementById("insights"),
     docs: document.getElementById("docs"),
     events: document.getElementById("events"),
     boardControls: document.getElementById("board-controls"),
@@ -1750,6 +2135,8 @@ function startApp() {
       /** The `before` cursor each page was fetched with; page 0 is newest. */
       cursors: [null],
     },
+    /** The Insights page: the aggregate over the selected window. */
+    insights: { data: null, loading: false, error: null, days: 30 },
   };
 
   /** Guards against re-rendering the docs when only the section hash changes. */
@@ -1789,20 +2176,53 @@ function startApp() {
     }
     render();
     if (state.route === "docs") void renderDocs();
+    // A language switch only relabels the page: the numbers do not change, so
+    // the data already in hand is redrawn rather than fetched again.
+    if (state.route === "insights" && state.insights.data) renderInsights();
   }
 
-  /** `#/board`, `#/events` or `#/docs` — the docs page is the home page. */
+  /** The hash without `#/`, query included — `board?project=web`. */
+  function hashPath() {
+    return window.location.hash.replace(/^#\/?/, "");
+  }
+
+  /** Query parameters carried on the hash, e.g. `#/board?project=web`. */
+  function hashParams() {
+    const hash = hashPath();
+    const index = hash.indexOf("?");
+    return new URLSearchParams(index === -1 ? "" : hash.slice(index + 1));
+  }
+
+  /**
+   * `#/board` (the home page), `#/insights`, `#/events` or `#/docs`.
+   *
+   * An empty hash is the board. A tool people open every day should not land
+   * on its own manual; the docs are still one click away.
+   */
   function currentRoute() {
-    const hash = window.location.hash.replace(/^#\/?/, "");
+    const hash = hashPath();
     if (hash.startsWith("board")) return "board";
+    if (hash.startsWith("insights")) return "insights";
     if (hash.startsWith("events")) return "events";
-    return "docs";
+    if (hash.startsWith("docs")) return "docs";
+    return "board";
+  }
+
+  /**
+   * Adopt `?project=` from the board's hash.
+   *
+   * This is how a project bar on Insights drills through: the hash carries the
+   * filter, so the view is linkable and the back button works. A bare
+   * `#/board` means the whole board, which is also the way back out.
+   */
+  function syncBoardDeepLink() {
+    const project = hashParams().get("project");
+    state.filter.project = project === null ? "" : project;
   }
 
   /** The section targeted by `#/docs/<id>`, if any. */
   function currentSection() {
-    const hash = window.location.hash.replace(/^#\/?/, "");
-    const match = /^docs\/([\w-]+)$/.exec(hash);
+    const match = /^docs\/([\w-]+)$/.exec(hashPath());
     return match ? match[1] : null;
   }
 
@@ -1812,9 +2232,11 @@ function startApp() {
     const onEvents = state.route === "events";
 
     els.board.hidden = state.route !== "board";
+    els.insights.hidden = state.route !== "insights";
     els.docs.hidden = !onDocs;
     els.events.hidden = !onEvents;
     els.boardControls.hidden = state.route !== "board";
+    if (state.route === "board") syncBoardDeepLink();
 
     for (const link of document.querySelectorAll(".nav-link")) {
       const active = link.dataset.route === state.route;
@@ -1826,6 +2248,16 @@ function startApp() {
       closeCardDialog();
       closeModal();
       void renderEvents();
+      return;
+    }
+
+    if (state.route === "insights") {
+      closeCardDialog();
+      closeModal();
+      // The container keeps its scroll across route changes; arriving at the
+      // page is the one time that is wrong.
+      els.insights.scrollTop = 0;
+      void loadInsights();
       return;
     }
 
@@ -2016,6 +2448,7 @@ function startApp() {
     const source = new EventSource(apiUrl("/api/events"));
     source.onmessage = (message) => {
       scheduleRefresh();
+      if (state.route === "insights") scheduleInsightsRefresh();
       if (state.route !== "events") return;
       // The server backfills the whole log on connect, so only events past the
       // newest one we hold are genuinely new. They belong at the top only on
@@ -2137,6 +2570,28 @@ function startApp() {
       attachDropTarget(section, column.id);
       els.board.append(section);
     }
+
+    settleGists();
+  }
+
+  /**
+   * Take back the gists that do not get a whole line.
+   *
+   * A fixed-height card divides its middle between title, gist and labels. On
+   * a card with a two-line title and three rows of labels the gist is left with
+   * a sliver of a line — text sliced through the middle, which reads as a
+   * rendering bug rather than as a summary. Such a card has no gist instead:
+   * the labels it does show are the reason it had no room.
+   *
+   * This runs after the board is in the DOM and before the frame is painted, so
+   * it costs one layout pass, not one per card.
+   */
+  function settleGists() {
+    for (const gist of els.board.querySelectorAll(".card-excerpt")) {
+      const line = parseFloat(getComputedStyle(gist).lineHeight);
+      if (!Number.isFinite(line)) continue;
+      if (gist.clientHeight + 0.5 < line) gist.remove();
+    }
   }
 
   /** Derived progress of an umbrella: done over all of its direct children. */
@@ -2173,10 +2628,23 @@ function startApp() {
 
     head.append(id, title);
 
+    // The gist, when the card has a body to gist. A body-less card stays a
+    // two-line card: an empty placeholder would be a lie about the card.
+    const excerpt = bodyExcerpt(card.body);
+    const gist = excerpt ? document.createElement("p") : null;
+    if (gist) {
+      gist.className = "card-excerpt";
+      gist.textContent = excerpt;
+    }
+
     const meta = document.createElement("div");
     meta.className = "card-meta";
+    // Badges are collected first, then spent: a fixed-height card has room for
+    // a few rows of them, and `+N` says so honestly instead of letting the last
+    // row fall out of the frame. The card dialog still lists every one.
+    const badges = [];
     if (card.assignee) {
-      meta.append(
+      badges.push(
         badge(
           `@${card.assignee}`,
           card.assignee === state.actor.name ? "assignee mine" : "assignee",
@@ -2186,32 +2654,32 @@ function startApp() {
     // Only when it is not the default, so the common case stays quiet and the
     // badge means something when it appears.
     if (card.priority && card.priority !== "normal")
-      meta.append(
+      badges.push(
         badge(
           `${t("card.priority")}${t(`priority.${card.priority}`)}`,
           `priority priority-${card.priority}`,
         ),
       );
     if (card.project)
-      meta.append(badge(`${t("card.project")}${card.project}`, "project"));
+      badges.push(badge(`${t("card.project")}${card.project}`, "project"));
     if (card.reviewer)
-      meta.append(badge(`${t("card.reviewer")}${card.reviewer}`, "reviewer"));
+      badges.push(badge(`${t("card.reviewer")}${card.reviewer}`, "reviewer"));
     if (blocked) {
-      meta.append(
+      badges.push(
         badge(`${t("card.blockedBy")}${card.blockedBy.join(",")}`, "blocked"),
       );
     }
     if ((card.blocks ?? []).length > 0) {
-      meta.append(
+      badges.push(
         badge(`${t("card.blocks")}${card.blocks.join(",")}`, "downstream"),
       );
     }
     if (card.parent != null) {
-      meta.append(badge(`${t("card.parent")}${card.parent}`, "parent"));
+      badges.push(badge(`${t("card.parent")}${card.parent}`, "parent"));
     }
     if ((card.children ?? []).length > 0) {
       const progress = childProgressOf(card);
-      meta.append(
+      badges.push(
         badge(
           `${t("card.children")}${progress.done}/${progress.total}`,
           "children",
@@ -2219,11 +2687,15 @@ function startApp() {
       );
     }
     if ((card.notes ?? []).length > 0) {
-      meta.append(badge(`${t("card.notes")}${card.notes.length}`, "notes"));
+      badges.push(badge(`${t("card.notes")}${card.notes.length}`, "notes"));
     }
-    meta.append(badge(formatRelativeTime(card.updatedAt, Date.now(), t), ""));
+    badges.push(badge(formatRelativeTime(card.updatedAt, Date.now(), t), ""));
 
-    element.append(head, meta);
+    meta.append(...spendBadges(badges));
+
+    // The badges sit at the foot of the card, so a column of cards reads as
+    // title, gist, labels — the same order the card dialog puts them in.
+    element.append(head, ...(gist ? [gist] : []), meta);
 
     element.addEventListener("click", () => openCardDialog(card.id));
     element.addEventListener("keydown", (event) => {
@@ -2308,7 +2780,10 @@ function startApp() {
   }
 
   function fillSelect(select, values, anyLabel) {
-    const current = select.value;
+    // `state.filter` first: a deep link sets the filter before the options it
+    // has to select exist. Otherwise the select's own value is the truth.
+    const key = filterKeyFor(select);
+    const current = state.filter[key] ?? select.value;
     select.textContent = "";
     const any = document.createElement("option");
     any.value = "";
@@ -2321,7 +2796,7 @@ function startApp() {
       select.append(option);
     }
     select.value = values.includes(current) ? current : "";
-    state.filter[filterKeyFor(select)] = select.value;
+    state.filter[key] = select.value;
   }
 
   /** Which filter field a given <select> owns. */
@@ -2366,6 +2841,27 @@ function startApp() {
     els.cardBackdrop.hidden = true;
     els.cardDialog.hidden = true;
     els.cardDialog.textContent = "";
+  }
+
+  /**
+   * How many badges a card shows before it summarises the rest as `+N`.
+   *
+   * Three is what a fixed-height card fits beside its gist without the label
+   * block growing taller than the frame; the full list lives in the card
+   * dialog, and the badge order above puts the reasons a reader cares about
+   * first.
+   */
+  const CARD_BADGES = 3;
+
+  function spendBadges(badges) {
+    if (badges.length <= CARD_BADGES) return badges;
+    const shown = badges.slice(0, CARD_BADGES);
+    const hidden = badges.slice(CARD_BADGES);
+    // The `+N` carries the hidden labels in its tooltip, so nothing is gone
+    // without a way to read it.
+    const rest = badge(`+${hidden.length}`, "more");
+    rest.title = hidden.map((entry) => entry.textContent).join(" · ");
+    return [...shown, rest];
   }
 
   async function renderCardDialog() {
@@ -3160,6 +3656,532 @@ function startApp() {
     els.modal.textContent = "";
   }
 
+  /* ----------------------------- insights ---------------------------- */
+
+  /**
+   * The Insights page reads the log once per window and redraws from that.
+   *
+   * Live events recompute the aggregate, but a burst of them is one recompute:
+   * a board being worked by several agents can otherwise turn every SSE frame
+   * into a full replay.
+   */
+  let insightsTimer = null;
+
+  function scheduleInsightsRefresh() {
+    if (!state.insights.data || state.insights.loading) return;
+    if (insightsTimer) return;
+    insightsTimer = window.setTimeout(() => {
+      insightsTimer = null;
+      void loadInsights({ quiet: true });
+    }, 1200);
+  }
+
+  /**
+   * The endpoint wants the zone, not an offset: the same offset means different
+   * days in summer and winter, and the browser already knows its own zone.
+   */
+  function insightsUrl() {
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    return `/api/insights?days=${state.insights.days}&tz=${encodeURIComponent(timeZone)}`;
+  }
+
+  async function loadInsights({ quiet = false } = {}) {
+    if (!quiet) {
+      state.insights.loading = true;
+      state.insights.error = null;
+      renderInsights();
+    }
+    try {
+      state.insights.data = await api(insightsUrl());
+      state.insights.error = null;
+    } catch (error) {
+      // A quiet refresh keeps the last good numbers rather than replacing a
+      // working page with an error because one background request failed.
+      if (!quiet) state.insights.error = error.message;
+    } finally {
+      state.insights.loading = false;
+      if (state.route === "insights") renderInsights();
+    }
+  }
+
+  function insightEl(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+
+  function panelEl(title, lead) {
+    const panel = insightEl("section", "panel");
+    panel.append(insightEl("h2", "panel-title", title));
+    if (lead) panel.append(insightEl("p", "panel-lead", lead));
+    return panel;
+  }
+
+  function renderInsights() {
+    const data = state.insights.data;
+    els.insights.textContent = "";
+    els.insights.append(insightsHeader());
+
+    if (state.insights.error) {
+      const panel = panelEl(t("insights.title"), null);
+      panel.append(insightEl("p", "panel-lead", state.insights.error));
+      const retry = insightEl("button", "primary", t("insights.retry"));
+      retry.type = "button";
+      retry.addEventListener("click", () => void loadInsights());
+      panel.append(retry);
+      els.insights.append(panel);
+      return;
+    }
+
+    if (!data) {
+      els.insights.append(
+        insightEl("p", "insights-loading", t("insights.loading")),
+      );
+      return;
+    }
+
+    const total = CHART_STATES.reduce(
+      (sum, stateId) => sum + (data.states[stateId] ?? 0),
+      0,
+    );
+    if (total === 0) {
+      const panel = panelEl(t("insights.title"), t("insights.empty"));
+      els.insights.append(panel);
+      return;
+    }
+
+    els.insights.dataset.days = String(data.days);
+    const grid = insightEl("div", "insight-grid");
+    grid.append(
+      insightsStatesPanel(data, total),
+      insightsThroughputPanel(data),
+      insightsBottlenecksPanel(data),
+      insightsProjectsPanel(data),
+      insightsFlowPanel(data),
+    );
+    els.insights.append(grid);
+  }
+
+  function insightsHeader() {
+    const header = insightEl("div", "insights-header");
+    const title = insightEl("h1", null, t("insights.title"));
+    const controls = insightEl("div", "segmented");
+    controls.setAttribute("role", "group");
+    controls.setAttribute("aria-label", t("insights.window"));
+    for (const days of [7, 30, 90]) {
+      const button = insightEl(
+        "button",
+        "segmented-option",
+        t(`insights.range${days}`),
+      );
+      button.type = "button";
+      button.dataset.days = String(days);
+      const active = state.insights.days === days;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", active ? "true" : "false");
+      button.addEventListener("click", () => {
+        if (state.insights.days === days) return;
+        state.insights.days = days;
+        // The old window's numbers under the new label would be a lie, even
+        // for the few hundred milliseconds the request takes.
+        state.insights.data = null;
+        void loadInsights();
+      });
+      controls.append(button);
+    }
+    header.append(title, controls);
+
+    const wrapper = insightEl("div", "insights-head");
+    wrapper.append(header, insightEl("p", "insights-lead", t("insights.lead")));
+    return wrapper;
+  }
+
+  function insightsStatesPanel(data, total) {
+    const panel = panelEl(t("insights.states"), t("insights.statesLead"));
+    panel.classList.add("panel-states");
+    const grid = insightEl("div", "kpi-grid");
+    for (const column of COLUMNS) {
+      const value = data.states[column.id] ?? 0;
+      const tile = insightEl("div", "kpi");
+      tile.style.setProperty("--kpi-color", `var(--col-${column.id})`);
+      tile.append(
+        insightEl("span", "kpi-label", t(`column.${column.id}`)),
+        insightEl("span", "kpi-value", String(value)),
+        insightEl("span", "kpi-share", `${Math.round((value / total) * 100)}%`),
+      );
+      grid.append(tile);
+    }
+
+    const done = data.series.reduce((sum, day) => sum + day.done, 0);
+    const created = data.series.reduce((sum, day) => sum + day.created, 0);
+    const delta = done - data.previous.done;
+    // A board younger than the window has nothing to compare against; "+168"
+    // would read as an improvement rather than as "this is all there is".
+    const hasBaseline = data.previous.created + data.previous.done > 0;
+    const summary = insightEl("p", "insight-summary");
+    summary.append(
+      insightEl(
+        "span",
+        null,
+        `${t("insights.open")} ${total - (data.states.done ?? 0)} · ` +
+          `${t("insights.inPlay")} ${(data.states.doing ?? 0) + (data.states.review ?? 0)} · ` +
+          t("insights.period", { created, done }),
+      ),
+      insightEl(
+        "span",
+        !hasBaseline
+          ? "delta"
+          : delta > 0
+            ? "delta up"
+            : delta < 0
+              ? "delta down"
+              : "delta",
+        hasBaseline
+          ? `${t("insights.vsPrevious", { n: data.days })} ${signed(delta)}`
+          : t("insights.noBaseline"),
+      ),
+    );
+    panel.append(grid, summary);
+    return panel;
+  }
+
+  function signed(value) {
+    return value > 0 ? `+${value}` : String(value);
+  }
+
+  function legendEl(entries) {
+    const legend = insightEl("div", "chart-legend");
+    for (const [label, color] of entries) {
+      const item = insightEl("span", "legend-item");
+      const swatch = insightEl("i", "legend-swatch");
+      swatch.style.background = color;
+      item.append(swatch, document.createTextNode(label));
+      legend.append(item);
+    }
+    return legend;
+  }
+
+  function insightsThroughputPanel(data) {
+    const panel = panelEl(
+      t("insights.throughput"),
+      t("insights.throughputLead"),
+    );
+    panel.classList.add("panel-throughput");
+    panel.append(
+      legendEl([
+        [t("column.done"), "var(--col-done)"],
+        [t("insights.createdSeries"), "var(--text-dim)"],
+        [t("insights.average"), "var(--accent)"],
+      ]),
+      throughputChart(data),
+    );
+    return panel;
+  }
+
+  /* --- chart geometry, shared by both charts --- */
+
+  const CHART_W = 760;
+  const CHART_H = 250;
+  const CHART_PAD = { left: 46, right: 16, top: 14, bottom: 30 };
+
+  function chartInner() {
+    return {
+      width: CHART_W - CHART_PAD.left - CHART_PAD.right,
+      height: CHART_H - CHART_PAD.top - CHART_PAD.bottom,
+    };
+  }
+
+  function chartX(index, count, inner) {
+    return count <= 1
+      ? CHART_PAD.left + inner.width / 2
+      : CHART_PAD.left + (index * inner.width) / (count - 1);
+  }
+
+  function chartY(value, max, inner) {
+    return (
+      CHART_PAD.top +
+      inner.height -
+      (max > 0 ? (value / max) * inner.height : 0)
+    );
+  }
+
+  function axisLabel(value) {
+    return Number.isInteger(value) ? String(value) : value.toFixed(1);
+  }
+
+  /** Gridlines, y labels and the x ticks, in SVG markup. */
+  function chartFrame(max, dates) {
+    const inner = chartInner();
+    const parts = [];
+    for (const value of axisTicks(max)) {
+      const y = chartY(value, max, inner);
+      parts.push(
+        `<line class="chart-grid" x1="${CHART_PAD.left}" y1="${y}" ` +
+          `x2="${CHART_W - CHART_PAD.right}" y2="${y}"/>`,
+        `<text class="chart-tick" x="${CHART_PAD.left - 8}" y="${y + 3.5}" ` +
+          `text-anchor="end">${axisLabel(value)}</text>`,
+      );
+    }
+    const ticks = tickIndices(dates.length);
+    for (const index of ticks) {
+      const x = chartX(index, dates.length, inner);
+      const anchor =
+        index === 0 ? "start" : index === dates.length - 1 ? "end" : "middle";
+      parts.push(
+        `<text class="chart-tick" x="${x}" y="${CHART_H - 8}" ` +
+          `text-anchor="${anchor}">${shortDate(dates[index])}</text>`,
+      );
+    }
+    return parts.join("");
+  }
+
+  /**
+   * One transparent band per day, each with a native `<title>`.
+   *
+   * Hover feedback without a tooltip layer, a mousemove handler or a DOM node
+   * per point: the browser already knows how to show a title.
+   */
+  function chartHotspots(dates, max, describe) {
+    const inner = chartInner();
+    const band =
+      dates.length <= 1 ? inner.width : inner.width / (dates.length - 1);
+    return dates
+      .map((date, index) => {
+        const x = chartX(index, dates.length, inner) - band / 2;
+        return (
+          `<rect x="${x}" y="${CHART_PAD.top}" width="${band}" ` +
+          `height="${inner.height}" fill="transparent">` +
+          `<title>${escapeHtml(describe(index))}</title></rect>`
+        );
+      })
+      .join("");
+  }
+
+  function chartSvg(label, body) {
+    const wrapper = insightEl("div", "chart");
+    wrapper.innerHTML =
+      `<svg class="chart-svg" viewBox="0 0 ${CHART_W} ${CHART_H}" ` +
+      `role="img" aria-label="${escapeHtml(label)}">${body}</svg>`;
+    return wrapper;
+  }
+
+  function throughputChart(data) {
+    const dates = data.series.map((day) => day.date);
+    const done = data.series.map((day) => day.done);
+    const created = data.series.map((day) => day.created);
+    const average = movingAverage(done, 7);
+    const max = niceMax(Math.max(1, ...done, ...created, ...average));
+    const inner = chartInner();
+    const points = (values) =>
+      polylinePath(
+        values.map((value, index) => [
+          chartX(index, dates.length, inner),
+          chartY(value, max, inner),
+        ]),
+      );
+
+    const dots =
+      dates.length <= 31
+        ? done
+            .map(
+              (value, index) =>
+                `<circle class="chart-dot" cx="${chartX(index, dates.length, inner).toFixed(1)}" ` +
+                `cy="${chartY(value, max, inner).toFixed(1)}" r="2.4"/>`,
+            )
+            .join("")
+        : "";
+
+    const hotspots = chartHotspots(
+      dates,
+      max,
+      (index) =>
+        `${dates[index]} · ${t("column.done")} ${done[index]} · ` +
+        `${t("insights.createdSeries")} ${created[index]}`,
+    );
+
+    return chartSvg(
+      t("insights.chartThroughput"),
+      chartFrame(max, dates) +
+        `<path class="chart-line created" d="${points(created)}"/>` +
+        `<path class="chart-line average" d="${points(average)}"/>` +
+        `<path class="chart-line done" d="${points(done)}"/>` +
+        dots +
+        hotspots,
+    );
+  }
+
+  function insightsFlowPanel(data) {
+    const panel = panelEl(t("insights.flow"), t("insights.flowLead"));
+    panel.classList.add("panel-flow");
+    panel.append(
+      legendEl(
+        COLUMNS.map((column) => [
+          t(`column.${column.id}`),
+          `var(--col-${column.id})`,
+        ]),
+      ),
+      flowChart(data),
+    );
+    return panel;
+  }
+
+  function flowChart(data) {
+    const dates = data.series.map((day) => day.date);
+    const totals = stackedTotals(
+      data.series.map((day) => day.states),
+      CHART_STATES,
+    );
+    const inner = chartInner();
+    const max = niceMax(Math.max(1, ...(totals[totals.length - 1] ?? [])));
+
+    let bands = "";
+    for (let band = 0; band < CHART_STATES.length; band += 1) {
+      const upper = totals[band] ?? [];
+      const lower = band === 0 ? upper.map(() => 0) : (totals[band - 1] ?? []);
+      const top = upper.map((value, index) => [
+        chartX(index, dates.length, inner),
+        chartY(value, max, inner),
+      ]);
+      const bottom = [...lower]
+        .reverse()
+        .map((value, offset) => [
+          chartX(dates.length - 1 - offset, dates.length, inner),
+          chartY(value, max, inner),
+        ]);
+      bands +=
+        `<path class="chart-band" style="fill: var(--col-${CHART_STATES[band]})" ` +
+        `d="${polylinePath([...top, ...bottom])} Z"/>`;
+    }
+
+    const hotspots = chartHotspots(dates, max, (index) => {
+      const states = data.series[index]?.states ?? {};
+      return (
+        `${dates[index]} · ` +
+        CHART_STATES.map(
+          (state) => `${t(`column.${state}`)} ${states[state] ?? 0}`,
+        ).join(" · ")
+      );
+    });
+
+    return chartSvg(
+      t("insights.chartFlow"),
+      chartFrame(max, dates) + bands + hotspots,
+    );
+  }
+
+  function insightsProjectsPanel(data) {
+    const panel = panelEl(t("insights.projects"), t("insights.projectsLead"));
+    panel.classList.add("panel-projects");
+    panel.append(
+      legendEl(
+        COLUMNS.map((column) => [
+          t(`column.${column.id}`),
+          `var(--col-${column.id})`,
+        ]),
+      ),
+    );
+
+    const list = insightEl("div", "project-list");
+    const totals = data.projects.map((project) =>
+      CHART_STATES.reduce((sum, state) => sum + (project[state] ?? 0), 0),
+    );
+    const widest = Math.max(1, ...totals);
+
+    data.projects.forEach((project, index) => {
+      const total = totals[index] ?? 0;
+      const row = document.createElement(project.project ? "a" : "div");
+      row.className = "project-row";
+      if (project.project) {
+        row.href = `#/board?project=${encodeURIComponent(project.project)}`;
+        row.title = t("insights.openProject", { project: project.project });
+      }
+      const name = insightEl(
+        "span",
+        "project-name",
+        project.project ?? t("insights.noProject"),
+      );
+      const track = insightEl("span", "project-bar");
+      track.style.width = `${Math.max(2, (total / widest) * 100)}%`;
+      for (const state of CHART_STATES) {
+        const count = project[state] ?? 0;
+        if (count === 0) continue;
+        const segment = insightEl("i", "project-seg");
+        segment.style.background = `var(--col-${state})`;
+        segment.style.flexGrow = String(count);
+        segment.title = `${t(`column.${state}`)}: ${count}`;
+        track.append(segment);
+      }
+      const count = insightEl("span", "project-total", String(total));
+      row.append(name, track, count);
+      list.append(row);
+    });
+
+    panel.append(list);
+    return panel;
+  }
+
+  function insightsBottlenecksPanel(data) {
+    const panel = panelEl(t("insights.bottlenecks"), null);
+    panel.classList.add("panel-bottlenecks");
+    const cycle = data.cycle
+      ? t("insights.cycle", {
+          n: data.cycle.completed,
+          median: data.cycle.medianDays,
+          p85: data.cycle.p85Days,
+        })
+      : t("insights.cycleNone");
+    panel.append(insightEl("p", "insight-summary", cycle));
+    if (data.aging.blocked > 0) {
+      panel.append(
+        insightEl(
+          "p",
+          "insight-blocked",
+          t("insights.blocked", { n: data.aging.blocked }),
+        ),
+      );
+    }
+    panel.append(
+      agingGroup(t("insights.agingDoing"), data.aging.doing),
+      agingGroup(t("insights.agingReview"), data.aging.review),
+    );
+    return panel;
+  }
+
+  /** Three days is the point a card stops looking "in progress" and starts
+   *  looking stuck; below it, the list would just be the column again. */
+  const AGING_THRESHOLD_DAYS = 3;
+
+  function agingGroup(title, cards) {
+    const group = insightEl("div", "aging-group");
+    group.append(insightEl("h3", "aging-title", title));
+    const overdue = cards
+      .filter((card) => card.days >= AGING_THRESHOLD_DAYS)
+      .slice(0, 3);
+    if (overdue.length === 0) {
+      group.append(insightEl("p", "aging-none", t("insights.agingNone")));
+      return group;
+    }
+    const list = insightEl("ul", "aging-list");
+    for (const card of overdue) {
+      const item = insightEl("li", "aging-item");
+      item.append(
+        insightEl(
+          "span",
+          "aging-days",
+          t("insights.ageDays", { n: card.days }),
+        ),
+        insightEl("span", "aging-card", `#${card.id} ${card.title}`),
+      );
+      if (card.project) {
+        item.append(insightEl("span", "aging-project", card.project));
+      }
+      list.append(item);
+    }
+    group.append(list);
+    return group;
+  }
+
   /* -------------------------------- docs ------------------------------ */
 
   async function renderDocs() {
@@ -3260,7 +4282,7 @@ function startApp() {
       }
       case "p": {
         const element = document.createElement("p");
-        element.textContent = block.text;
+        element.append(inlineFragment(block.text));
         return element;
       }
       case "code": {
@@ -3278,7 +4300,8 @@ function startApp() {
           const strong = document.createElement("strong");
           strong.textContent = term;
           const span = document.createElement("span");
-          span.textContent = ` — ${description}`;
+          span.append(document.createTextNode(" — "));
+          span.append(inlineFragment(description));
           item.append(strong, span);
           list.append(item);
         }
@@ -3312,6 +4335,33 @@ function startApp() {
       default:
         return document.createComment("unknown block");
     }
+  }
+
+  /**
+   * The docs' one piece of inline markup: backticks become `<code>`.
+   *
+   * Everything else in a paragraph is literal — these are hand-written blocks,
+   * not markdown — and that is deliberate: a docs page that half-parses
+   * markdown is worse than one with a single, predictable convention. An
+   * unbalanced backtick falls back to the plain text rather than swallowing the
+   * rest of the paragraph.
+   */
+  function inlineFragment(text) {
+    const value = String(text ?? "");
+    const parts = value.split("`");
+    if (parts.length % 2 === 0) return document.createTextNode(value);
+    const fragment = document.createDocumentFragment();
+    parts.forEach((part, index) => {
+      if (part === "") return;
+      if (index % 2 === 1) {
+        const code = document.createElement("code");
+        code.textContent = part;
+        fragment.append(code);
+        return;
+      }
+      fragment.append(document.createTextNode(part));
+    });
+    return fragment;
   }
 
   /* ------------------------------- toasts ---------------------------- */
@@ -3356,7 +4406,7 @@ function startApp() {
   /** Build the Events page shell (once) and load its first page. */
   async function renderEvents() {
     // Titles and the project list come from the board, which the docs route
-    // (the home page) never loads.
+    // never loads.
     if (state.projects.length === 0) await refresh();
     els.events.textContent = "";
 

@@ -8,7 +8,7 @@ board. The engine is small and event-sourced, and every surface is a thin client
 of the same core: a `ukb` CLI, an MCP server, a Web UI you can drop in, and an
 HTTP API your own product can embed. No teams, no daemon — one board per machine.
 
-![The board: five columns, with an umbrella card and its parts](docs/web-ui.png)
+![The board: five columns, an umbrella card and its parts](docs/web-ui.png)
 
 ## Quick start
 
@@ -115,13 +115,18 @@ first card the board refuses, so what you saw is what was applied.
 
 ### Web UI
 
-`ukb web` starts the API and the UI and opens a browser. Drag a card between
-columns and the drop runs the matching verb (`claim`, `review`, `done`,
-`reopen`, or a `move` onto _Someday_); the card dialog edits fields, relations,
-the hierarchy and notes, and shows the event history. It is live over SSE —
-changes made by an agent or the CLI appear without a refresh. The same page
-serves its own docs at `/`, which is the friendliest thing to leave open for a
-newcomer.
+`ukb web` starts the API and the UI and opens a browser on the board. The nav
+runs **Board · Insights · Events · Docs**; the board is home, and the manual
+stays one click away instead of greeting every newcomer first.
+
+| Page                        | The question it answers                                                                                                                                                 |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Board** (`#/board`)       | what needs doing now. Drag a card and the drop runs the verb; the card dialog edits fields, relations, hierarchy and notes, and shows the event history. Live over SSE. |
+| **Insights** (`#/insights`) | is the work moving? Daily throughput, the board by project, cumulative flow, and the cards that have been stuck.                                                        |
+| **Events** (`#/events`)     | who did what, through which door, in order. The audit trail.                                                                                                            |
+| **Docs** (`#/docs`)         | the manual, in English and Chinese.                                                                                                                                     |
+
+![Insights: throughput against creations, what is stuck, per-project shape, cumulative flow below](docs/web-ui-insights.png)
 
 An **Events** page (`#/events`) is the audit view: every operation on the board
 — created, moved, edited, blocked, attached to an umbrella, noted, deleted —
@@ -132,6 +137,16 @@ page. The pager
 says how many events there are in total — `Page 1 · 25 of 340` — and takes 25, 50,
 100, 200 or **Auto** (a screenful) to a page; a live event lands at the top as it
 happens.
+
+The **Insights** page reads the same event log the board is a projection of, so
+the two cannot disagree. It shows cards finished per day over the last 7, 30 or
+90 days against cards created, state totals with a comparison to the previous
+window, the current board by project (click a row to open that project's slice),
+a cumulative flow diagram, and the cards sitting longest in `doing` / `review`
+alongside median and P85 cycle time. The aggregate is computed server-side — the
+raw log is far larger than a page of `/api/log` — and cut into days in the
+browser's time zone, not UTC: an evening's work in Shanghai is not filed under
+yesterday.
 
 It is one self-contained file with no framework and no build step:
 
@@ -220,6 +235,7 @@ createServer(handler).listen(8080);
 
 ```
 GET    /api/board                     columns + cards
+GET    /api/insights?days=&tz=        trends: throughput, flow, aging, cycle time
 GET    /api/cards?state=open&assignee=me&reviewer=me&q=text
 GET    /api/cards/:id                 card + event history
 POST   /api/cards                     { title, body, assignee, reviewer, blockedBy }

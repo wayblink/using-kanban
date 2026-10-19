@@ -13,16 +13,17 @@
   <body>
     <header class="topbar">
       <div class="topbar-left">
-        <a class="brand" href="#/docs">
+        <a class="brand" href="#/board">
           <span class="brand-mark" aria-hidden="true"></span>
           <span class="brand-name">using-kanban</span>
         </a>
       </div>
 
       <nav class="nav" aria-label="views">
-        <a href="#/docs" class="nav-link" data-route="docs">Docs</a>
         <a href="#/board" class="nav-link" data-route="board">Board</a>
+        <a href="#/insights" class="nav-link" data-route="insights">Insights</a>
         <a href="#/events" class="nav-link" data-route="events">Events</a>
+        <a href="#/docs" class="nav-link" data-route="docs">Docs</a>
       </nav>
 
       <div class="topbar-right">
@@ -52,6 +53,7 @@
     </div>
 
     <main id="board" class="board" aria-label="kanban board" hidden></main>
+    <main id="insights" class="insights" aria-label="insights" hidden></main>
     <main id="docs" class="docs" aria-label="documentation" hidden></main>
     <main id="events" class="events" aria-label="event log" hidden></main>
 
