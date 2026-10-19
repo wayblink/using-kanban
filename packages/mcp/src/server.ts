@@ -456,7 +456,7 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
     {
       title: "Set parent",
       description:
-        "Make card `id` a child of card `parent` — composition, not blocking: an umbrella (a big goal) and the work that supports it. One level only, so the parent must not itself be a child and the child must not already have children. An umbrella with unfinished children cannot be claimed or reviewed. Re-parenting replaces the old parent in one step.",
+        "Make card `id` a child of card `parent` — composition, not blocking: an umbrella (a big goal) and the work that supports it. One level only, so the parent must not itself be a child and the child must not already have children. The two ends move together: a part cannot be in doing/review unless the umbrella is in doing, and an umbrella cannot be reviewed or done until every part is done. Re-parenting replaces the old parent in one step.",
       inputSchema: {
         id: cardIdSchema.describe("The child card"),
         parent: cardIdSchema.describe("The umbrella card it belongs to"),

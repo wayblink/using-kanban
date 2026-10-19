@@ -154,7 +154,7 @@ export function openApiSpec(): Record<string, unknown> {
             parent: {
               type: "integer",
               description:
-                "the umbrella card this one is a part of. One level only; an umbrella with unfinished children cannot be claimed or reviewed",
+                "the umbrella card this one is a part of. One level only. The two ends move together: a part cannot be in doing/review unless the umbrella is in doing, and an umbrella cannot be reviewed or done until every part is done",
             },
           },
         },

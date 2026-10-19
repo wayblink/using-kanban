@@ -11,6 +11,7 @@ import {
 } from "./schemas.js";
 import {
   CARD_PRIORITIES,
+  isInPlay,
   isTerminal,
   onRadar,
   type Card,
@@ -270,6 +271,39 @@ export class Projection {
   /** Unfinished direct children — what keeps an umbrella out of `doing`. */
   openChildren(card: Card): Card[] {
     return this.childrenOf(card).filter((child) => !isTerminal(child.state));
+  }
+
+  /**
+   * Parent/child pairs that violate the contract the engine now enforces.
+   *
+   * Kept here rather than in the transition because it answers a different
+   * question: the transition asks "may this move happen", this asks "which
+   * pairs on the board already disagree" — boards written before the rule can
+   * hold them, and the log cannot be rewritten to fix it.
+   */
+  hierarchyViolations(): { card: Card; reason: string }[] {
+    const found: { card: Card; reason: string }[] = [];
+    for (const card of this.cards.values()) {
+      const parent = card.parent === null ? null : this.cards.get(card.parent);
+      if (parent && isInPlay(card.state) && parent.state !== "doing") {
+        found.push({
+          card,
+          reason: `#${card.id} is ${card.state} while its umbrella #${parent.id} is ${parent.state}`,
+        });
+      }
+      if (card.state === "review" || card.state === "done") {
+        const open = this.openChildren(card);
+        if (open.length > 0) {
+          found.push({
+            card,
+            reason: `#${card.id} is ${card.state} with ${open
+              .map((child) => `#${child.id} (${child.state})`)
+              .join(", ")} still open`,
+          });
+        }
+      }
+    }
+    return found;
   }
 
   board(project?: string | null): {

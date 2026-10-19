@@ -38,12 +38,19 @@ function makeKanban(): Kanban {
   return new Kanban({ log: new MemoryEventLog() });
 }
 
-function expectKanbanError(fn: () => unknown, code: string): void {
+function expectKanbanError(
+  fn: () => unknown,
+  code: string,
+  message?: RegExp,
+): void {
   try {
     fn();
   } catch (error) {
     expect(error).toBeInstanceOf(KanbanError);
     expect((error as KanbanError).code).toBe(code);
+    // The message is the whole UX of a refusal: it has to say which end to move
+    // first, so a test can pin it without pinning the exact wording.
+    if (message) expect((error as KanbanError).message).toMatch(message);
     return;
   }
   throw new Error(`expected a KanbanError with code "${code}"`);
@@ -630,7 +637,7 @@ describe("parent / child", () => {
   });
 });
 
-describe("an umbrella cannot be in play", () => {
+describe("parent and child states have to agree", () => {
   function umbrella() {
     const kanban = new Kanban({ log: new MemoryEventLog() });
     const parent = kanban.add({ title: "epic" }, human).card;
@@ -639,41 +646,201 @@ describe("an umbrella cannot be in play", () => {
     return { kanban, parent, child };
   }
 
-  it("refuses to claim or review while a child is unfinished", () => {
-    const { kanban, parent } = umbrella();
+  it("lets the umbrella start, and then its parts", () => {
+    const { kanban, parent, child } = umbrella();
+
+    expect(kanban.claim(parent.id, human, "cli").card.state).toBe("doing");
+    expect(kanban.claim(child.id, human, "cli").card.state).toBe("doing");
+  });
+
+  it("refuses a part in play while the umbrella is still todo", () => {
+    const { kanban, parent, child } = umbrella();
 
     expectKanbanError(
-      () => kanban.claim(parent.id, human, "cli"),
+      () => kanban.claim(child.id, human, "cli"),
       "invalid_state",
+      /part of #\d+ \(todo\)/,
+    );
+    expectKanbanError(
+      () => kanban.review(child.id, human, "cli"),
+      "invalid_state",
+    );
+    // …and once the umbrella is under way, the same move is fine.
+    kanban.claim(parent.id, human, "cli");
+    expect(kanban.claim(child.id, human, "cli").card.state).toBe("doing");
+  });
+
+  it("refuses to finish or review an umbrella with an open part", () => {
+    const { kanban, parent, child } = umbrella();
+    kanban.claim(parent.id, human, "cli");
+    kanban.claim(child.id, human, "cli");
+
+    expectKanbanError(
+      () => kanban.done(parent.id, human, "cli"),
+      "invalid_state",
+      /unfinished child/,
     );
     expectKanbanError(
       () => kanban.review(parent.id, human, "cli"),
       "invalid_state",
     );
-  });
 
-  it("allows it once every child is done", () => {
-    const { kanban, parent, child } = umbrella();
     kanban.done(child.id, human, "cli");
-
-    expect(kanban.claim(parent.id, human, "cli").card.state).toBe("doing");
+    expect(kanban.review(parent.id, human, "cli").card.state).toBe("review");
   });
 
-  it("still allows `done` — a card must always be closable", () => {
-    const { kanban, parent } = umbrella();
-    expect(kanban.done(parent.id, human, "cli").card.state).toBe("done");
+  it("refuses to park the umbrella while a part is in play", () => {
+    const { kanban, parent, child } = umbrella();
+    kanban.claim(parent.id, human, "cli");
+    kanban.claim(child.id, human, "cli");
+
+    expectKanbanError(
+      () => kanban.move(parent.id, "todo", human, "cli"),
+      "invalid_state",
+      /parts? in play/,
+    );
+
+    kanban.done(child.id, human, "cli");
+    expect(kanban.move(parent.id, "someday", human, "cli").card.state).toBe(
+      "someday",
+    );
   });
 
-  it("will not let an in-flight card become an umbrella", () => {
+  it("refuses to reopen a part of a reviewed or finished umbrella", () => {
+    const { kanban, parent, child } = umbrella();
+    kanban.claim(parent.id, human, "cli");
+    kanban.claim(child.id, human, "cli");
+    kanban.done(child.id, human, "cli");
+    kanban.review(parent.id, human, "cli");
+
+    expectKanbanError(
+      () => kanban.reopen(child.id, human, "cli"),
+      "invalid_state",
+      /move #\d+ back out of review/,
+    );
+
+    kanban.reopen(parent.id, human, "cli");
+    kanban.claim(parent.id, human, "cli");
+    expect(kanban.reopen(child.id, human, "cli").card.state).toBe("todo");
+  });
+
+  it("still closes a leaf card with nobody in the way", () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    const leaf = kanban.add({ title: "solo" }, human).card;
+    expect(kanban.done(leaf.id, human, "cli").card.state).toBe("done");
+  });
+
+  it("lets an in-flight card become an umbrella", () => {
+    // Working an umbrella is the normal case now: attaching a part to a card
+    // that is already `doing` is exactly how a goal starts collecting parts.
     const kanban = new Kanban({ log: new MemoryEventLog() });
     const parent = kanban.add({ title: "epic" }, human).card;
     const child = kanban.add({ title: "part" }, human).card;
     kanban.claim(parent.id, human, "cli");
 
+    expect(kanban.parent(child.id, parent.id, human, "cli").card.parent).toBe(
+      parent.id,
+    );
+  });
+
+  it("refuses to attach a part that is already in play under a parked umbrella", () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    const parent = kanban.add({ title: "epic" }, human).card;
+    const child = kanban.add({ title: "part" }, human).card;
+    kanban.claim(child.id, human, "cli");
+
     expectKanbanError(
       () => kanban.parent(child.id, parent.id, human, "cli"),
       "invalid_state",
+      /a part cannot be in doing or review/,
     );
+  });
+
+  it("refuses to attach an unfinished part to a reviewed umbrella", () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    const parent = kanban.add({ title: "epic" }, human).card;
+    const doneChild = kanban.add({ title: "done part" }, human).card;
+    const openChild = kanban.add({ title: "open part" }, human).card;
+    kanban.parent(doneChild.id, parent.id, human, "cli");
+    kanban.claim(parent.id, human, "cli");
+    kanban.done(doneChild.id, human, "cli");
+    kanban.review(parent.id, human, "cli");
+
+    expectKanbanError(
+      () => kanban.parent(openChild.id, parent.id, human, "cli"),
+      "invalid_state",
+      /cannot take on the unfinished card/,
+    );
+  });
+});
+
+describe("a board written before the rule", () => {
+  it("reports the pairs the engine would now refuse", () => {
+    const log = new MemoryEventLog();
+    const kanban = new Kanban({ log });
+    const epic = kanban.add({ title: "epic" }, human).card;
+    const part = kanban.add({ title: "part" }, human).card;
+
+    // Appended directly: the point is a log that already holds a pair the
+    // engine no longer writes, so `claim`/`parent` cannot be used to build it.
+    log.append([
+      {
+        actor: human,
+        source: "cli",
+        type: "card.parent_set",
+        cardId: part.id,
+        payload: { parent: epic.id },
+      },
+      {
+        actor: human,
+        source: "cli",
+        type: "card.moved",
+        cardId: part.id,
+        payload: { from: "todo", to: "doing", action: "claim" },
+      },
+    ]);
+
+    const found = kanban.hierarchyViolations();
+    expect(found).toHaveLength(1);
+    expect(found[0]?.card.id).toBe(part.id);
+    expect(found[0]?.reason).toMatch(/is doing while its umbrella .* is todo/);
+
+    // The pair is reported, never silently corrected: the card stays where the
+    // log put it, and the move that would fix it is one `claim` away.
+    expect(kanban.card(part.id)?.state).toBe("doing");
+    kanban.claim(epic.id, human, "cli");
+    expect(kanban.hierarchyViolations()).toHaveLength(0);
+  });
+
+  it("reports an umbrella that was closed over an open part", () => {
+    const log = new MemoryEventLog();
+    const kanban = new Kanban({ log });
+    const epic = kanban.add({ title: "epic" }, human).card;
+    const donePart = kanban.add({ title: "done part" }, human).card;
+    const openPart = kanban.add({ title: "open part" }, human).card;
+    kanban.parent(donePart.id, epic.id, human, "cli");
+    kanban.done(donePart.id, human, "cli");
+
+    log.append([
+      {
+        actor: human,
+        source: "cli",
+        type: "card.parent_set",
+        cardId: openPart.id,
+        payload: { parent: epic.id },
+      },
+      {
+        actor: human,
+        source: "cli",
+        type: "card.moved",
+        cardId: epic.id,
+        payload: { from: "todo", to: "done", action: "done" },
+      },
+    ]);
+
+    const found = kanban.hierarchyViolations();
+    expect(found).toHaveLength(1);
+    expect(found[0]?.reason).toMatch(/is done with .* still open/);
   });
 });
 

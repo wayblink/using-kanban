@@ -237,9 +237,10 @@ hierarchy:
   Umbrella cards (a big goal) and their children (the work that supports it)
   are one level deep: an umbrella has children, a child has none. This is
   composition, not blocking — an umbrella does not block its children, and
-  a card can be both someone's child and blocked by a third card. An umbrella
-  with unfinished children cannot enter doing or review, because a container
-  is not a work item. ukb board marks them ⤷#parent and ▸done/total.
+  a card can be both someone's child and blocked by a third card. The two ends
+  move together: an umbrella goes to doing first, then its parts may be doing
+  or review, and the umbrella cannot be reviewed or done until every part is
+  done. ukb board marks them ⤷#parent and ▸done/total.
 
 global flags:
   --dir <path>       board directory (default: home; the store is <dir>/.ukb)

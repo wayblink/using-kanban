@@ -119,6 +119,23 @@ export async function runDoctor(
     detail: `${actor.type}/${actor.name} (override with --agent)`,
   });
 
+  // 7. parent/child pairs that predate the rule. The engine refuses new ones,
+  //    but the log is append-only — a board written earlier can still hold
+  //    them, and only the owner can decide which end to move.
+  const slanted = hierarchyViolations(dir, storage);
+  if (slanted) {
+    checks.push({
+      ok: slanted.length === 0,
+      label: "hierarchy",
+      detail:
+        slanted.length === 0
+          ? "parent and child states agree"
+          : `${slanted.length} pair(s) out of step — ${slanted
+              .slice(0, 3)
+              .join("; ")}${slanted.length > 3 ? "; …" : ""}`,
+    });
+  }
+
   let failures = 0;
   for (const check of checks) {
     io.stdout(
@@ -167,5 +184,23 @@ function countCards(
     return count;
   } catch {
     return -1;
+  }
+}
+
+/**
+ * One line per out-of-step pair, or `null` when the board cannot be read (the
+ * store check already reported that — no point reporting it twice).
+ */
+function hierarchyViolations(
+  dir: string,
+  storage: "sqlite" | "jsonl" | "memory",
+): string[] | null {
+  try {
+    const kanban = openKanban({ dir, storage });
+    const found = kanban.hierarchyViolations().map((entry) => entry.reason);
+    kanban.close();
+    return found;
+  } catch {
+    return null;
   }
 }

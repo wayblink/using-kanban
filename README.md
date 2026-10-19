@@ -69,8 +69,8 @@ ukb show 38                # children: 4/6 (…) + the child list
 
 One level deep, and separate from dependencies: an umbrella does not block its
 parts, a part can be blocked by a third card, and parts may live in another
-project. An umbrella with unfinished children cannot enter `doing` or `review` —
-it is a container, not a work item.
+project. The two ends move together, though: claim the umbrella first, then its
+parts; and the umbrella cannot be reviewed or finished until every part is done.
 
 ![The card dialog: what the card is on the left, how it connects on the right](docs/web-ui-card-dialog.png)
 

@@ -20,7 +20,7 @@ import type {
   MutationOptions,
   UpdateNoteInput,
 } from "./schemas.js";
-import { isShelved } from "./types.js";
+import { isShelved, isInPlay, isTerminal } from "./types.js";
 import type {
   Actor,
   Board,
@@ -399,9 +399,12 @@ export class Kanban {
    * Make card `id` a part of card `parentId`.
    *
    * Hierarchy is deliberately one level: the child must be a leaf and the parent
-   * must be top-level, so nothing can gain a grandparent. A card that is in
-   * `doing` or `review` cannot become an umbrella — that is the same rule as
-   * "an umbrella cannot enter doing or review", seen from the other end.
+   * must be top-level, so nothing can gain a grandparent.
+   *
+   * Attaching makes `parentId` an umbrella and `id` one of its parts, so the pair
+   * has to satisfy the same contract `transition` enforces. It is checked here
+   * as well because no transition happens: the event log cannot be corrected
+   * afterwards, so an inconsistent pair must never be written in the first place.
    *
    * Re-parenting replaces the old parent in one event; the caller does not have
    * to remember an `unparent` first. `id` is the child: attaching changes that
@@ -438,10 +441,19 @@ export class Kanban {
         `card ${parentId} is itself a child of #${parentCard.parent} — the hierarchy is one level, so it cannot also be a parent`,
       );
     }
-    if (parentCard.state === "doing" || parentCard.state === "review") {
+    if (isInPlay(card.state) && parentCard.state !== "doing") {
       throw new KanbanError(
         "invalid_state",
-        `card ${parentId} is in ${parentCard.state} — an umbrella cannot be in doing or review, so move it out before attaching children`,
+        `card ${id} is in ${card.state} and card ${parentId} is in ${parentCard.state} — a part cannot be in doing or review before its umbrella is in doing; move ${parentId} to doing first`,
+      );
+    }
+    if (
+      (parentCard.state === "review" || parentCard.state === "done") &&
+      card.state !== "done"
+    ) {
+      throw new KanbanError(
+        "invalid_state",
+        `card ${parentId} is in ${parentCard.state} — an umbrella cannot take on the unfinished card ${id} (${card.state})`,
       );
     }
     return this.emit({
@@ -705,26 +717,9 @@ export class Kanban {
         );
       }
     }
-    // An umbrella is a container, not a work item: it cannot be in play while
-    // its parts are unfinished. This is explicit (the user chose to enforce it),
-    // unlike the soft progress display, and it is what makes #38's "the epic's
-    // status is derived from its children, it does not advance on its own" a
-    // rule rather than a note in a body. `done` stays ungated for the same
-    // reason blockers do not gate it — a card must always be closable.
-    if (to === "doing" || to === "review") {
-      const openChildren = this.projection.openChildren(card);
-      if (openChildren.length > 0) {
-        const listed = openChildren
-          .map((child) => `#${child.id} (${child.state})`)
-          .join(", ");
-        throw new KanbanError(
-          "invalid_state",
-          `card ${id} is an umbrella with ${openChildren.length} unfinished ${
-            openChildren.length === 1 ? "child" : "children"
-          } — finish or unparent ${openChildren.length === 1 ? "it" : "them"} first: ${listed}`,
-        );
-      }
-    }
+    // An umbrella is the goal and its children are the parts of it, so the two
+    // ends cannot disagree. See `assertHierarchy`.
+    this.assertHierarchy(card, to);
     return this.emit({
       actor,
       source,
@@ -737,6 +732,103 @@ export class Kanban {
         ...(Object.keys(effective).length > 0 ? { patch: effective } : {}),
       },
     });
+  }
+
+  /**
+   * The parent/child contract, checked on every transition.
+   *
+   * An umbrella is the goal; its children are the parts that add up to it. The
+   * two ends have to agree, so four rules follow from that one idea:
+   *
+   *  - a child may only be in play (`doing`/`review`) while its umbrella is
+   *    `doing` — "this is under way" is what makes a part claimable;
+   *  - an umbrella may only be reviewed or finished once every child is `done`
+   *    — the whole cannot be accepted while a part is still open;
+   *  - an umbrella may not drop out of `doing` while a child is in play, or the
+   *    first rule would already be broken;
+   *  - a child may not leave `done` while its umbrella is in `review`/`done`,
+   *    which is the second rule seen from the other end.
+   *
+   * This replaces the earlier "an umbrella is a container, so it may not be in
+   * doing/review at all": that rule made the umbrella the last thing to start
+   * and the first thing to finish, which is backwards — the parts are what you
+   * work on *while* the goal is in play.
+   *
+   * Checked on the transition rather than derived afterwards: an event log
+   * cannot reject a write it already holds, and a projection that silently
+   * corrected itself would disagree with the events it is built from. A board
+   * written before this rule may still hold such a pair (see `ukb doctor`); the
+   * next move of either card is where it surfaces, and the message says which
+   * end to move first.
+   */
+  private assertHierarchy(card: Card, to: CardState): void {
+    const parent =
+      card.parent === null ? null : this.projection.card(card.parent);
+    const children = this.projection.childrenOf(card);
+
+    if (parent && isInPlay(to) && parent.state !== "doing") {
+      throw new KanbanError(
+        "invalid_state",
+        `card ${card.id} is a part of #${parent.id} (${parent.state}) — a child cannot be in ${to} until its umbrella is in doing; move #${parent.id} to doing first`,
+      );
+    }
+
+    if (children.length > 0) {
+      if (to === "review" || to === "done") {
+        const open = children.filter((child) => !isTerminal(child.state));
+        if (open.length > 0) {
+          const listed = open
+            .map((child) => `#${child.id} (${child.state})`)
+            .join(", ");
+          const target = to === "done" ? "done" : "in review";
+          throw new KanbanError(
+            "invalid_state",
+            `card ${card.id} is an umbrella with ${open.length} unfinished ${
+              open.length === 1 ? "child" : "children"
+            } — a card cannot be ${target} until every part is done; finish or unparent ${open.length === 1 ? "it" : "them"} first: ${listed}`,
+          );
+        }
+      }
+
+      if (card.state === "doing" && !isInPlay(to)) {
+        const working = children.filter((child) => isInPlay(child.state));
+        if (working.length > 0) {
+          const listed = working
+            .map((child) => `#${child.id} (${child.state})`)
+            .join(", ");
+          throw new KanbanError(
+            "invalid_state",
+            `card ${card.id} still has ${
+              working.length === 1 ? "a part" : "parts"
+            } in play — move ${working.length === 1 ? "it" : "them"} out of doing/review before the umbrella leaves doing: ${listed}`,
+          );
+        }
+      }
+    }
+
+    if (
+      parent &&
+      isTerminal(card.state) &&
+      (parent.state === "review" || parent.state === "done")
+    ) {
+      throw new KanbanError(
+        "invalid_state",
+        `card ${card.id} is a part of #${parent.id}, which is in ${parent.state} — move #${parent.id} back out of ${parent.state} before reopening this card`,
+      );
+    }
+  }
+
+  /**
+   * Pairs on the board that break the parent/child contract.
+   *
+   * The engine refuses to create new ones, but a board written before the rule
+   * existed can still hold them: the log is append-only, so they are reported
+   * rather than rewritten. `ukb doctor` prints them; the fix is one move of the
+   * end the message names.
+   */
+  hierarchyViolations(): { card: Card; reason: string }[] {
+    this.projection.sync(this.log);
+    return this.projection.hierarchyViolations();
   }
 
   private emit(event: NewEvent): MutationResult {

@@ -60,6 +60,17 @@ export function isOpen(state: CardState): boolean {
 }
 
 /**
+ * In play: someone has the card in hand. `doing` and `review` are the two
+ * states where work is actually happening; `todo` is owed but untouched and
+ * `someday` is parked. Distinct from `onRadar`, which also counts `todo` —
+ * "is this in the running" and "is this being worked on" are different
+ * questions, and the parent/child contract is stated in terms of the second.
+ */
+export function isInPlay(state: CardState): boolean {
+  return state === "doing" || state === "review";
+}
+
+/**
  * In play: what "what should I work on" may offer. Excludes the shelf because
  * a parked card is not a candidate, which is the whole point of the shelf.
  */

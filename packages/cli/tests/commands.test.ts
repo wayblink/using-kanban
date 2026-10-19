@@ -202,17 +202,34 @@ describe("umbrella cards", () => {
     expect(text).toContain("#2 [done] part one ⤷#1");
   });
 
-  it("refuses to claim or review an umbrella with unfinished children", async () => {
+  it("will not let a part start before its umbrella does", async () => {
     const dir = tempDir();
     await epic(dir);
 
-    await expect(runCommand(["claim", "1"], makeIo(dir))).rejects.toThrow(
+    // #1 is still todo, so its parts cannot be in play.
+    await expect(runCommand(["claim", "2"], makeIo(dir))).rejects.toThrow(
+      /a part of #1 \(todo\).*move #1 to doing first/,
+    );
+
+    await run(["claim", "1"], dir);
+    const claimed = await run(["claim", "2"], dir);
+    expect(claimed.out.join("\n")).toContain("#2 [doing] part one");
+  });
+
+  it("will not finish an umbrella before its parts", async () => {
+    const dir = tempDir();
+    await epic(dir);
+    await run(["claim", "1"], dir);
+
+    await expect(runCommand(["done", "1"], makeIo(dir))).rejects.toThrow(
       /umbrella with 2 unfinished children/,
     );
     await expect(runCommand(["review", "1"], makeIo(dir))).rejects.toThrow(
       /umbrella with 2 unfinished children/,
     );
-    // but `done` stays allowed — a card must always be closable
+
+    await run(["done", "2"], dir);
+    await run(["done", "3"], dir);
     const closed = await run(["done", "1"], dir);
     expect(closed.out.join("\n")).toContain("#1 [done] epic");
   });

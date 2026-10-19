@@ -146,10 +146,18 @@ Three rules, all deliberate:
   they are how it gets done, not what it waits for. Use `relate`/`block` for
   ordering; use `parent` for belonging. A card can be someone's child _and_
   blocked by a third card at the same time.
-- **An umbrella with unfinished children cannot enter `doing` or `review`.**
-  It is a container, not a work item: work the children instead. Its progress
-  (`▸4/6`) is derived, and it can always be `done` — like every other card, a
-  closure is never blocked.
+- **The two ends move together.** An umbrella is the goal and its children are
+  the parts, so neither end can be ahead of the other:
+  - a child cannot be `doing` or `review` unless its umbrella is `doing` —
+    claim the goal first, then the parts;
+  - an umbrella cannot be `review` or `done` until **every** child is `done`
+    — you cannot accept the whole while a part is open;
+  - an umbrella cannot be parked (`todo`/`someday`) while a child is in play;
+  - a child of a `review`/`done` umbrella cannot be reopened until the umbrella
+    comes back out.
+
+  Progress (`▸4/6`) stays derived — finishing a child does not move the
+  umbrella for you. A leaf card's `done` is never gated.
 
 Deleting an umbrella orphans its children (they become top-level) rather than
 deleting them.
