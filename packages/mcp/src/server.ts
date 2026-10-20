@@ -22,7 +22,23 @@ function projectSchemaOptional() {
     .string()
     .optional()
     .describe(
-      'Project slug, lowercase (e.g. "web", "api-core"). Omit to include every project.',
+      'Project slug, lowercase (e.g. "web", "api-core"). By convention this is the code repository name; use subproject for a direction inside it. Omit to include every project.',
+    );
+}
+
+/**
+ * The optional `subproject` argument on tools that filter or set it.
+ *
+ * Same slug rules as a project, and only meaningful under one — the core
+ * refuses a direction without a repository, so this stays a plain optional
+ * string rather than a second validation layer.
+ */
+function subprojectSchemaOptional() {
+  return z
+    .string()
+    .optional()
+    .describe(
+      'Direction inside the project, lowercase (e.g. "auth", "roadmap"). Requires project. Omit to include every direction.',
     );
 }
 
@@ -101,16 +117,19 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
       title: "Show board",
       description:
         "Show the board (todo/doing/review/done). Pass project to see just that project's cards.",
-      inputSchema: { project: projectSchemaOptional() },
+      inputSchema: {
+        project: projectSchemaOptional(),
+        subproject: subprojectSchemaOptional(),
+      },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    safe(({ project }) => {
+    safe(({ project, subproject }) => {
       const kanban = read();
       // Full index: a project slice must still count children in other
       // projects, or an umbrella's `▸done/total` would undercount.
       return text(
         formatBoard(
-          kanban.board(project),
+          kanban.board(project, subproject),
           new Map(kanban.cards().map((card) => [card.id, card])),
         ),
       );
@@ -122,13 +141,16 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
     {
       title: "My open cards",
       description: MINE_DESCRIPTION,
-      inputSchema: { project: projectSchemaOptional() },
+      inputSchema: {
+        project: projectSchemaOptional(),
+        subproject: subprojectSchemaOptional(),
+      },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    safe(({ project }) =>
+    safe(({ project, subproject }) =>
       text(
         formatCards(
-          read().mine(actor.name, project),
+          read().mine(actor.name, project, subproject),
           "No open cards assigned to you.",
         ),
       ),
@@ -147,12 +169,13 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
           .optional()
           .describe("Actor name to check (defaults to you)"),
         project: projectSchemaOptional(),
+        subproject: subprojectSchemaOptional(),
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    safe(({ agent, project }) => {
+    safe(({ agent, project, subproject }) => {
       const name = agent ?? actor.name;
-      const cards = read().reviewQueue(name, project);
+      const cards = read().reviewQueue(name, project, subproject);
       return text(formatCards(cards, `Nothing waiting for ${name} to review.`));
     }),
   );
@@ -219,6 +242,7 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
           .optional()
           .describe("Card ids this card waits on"),
         project: projectSchemaOptional(),
+        subproject: subprojectSchemaOptional(),
         priority: prioritySchemaOptional(),
       },
     },
@@ -230,7 +254,8 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
           assignee: input.assignee,
           reviewer: input.reviewer,
           blockedBy: input.blockedBy,
-          project: input.project,
+          project: input.project === "" ? null : input.project,
+          subproject: input.subproject === "" ? null : input.subproject,
         },
         actor,
         "mcp",
@@ -252,6 +277,7 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
         assignee: z.string().optional(),
         reviewer: z.string().optional(),
         project: projectSchemaOptional(),
+        subproject: subprojectSchemaOptional(),
         priority: prioritySchemaOptional(),
       },
     },
@@ -263,7 +289,8 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
           body: input.body,
           assignee: input.assignee,
           reviewer: input.reviewer,
-          project: input.project,
+          project: input.project === "" ? null : input.project,
+          subproject: input.subproject === "" ? null : input.subproject,
           priority: input.priority,
         },
         actor,

@@ -289,6 +289,12 @@ export class BoardOverlay {
         collapseKey: this.options.collapseKey,
         scopeLabel: this.scopeLabel,
         groupBy: this.view.groupBy,
+        // The scope is part of the card, not of the view: show it in every
+        // scope, including `mine` and a single project, so `web/auth` is where
+        // a row lives rather than something the heading implies. Grouping by
+        // project already prints it, so that case opts out rather than
+        // duplicating the label.
+        showProject: this.view.groupBy !== "project",
         states: this.view.states,
         // Progress is global: count children the scope filtered out too.
         index:

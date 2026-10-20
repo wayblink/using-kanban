@@ -55,6 +55,8 @@ export interface CardLite {
   readonly assignee: string | null;
   readonly reviewer: string | null;
   readonly project: string | null;
+  /** Direction inside the project. Absent on brief JSON written before it. */
+  readonly subproject?: string | null;
   readonly blockedBy: readonly number[];
   /**
    * The umbrella this card is part of, or null. One level deep: a card is
@@ -100,6 +102,15 @@ export interface OverlayRenderOptions {
   readonly scopeLabel?: string;
   /** Row ordering and optional inline group column. */
   readonly groupBy?: OverlayGroup;
+  /**
+   * Print each card's scope (`project` or `project/subproject`).
+   *
+   * A card attribute, not a property of the view: the caller sets it in every
+   * scope, so a row says where it lives even when the heading already names
+   * the project. Grouping by project prints it as the group label, so that case
+   * opts out rather than repeating it on every row.
+   */
+  readonly showProject?: boolean;
   /** Which states to show. Defaults to doing/todo/review/someday. */
   readonly states?: readonly CardState[];
   /**
@@ -229,6 +240,7 @@ function toCardLite(value: unknown, state: CardState): CardLite | null {
     assignee: stringOrNull(value.assignee),
     reviewer: stringOrNull(value.reviewer),
     project: stringOrNull(value.project),
+    subproject: stringOrNull(value.subproject),
     blockedBy: Array.isArray(value.blockedBy)
       ? value.blockedBy.filter(
           (entry): entry is number => typeof entry === "number",
@@ -467,6 +479,17 @@ function ownerGroup(card: CardLite): string {
   return card.assignee ? `@${card.assignee}` : "unassigned";
 }
 
+/**
+ * A card's scope as one token: `project` or `project/subproject`.
+ *
+ * The same spelling the CLI and the card badge use, so a direction is named
+ * one way everywhere.
+ */
+export function cardScope(card: CardLite): string | null {
+  if (!card.project) return null;
+  return card.subproject ? `${card.project}/${card.subproject}` : card.project;
+}
+
 function groupedRows(
   cards: readonly CardLite[],
   groupBy: "project" | "owner",
@@ -474,7 +497,9 @@ function groupedRows(
   const keyed = cards.map((card) => ({
     card,
     label:
-      groupBy === "project" ? (card.project ?? "no project") : ownerGroup(card),
+      groupBy === "project"
+        ? (cardScope(card) ?? "no project")
+        : ownerGroup(card),
   }));
   keyed.sort(
     (a, b) =>
@@ -688,6 +713,7 @@ function renderRow(
   ownerColumn: number,
   last: boolean,
   byId: ReadonlyMap<number, CardLite>,
+  showProject: boolean,
 ): string {
   const connector = theme.fg("dim", last ? "└─" : "├─");
   const stateColor =
@@ -714,10 +740,12 @@ function renderRow(
   const priority = priorityTag(row.card);
   const hierarchy = hierarchySuffix(row.card, byId, row.nested);
   const hierarchyText = hierarchy ? ` ${hierarchy}` : "";
+  const scope = showProject ? cardScope(row.card) : null;
+  const scopeText = scope ? ` ${sanitizeTerminalText(scope)}` : "";
   const indent = row.nested ? "  " : "";
-  const frozen = `${indent}${plainGroup}${STATE_TAG[row.state]}${priority ? priority : ""} #${row.card.id} ${title}${hierarchyText}`;
+  const frozen = `${indent}${plainGroup}${STATE_TAG[row.state]}${priority ? priority : ""}${scopeText} #${row.card.id} ${title}${hierarchyText}`;
   const titleColor = row.state === "doing" ? "text" : "dim";
-  const colored = `${coloredGroup}${theme.fg(stateColor, STATE_TAG[row.state])}${priority ? theme.fg("warning", priority) : ""} ${theme.fg("accent", `#${row.card.id}`)} ${theme.fg(titleColor, title)}${hierarchy ? ` ${theme.fg("muted", hierarchy)}` : ""}`;
+  const colored = `${coloredGroup}${theme.fg(stateColor, STATE_TAG[row.state])}${priority ? theme.fg("warning", priority) : ""}${scope ? ` ${theme.fg("muted", scope)}` : ""} ${theme.fg("accent", `#${row.card.id}`)} ${theme.fg(titleColor, title)}${hierarchy ? ` ${theme.fg("muted", hierarchy)}` : ""}`;
 
   const owner = ownerSuffix(row);
   const gap =
@@ -797,7 +825,11 @@ export function renderOverlay(
       indent +
         groupWidth +
         options.visibleWidth(
-          `${STATE_TAG[row.state]}${priorityTag(row.card)} #${row.card.id} ${sanitizeTerminalText(row.card.title)}${hierarchy ? ` ${hierarchy}` : ""}`,
+          `${STATE_TAG[row.state]}${priorityTag(row.card)}${
+            options.showProject && cardScope(row.card)
+              ? ` ${sanitizeTerminalText(cardScope(row.card) ?? "")}`
+              : ""
+          } #${row.card.id} ${sanitizeTerminalText(row.card.title)}${hierarchy ? ` ${hierarchy}` : ""}`,
         ),
     );
   }, 0);
@@ -818,6 +850,7 @@ export function renderOverlay(
         ownerColumn,
         last,
         byId,
+        options.showProject ?? false,
       ),
     );
   });

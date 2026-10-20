@@ -656,6 +656,7 @@ describe("render", () => {
     assignee: "codex",
     reviewer: "jyxc",
     project: null,
+    subproject: null,
     priority: "normal",
     blockedBy: [1],
     blocks: [4],
@@ -887,6 +888,7 @@ describe("board --json", () => {
       assignee: "pi",
       reviewer: "jyxc",
       project: "web",
+      subproject: null,
       priority: "normal",
       blockedBy: [],
       parent: null,
@@ -916,5 +918,52 @@ describe("board --json", () => {
     // The text renderer's column headers, not a JSON document.
     expect(io.out.join("\n")).toContain("todo (1):");
     expect(() => JSON.parse(io.out.join("\n"))).toThrow();
+  });
+});
+
+describe("subproject", () => {
+  it("creates a direction and filters the board by it", async () => {
+    const dir = tempDir();
+    await run(
+      ["add", "OAuth callback", "--project", "web", "--subproject", "auth"],
+      dir,
+    );
+    await run(
+      ["add", "Billing", "--project", "web", "--subproject", "billing"],
+      dir,
+    );
+    await run(
+      ["add", "Retry", "--project", "api", "--subproject", "auth"],
+      dir,
+    );
+
+    const scoped = await run(
+      ["board", "--json", "--project", "web", "--subproject", "auth"],
+      dir,
+    );
+    const parsed = JSON.parse(scoped.out.join("\n")) as {
+      todo: { title: string; subproject: string | null }[];
+    };
+    expect(parsed.todo.map((card) => card.title)).toEqual(["OAuth callback"]);
+    expect(parsed.todo[0]?.subproject).toBe("auth");
+  });
+
+  it("refuses a direction without a repository", async () => {
+    const dir = tempDir();
+    await expect(
+      runCommand(["add", "orphan", "--subproject", "auth"], makeIo(dir)),
+    ).rejects.toThrow(/subproject needs a project/);
+  });
+
+  it("clears the direction when the project is cleared", async () => {
+    const dir = tempDir();
+    await run(
+      ["add", "OAuth callback", "--project", "web", "--subproject", "auth"],
+      dir,
+    );
+    const cleared = await run(["edit", "1", "--project", ""], dir);
+    expect(cleared.out.join("\n")).not.toContain("auth");
+    const shown = await run(["show", "1"], dir);
+    expect(shown.out.join("\n")).toContain("project: —");
   });
 });

@@ -1,12 +1,14 @@
-# kanban
+# using-kanban
 
-> A headless kanban engine for AI agents **and** humans.
-> HTTP + SSE + MCP out of the box — bring your own UI.
+> A kanban for agents and the operator who steers them.
+> One board per machine, four doors: a CLI, an MCP server, an HTTP API and a Web UI.
 
-A human and several agents (Claude Code, Codex, opencode, Pi, …) share one
-board. The engine is small and event-sourced, and every surface is a thin client
-of the same core: a `ukb` CLI, an MCP server, a Web UI you can drop in, and an
-HTTP API your own product can embed. No teams, no daemon — one board per machine.
+An operator and several agents (Claude Code, Codex, opencode, Pi, …) share one
+board. The operator sets the work and reviews it; the agents claim cards, do
+them, and hand them back. Underneath is a small event-sourced engine — the CLI,
+MCP server, HTTP API and Web UI are all thin clients of the same core — so you
+can embed the board in another product or build your own front end. No teams,
+no daemon: the board is the coordination.
 
 ![The board: five columns, an umbrella card and its parts](docs/web-ui.png)
 
@@ -74,9 +76,13 @@ parts; and the umbrella cannot be reviewed or finished until every part is done.
 
 ![The card dialog: what the card is on the left, how it connects on the right](docs/web-ui-card-dialog.png)
 
-**Projects** partition one board into many. `--project <slug>` filters every
-door; a card with no project matches no filter. `ukb list` prints each project
-with its counts.
+**Projects** partition one board into many. By convention `project` is the code
+repository name and `subproject` is a direction inside it — `web/auth` — so one
+repo can hold several streams without becoming several projects. `--project` and
+`--subproject` filter every door; a card with no project matches no filter, and
+a subproject needs a project. `ukb list` prints each project with its counts.
+The convention is a recommendation, not a hard check: existing project names
+stay valid.
 
 **Notes** are the paperwork — a remark plus a link to a document:
 
@@ -142,8 +148,8 @@ The **Insights** page reads the same event log the board is a projection of, so
 the two cannot disagree. It shows cards finished per day over the last 7, 30 or
 90 days against cards created, state totals with a comparison to the previous
 window, the current board by project (click a row to open that project's slice),
-a cumulative flow diagram, and the cards sitting longest in `doing` / `review`
-alongside median and P85 cycle time. The aggregate is computed server-side — the
+a cumulative flow diagram, and a ranking of the cards sitting longest in
+`doing` / `review` — click one to open it — alongside median and P85 cycle time. The aggregate is computed server-side — the
 raw log is far larger than a page of `/api/log` — and cut into days in the
 browser's time zone, not UTC: an evening's work in Shanghai is not filed under
 yesterday.
@@ -222,8 +228,8 @@ started" are different answers, and an agent cannot tell them apart otherwise.
 
 ## Embed it
 
-The API is the product. `createKanbanHandler` is a plain `(req, res) => void`
-you can drop into any host:
+The HTTP API is the contract. `createKanbanHandler` is a plain
+`(req, res) => void` you can drop into any host:
 
 ```ts
 import { createServer } from "node:http";

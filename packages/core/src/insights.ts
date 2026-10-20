@@ -48,12 +48,30 @@ export interface InsightsDay {
   readonly states: StateCounts;
 }
 
-/** A card that has been in one column for a while. */
-export interface AgingCard {
+/**
+ * How long a card may sit in a column before it counts as stuck.
+ *
+ * Review gets less rope than doing: a card in review is finished work waiting
+ * for a person, which is the queue this board exists to keep short. The numbers
+ * live here so the API, the page and any future CLI report agree on one rule.
+ */
+export const STUCK_DAYS = { doing: 3, review: 2 } as const;
+
+/** How many stuck cards the ranking shows. */
+export const STUCK_LIMIT = 10;
+
+/** A card that has been sitting in `doing` or `review` past its threshold. */
+export interface StuckCard {
   readonly id: number;
   readonly title: string;
   readonly project: string | null;
-  /** Whole days since it entered its current column. */
+  readonly state: "doing" | "review";
+  readonly assignee: string | null;
+  /** When it entered that column, ISO — the age is measured from here. */
+  readonly since: string;
+  /** The same instant as a calendar day in the requested zone. */
+  readonly sinceDate: string;
+  /** Whole days since it entered that column. */
   readonly days: number;
 }
 
@@ -83,12 +101,24 @@ export interface Insights {
     readonly created: number;
     readonly done: number;
   };
-  /** Oldest cards still in `doing` / `review` (at most five each). */
+  /**
+   * The cards that have been sitting in `doing` / `review` longest.
+   *
+   * A snapshot of the board right now, not of the window: the ranking does not
+   * move when the reader switches 7 / 30 / 90 days. `cards` is already sorted
+   * (days descending, id ascending) and capped at `STUCK_LIMIT`, so every
+   * client renders the same order rather than re-sorting its own slice.
+   */
   readonly aging: {
-    readonly doing: readonly AgingCard[];
-    readonly review: readonly AgingCard[];
+    readonly cards: readonly StuckCard[];
     /** Open cards whose upstream dependency is not finished. */
     readonly blocked: number;
+    /** Every card in the column, stuck or not. */
+    readonly counts: { readonly doing: number; readonly review: number };
+    /** Cards past `STUCK_DAYS` per column — what the ranking is drawn from. */
+    readonly stale: { readonly doing: number; readonly review: number };
+    /** The rule `stale` was counted with, so clients do not re-declare it. */
+    readonly thresholds: { readonly doing: number; readonly review: number };
   };
   /** Null when nothing was completed in the window. */
   readonly cycle: CycleTime | null;
@@ -322,7 +352,7 @@ export function buildInsights(options: BuildInsightsOptions): Insights {
       created: previousCreated,
       done: previousDone,
     },
-    aging: ageCards(options.cards, lastMove, now),
+    aging: ageCards(options.cards, lastMove, now, timeZone),
     cycle: cycleTime(doneInWindow, createdTs),
   };
 }
@@ -373,25 +403,39 @@ function ageCards(
   cards: readonly Card[],
   lastMove: ReadonlyMap<number, { state: CardState; ts: string }>,
   now: Date,
+  timeZone: string,
 ): Insights["aging"] {
   const byId = new Map(cards.map((card) => [card.id, card]));
-  const collect = (state: "doing" | "review"): AgingCard[] =>
-    cards
-      .filter((card) => card.state === state)
-      .map((card) => {
-        const moved = lastMove.get(card.id);
-        const since = moved?.state === state ? moved.ts : card.createdAt;
-        const elapsed = (now.getTime() - Date.parse(since)) / DAY_MS;
-        return {
-          id: card.id,
-          title: card.title,
-          project: card.project,
-          // `dateInZone` is not used here: an age is elapsed time, not a date.
-          days: Number.isFinite(elapsed) ? Math.max(0, Math.floor(elapsed)) : 0,
-        };
-      })
-      .sort((a, b) => b.days - a.days || a.id - b.id)
-      .slice(0, 5);
+  const counts = { doing: 0, review: 0 };
+  const stale = { doing: 0, review: 0 };
+  const entries: StuckCard[] = [];
+
+  for (const card of cards) {
+    if (card.state !== "doing" && card.state !== "review") continue;
+    const moved = lastMove.get(card.id);
+    const since = moved?.state === card.state ? moved.ts : card.createdAt;
+    const elapsed = (now.getTime() - Date.parse(since)) / DAY_MS;
+    const days = Number.isFinite(elapsed)
+      ? Math.max(0, Math.floor(elapsed))
+      : 0;
+    counts[card.state] += 1;
+    if (days < STUCK_DAYS[card.state]) continue;
+    stale[card.state] += 1;
+    entries.push({
+      id: card.id,
+      title: card.title,
+      project: card.project,
+      state: card.state,
+      assignee: card.assignee,
+      since,
+      sinceDate: dateInZone(since, timeZone),
+      // The age itself is elapsed time, not a calendar fact — the date beside
+      // it is the zone-aware half.
+      days,
+    });
+  }
+
+  entries.sort((a, b) => b.days - a.days || a.id - b.id);
 
   let blocked = 0;
   for (const card of cards) {
@@ -405,7 +449,13 @@ function ageCards(
     if (waiting) blocked += 1;
   }
 
-  return { doing: collect("doing"), review: collect("review"), blocked };
+  return {
+    cards: entries.slice(0, STUCK_LIMIT),
+    blocked,
+    counts,
+    stale,
+    thresholds: STUCK_DAYS,
+  };
 }
 
 function cycleTime(

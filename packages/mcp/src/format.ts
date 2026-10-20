@@ -20,6 +20,14 @@ import {
  * caller ever sees. Same policy as the CLI renderer: sanitize on the way out,
  * and split `body` before sanitizing so its own line structure survives.
  */
+/** `project` or `project/subproject`, the one spelling every door uses. */
+export function cardScope(
+  card: Pick<Card, "project" | "subproject">,
+): string | null {
+  if (!card.project) return null;
+  return card.subproject ? `${card.project}/${card.subproject}` : card.project;
+}
+
 export function formatCardBrief(
   card: Card,
   byId?: ReadonlyMap<number, Card>,
@@ -31,7 +39,8 @@ export function formatCardBrief(
   if (card.assignee) parts.push(`@${sanitizeTerminalText(card.assignee)}`);
   if (card.reviewer)
     parts.push(`reviewer:${sanitizeTerminalText(card.reviewer)}`);
-  if (card.project) parts.push(`project:${sanitizeTerminalText(card.project)}`);
+  const scope = cardScope(card);
+  if (scope) parts.push(`project:${sanitizeTerminalText(scope)}`);
   // Only when it is not the default, so the common case stays quiet.
   if (card.priority !== "normal") parts.push(card.priority);
   if (card.blockedBy.length > 0)
@@ -146,7 +155,7 @@ export function formatCard(
   const lines: string[] = [
     `#${card.id} ${sanitizeTerminalText(card.title)} [${card.state}]`,
     `assignee: ${sanitizeTerminalText(card.assignee ?? "—")}`,
-    `project: ${sanitizeTerminalText(card.project ?? "—")}`,
+    `project: ${sanitizeTerminalText(cardScope(card) ?? "—")}`,
     `reviewer: ${sanitizeTerminalText(card.reviewer ?? "—")}`,
     `blocked by: ${card.blockedBy.length > 0 ? card.blockedBy.map((id) => `#${id}`).join(", ") : "—"}`,
     `blocks: ${card.blocks.length > 0 ? card.blocks.map((id) => `#${id}`).join(", ") : "—"}`,

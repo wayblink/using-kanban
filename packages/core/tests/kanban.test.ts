@@ -1368,3 +1368,85 @@ describe("notes", () => {
     expect(replayed.board()).toEqual(kanban.board());
   });
 });
+
+describe("project and subproject", () => {
+  it("keeps a direction under its repository", () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    const { card } = kanban.add(
+      { title: "OAuth callback", project: "web", subproject: "auth" },
+      human,
+    );
+    expect(card.project).toBe("web");
+    expect(card.subproject).toBe("auth");
+
+    const replayed = new Projection();
+    for (const event of kanban.events()) replayed.apply(event);
+    expect(replayed.card(card.id)?.subproject).toBe("auth");
+  });
+
+  it("refuses a subproject without a project", () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    expect(() =>
+      kanban.add({ title: "orphan direction", subproject: "auth" }, human),
+    ).toThrowError(/subproject needs a project/);
+  });
+
+  it("clears the direction when the project is cleared", () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    const { card } = kanban.add(
+      { title: "OAuth callback", project: "web", subproject: "auth" },
+      human,
+    );
+    const cleared = kanban.edit(card.id, { project: null }, human).card;
+    expect(cleared.project).toBeNull();
+    expect(cleared.subproject).toBeNull();
+  });
+
+  it("drops the direction when the card moves to another repository", () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    const { card } = kanban.add(
+      { title: "OAuth callback", project: "web", subproject: "auth" },
+      human,
+    );
+    const moved = kanban.edit(card.id, { project: "api" }, human).card;
+    expect(moved.project).toBe("api");
+    expect(moved.subproject).toBeNull();
+
+    // An explicit direction in the same edit is the caller's choice.
+    const both = kanban.edit(
+      card.id,
+      { project: "api", subproject: "auth" },
+      human,
+    ).card;
+    expect(both.subproject).toBe("auth");
+  });
+
+  it("refuses to add a direction to a card with no project", () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    const { card } = kanban.add({ title: "loose work" }, human);
+    expect(() =>
+      kanban.edit(card.id, { subproject: "auth" }, human),
+    ).toThrowError(/subproject needs a project/);
+  });
+
+  it("filters the board by project and direction", () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    const auth = kanban.add(
+      { title: "OAuth", project: "web", subproject: "auth" },
+      human,
+    ).card;
+    kanban.add(
+      { title: "Billing", project: "web", subproject: "billing" },
+      human,
+    );
+    kanban.add(
+      { title: "Other repo", project: "api", subproject: "auth" },
+      human,
+    );
+
+    const web = kanban.board("web");
+    expect(web.todo).toHaveLength(2);
+    const authOnly = kanban.board("web", "auth");
+    expect(authOnly.todo.map((card) => card.id)).toEqual([auth.id]);
+  });
+});

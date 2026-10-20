@@ -57,17 +57,25 @@ human name). `UKB_AGENT` in the environment sets it too.
 
 ## Projects
 
-Cards carry an optional project slug so one board holds several projects:
+Cards carry an optional project slug so one board holds several projects. By
+convention the project is the **code repository name**, and a `subproject` is a
+direction inside it, so one repo can hold several streams:
 
 ```bash
-ukb add "Fix the login bug" --project web   # set at creation
-ukb list                                   # every project + its card counts
-ukb board --project web                     # just that project
-ukb mine --project web                      # my work in one project
+ukb add "Fix the login bug" --project web --subproject auth
+ukb list                                     # every project + its card counts
+ukb board --project web                      # one repository
+ukb board --project web --subproject auth    # one direction inside it
+ukb mine --project web                       # my work in one repository
 ```
 
 A card with no project is in **no** project — a project filter is a partition,
-not an overlay. Slugs are lowercased and limited to `[a-z0-9._-]`.
+not an overlay. A subproject needs a project; clearing or changing the project
+drops the direction. Slugs are lowercased and limited to `[a-z0-9._-]`.
+
+Every row prints its `project/subproject`, whatever the scope, so a card's home
+is on the card rather than implied by the heading; `group=project` groups by
+that same scope instead of repeating it per row.
 
 ## Priority
 
@@ -213,9 +221,11 @@ ukb board --project <slug>       # one project's slice
 /ukb gui hide
 ukb board --json                 # the same board as JSON, for scripts
 ukb board --json --brief         # list fields only; skips bodies/notes/audit metadata
-ukb add "<title>" [--body B] [--assignee X] [--reviewer Y] [--project p]
+ukb add "<title>" [--body B] [--assignee X] [--reviewer Y]
+                        [--project p] [--subproject s]
                         [--priority high|normal|low]
-ukb edit <id> [--title T] [--body B] [--assignee X] [--reviewer Y] [--project p]
+ukb edit <id> [--title T] [--body B] [--assignee X] [--reviewer Y]
+              [--project p] [--subproject s]
 ukb done <id> [<id> …]  # several cards in one call; it stops at the first
                         # card the board refuses, so what it printed is what
                         # was applied

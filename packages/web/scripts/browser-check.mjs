@@ -264,7 +264,12 @@ async function main() {
         body: "AC: verified in a browser",
         reviewer: "jyxc",
       },
-      { title: "project: web card", project: "web", reviewer: "jyxc" },
+      {
+        title: "project: web card",
+        project: "web",
+        subproject: "checkout",
+        reviewer: "jyxc",
+      },
       { title: "project: api card", project: "api", reviewer: "jyxc" },
     ]) {
       const response = await fetch(`${base}/api/cards?token=browser-check`, {
@@ -570,19 +575,20 @@ async function main() {
       JSON.parse(
         await cdp.evaluate(`JSON.stringify({
           cards: [...document.querySelectorAll(".card-title")].map((e) => e.textContent),
-          badges: [...document.querySelectorAll(".badge.project")].map((e) => e.textContent),
+          scopes: [...document.querySelectorAll(".card-scope")].map((e) => e.textContent),
           options: [...document.querySelectorAll("#filter-project option")].map((o) => o.textContent),
         })`),
       );
 
     const all = await projectUi();
     report.push([
-      "project badges and filter options render",
+      "card scopes and filter options render",
       all.cards.length === 12 &&
-        all.badges.length === 10 &&
+        all.scopes.length === 10 &&
+        all.scopes.some((scope) => scope.includes("sub:checkout")) &&
         all.options.includes("web") &&
         all.options.includes("api"),
-      `${all.cards.length} cards · ${all.badges.length} badges · options=${all.options.join("/")}`,
+      `${all.cards.length} cards · ${all.scopes.length} scopes · options=${all.options.join("/")}`,
     ]);
 
     await cdp.evaluate(`(() => {
@@ -597,7 +603,7 @@ async function main() {
       // every surviving card is a web card, and nothing from api survives
       webOnly.cards.length > 1 &&
         webOnly.cards.every((title) => !title.includes("project: api")) &&
-        webOnly.badges.every((badge) => badge === "project:web"),
+        webOnly.scopes.every((scope) => scope.startsWith("project:web")),
       `cards=${webOnly.cards.join("/")}`,
     ]);
 
@@ -608,13 +614,54 @@ async function main() {
       `options=${webOnly.options.join("/")}`,
     ]);
 
-    // clear it again so the rest of the check sees the whole board
+    // A direction is scoped to its repository: web offers checkout, nothing else.
+    const subprojectUi = async () =>
+      JSON.parse(
+        await cdp.evaluate(`JSON.stringify({
+          options: [...document.querySelectorAll("#filter-subproject option")].map((o) => o.textContent),
+          value: document.getElementById("filter-subproject").value,
+          cards: [...document.querySelectorAll(".card-title")].map((e) => e.textContent),
+        })`),
+      );
+    const directions = await subprojectUi();
+    report.push([
+      "subproject options follow the selected project",
+      directions.options.includes("checkout") &&
+        directions.value === "" &&
+        directions.options.length === 2,
+      `options=${directions.options.join("/")}`,
+    ]);
+
+    await cdp.evaluate(`(() => {
+      const s = document.getElementById("filter-subproject");
+      s.value = "checkout";
+      s.dispatchEvent(new Event("change", { bubbles: true }));
+    })()`);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const directionOnly = await subprojectUi();
+    report.push([
+      "subproject filter narrows to the direction",
+      directionOnly.cards.length === 1 &&
+        directionOnly.cards[0] === "project: web card",
+      `cards=${directionOnly.cards.join("/")}`,
+    ]);
+
+    // clear it again so the rest of the check sees the whole board; changing
+    // the project also resets the direction.
     await cdp.evaluate(`(() => {
       const s = document.getElementById("filter-project");
       s.value = "";
       s.dispatchEvent(new Event("change", { bubbles: true }));
     })()`);
     await new Promise((resolve) => setTimeout(resolve, 700));
+    const reset = await cdp.evaluate(
+      `document.getElementById("filter-subproject").value`,
+    );
+    report.push([
+      "changing the project clears the direction filter",
+      reset === "",
+      `subproject=${JSON.stringify(reset)}`,
+    ]);
 
     /* --------------------- column height and preview ---------------------- */
 
@@ -797,23 +844,31 @@ async function main() {
         kpis: document.querySelectorAll('.kpi').length,
         charts: document.querySelectorAll('.chart-svg').length,
         projectRows: document.querySelectorAll('.project-row').length,
+        stuckPanels: document.querySelectorAll('.panel-stuck').length,
+        stuckRows: document.querySelectorAll('.stuck-row').length,
+        stuckEmpty:
+          document.querySelector('.panel-stuck .stuck-empty')?.textContent ?? '',
         ranges: [...document.querySelectorAll('.segmented-option')].map((b) => b.dataset.days),
         window: document.querySelector('#insights').dataset.days ?? '',
         lead: document.querySelector('.insights-lead')?.textContent ?? '',
       })`),
     );
     report.push([
-      "insights renders its five panels from the log",
+      "insights renders its panels from the log",
       insights.visible &&
         insights.boardHidden &&
         insights.active === "insights" &&
-        insights.panels >= 5 &&
+        insights.panels >= 6 &&
         insights.kpis === 5 &&
         insights.charts === 2 &&
         insights.projectRows > 0 &&
+        insights.stuckPanels === 1 &&
+        // The fixture has nothing in doing/review, so the panel must say so
+        // rather than render an empty table.
+        /Nothing is in doing or review/.test(insights.stuckEmpty) &&
         insights.lead.length > 0,
       `${insights.panels} panels · ${insights.kpis} tiles · ${insights.charts} charts · ` +
-        `${insights.projectRows} project rows · lead "${insights.lead}"`,
+        `${insights.projectRows} project rows · stuck: "${insights.stuckEmpty}" · lead "${insights.lead}"`,
     ]);
 
     // The window switch refetches: the page records the window it drew.
@@ -825,6 +880,8 @@ async function main() {
         active: document.querySelector('.segmented-option.active')?.dataset.days ?? '',
         window: document.querySelector('#insights').dataset.days ?? '',
         charts: document.querySelectorAll('.chart-svg').length,
+        stuckEmpty:
+          document.querySelector('.panel-stuck .stuck-empty')?.textContent ?? '',
       })`),
     );
     report.push([
@@ -832,8 +889,10 @@ async function main() {
       widened.active === "90" &&
         widened.window === "90" &&
         widened.window !== rangeBefore &&
-        widened.charts === 2,
-      `${rangeBefore}d → ${widened.window}d · active=${widened.active}`,
+        widened.charts === 2 &&
+        // The stuck ranking is a snapshot of now: the window cannot change it.
+        widened.stuckEmpty === insights.stuckEmpty,
+      `${rangeBefore}d → ${widened.window}d · active=${widened.active} · stuck unchanged=${widened.stuckEmpty === insights.stuckEmpty}`,
     ]);
 
     // A project bar drills through to the board, filtered to that project.

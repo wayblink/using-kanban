@@ -790,7 +790,13 @@ describe("insights", () => {
     states: Record<string, number>;
     projects: { project: string | null; done: number }[];
     previous: { created: number; done: number };
-    aging: { doing: unknown[]; review: unknown[]; blocked: number };
+    aging: {
+      cards: unknown[];
+      blocked: number;
+      counts: { doing: number; review: number };
+      stale: { doing: number; review: number };
+      thresholds: { doing: number; review: number };
+    };
     cycle: { completed: number; medianDays: number } | null;
   }
 
@@ -866,5 +872,59 @@ describe("insights", () => {
       utc,
       new Date(Date.now() + 86_400_000).toISOString().slice(0, 10),
     ]).toContain(body.series[0]?.date);
+  });
+});
+
+describe("project and subproject", () => {
+  it("stores a direction under its repository and filters by both", async () => {
+    await createCard("OAuth callback", { project: "web", subproject: "auth" });
+    await createCard("Billing", { project: "web", subproject: "billing" });
+    await createCard("Other repo", { project: "api", subproject: "auth" });
+
+    const board = (await (
+      await request("/api/board?project=web&subproject=auth")
+    ).json()) as {
+      todo: { title: string; subproject: string | null }[];
+    };
+    expect(board.todo.map((card) => card.title)).toEqual(["OAuth callback"]);
+    expect(board.todo[0]?.subproject).toBe("auth");
+
+    const cards = (await (
+      await request("/api/cards?subproject=auth")
+    ).json()) as { cards: { project: string; title: string }[] };
+    expect(cards.cards.map((card) => card.title).sort()).toEqual([
+      "OAuth callback",
+      "Other repo",
+    ]);
+  });
+
+  it("refuses a direction without a repository", async () => {
+    const response = await request("/api/cards", {
+      method: "POST",
+      body: JSON.stringify({ title: "orphan", subproject: "auth" }),
+    });
+    expect(response.status).toBe(400);
+    const body = await json<{ error: { code: string; message: string } }>(
+      response,
+    );
+    expect(body.error.code).toBe("invalid_input");
+    expect(body.error.message).toMatch(/subproject needs a project/);
+  });
+
+  it("clears the direction when the repository is cleared", async () => {
+    const card = await createCard("OAuth callback", {
+      project: "web",
+      subproject: "auth",
+    });
+    const response = await request(`/api/cards/${card.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ project: null }),
+    });
+    expect(response.status).toBe(200);
+    const body = await json<{ card: { project: null; subproject: null } }>(
+      response,
+    );
+    expect(body.card.project).toBeNull();
+    expect(body.card.subproject).toBeNull();
   });
 });

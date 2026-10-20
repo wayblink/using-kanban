@@ -650,3 +650,35 @@ describe("a board that does not exist yet", () => {
     expect(existsSync(join(dir, ".ukb"))).toBe(false);
   });
 });
+
+describe("project directions", () => {
+  it("stores a subproject and filters the board by it", async () => {
+    await call("kanban_add", {
+      title: "OAuth callback",
+      project: "web",
+      subproject: "auth",
+    });
+    await call("kanban_add", {
+      title: "Billing",
+      project: "web",
+      subproject: "billing",
+    });
+
+    const board = await call("kanban_board", {
+      project: "web",
+      subproject: "auth",
+    });
+    expect(board.content[0]?.text).toContain("OAuth callback");
+    expect(board.content[0]?.text).not.toContain("Billing");
+    expect(board.content[0]?.text).toContain("project:web/auth");
+  });
+
+  it("refuses a direction without a repository", async () => {
+    const added = await call("kanban_add", {
+      title: "orphan",
+      subproject: "auth",
+    });
+    expect(added.isError).toBe(true);
+    expect(added.content[0]?.text).toMatch(/subproject needs a project/);
+  });
+});

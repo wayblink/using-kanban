@@ -68,6 +68,19 @@ function hierarchyMarkers(
   return parts;
 }
 
+/**
+ * A card's scope as one token: `project` or `project/subproject`.
+ *
+ * Every door prints the same spelling, so a reader can move a scope between
+ * the CLI, the overlay and the card badge without translating it.
+ */
+export function cardScope(
+  card: Pick<Card, "project" | "subproject">,
+): string | null {
+  if (!card.project) return null;
+  return card.subproject ? `${card.project}/${card.subproject}` : card.project;
+}
+
 export function formatCardBrief(
   card: Card,
   byId?: ReadonlyMap<number, Card>,
@@ -81,7 +94,8 @@ export function formatCardBrief(
   if (card.assignee) parts.push(`@${sanitizeTerminalText(card.assignee)}`);
   if (card.reviewer)
     parts.push(`reviewer:${sanitizeTerminalText(card.reviewer)}`);
-  if (card.project) parts.push(`project:${sanitizeTerminalText(card.project)}`);
+  const scope = cardScope(card);
+  if (scope) parts.push(`project:${sanitizeTerminalText(scope)}`);
   if (card.blockedBy.length > 0)
     parts.push(`blocked-by:${card.blockedBy.join(",")}`);
   if (card.blocks.length > 0) parts.push(`blocks:${card.blocks.join(",")}`);
@@ -225,7 +239,7 @@ export function formatCard(
     `#${card.id} ${sanitizeTerminalText(card.title)} [${card.state}]`,
     `assignee: ${sanitizeTerminalText(card.assignee ?? "—")}`,
     `reviewer: ${sanitizeTerminalText(card.reviewer ?? "—")}`,
-    `project: ${sanitizeTerminalText(card.project ?? "—")}`,
+    `project: ${sanitizeTerminalText(cardScope(card) ?? "—")}`,
     `priority: ${card.priority}`,
     `blocked by: ${card.blockedBy.length > 0 ? card.blockedBy.map((id) => `#${id}`).join(", ") : "—"}`,
     `blocks: ${card.blocks.length > 0 ? card.blocks.map((id) => `#${id}`).join(", ") : "—"}`,

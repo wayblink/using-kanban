@@ -2,7 +2,7 @@
   "name": "using-kanban",
   "version": "0.0.0",
   "private": true,
-  "description": "Headless kanban engine for AI agents and humans \u2014 HTTP + SSE + MCP out of the box, bring your own UI",
+  "description": "A kanban for agents and the operator who steers them \u2014 CLI, MCP, HTTP and a Web UI over one event-sourced board",
   "license": "MIT",
   "type": "module",
   "packageManager": "pnpm@10.32.1",

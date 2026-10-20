@@ -75,6 +75,7 @@ function briefCard(
   | "assignee"
   | "reviewer"
   | "project"
+  | "subproject"
   | "priority"
   | "blockedBy"
   | "parent"
@@ -87,6 +88,7 @@ function briefCard(
     assignee,
     reviewer,
     project,
+    subproject,
     priority,
     blockedBy,
     parent,
@@ -99,6 +101,7 @@ function briefCard(
     assignee,
     reviewer,
     project,
+    subproject,
     priority,
     blockedBy,
     parent,
@@ -159,7 +162,7 @@ usage: ukb [command] [args]
 board:
   ukb                              your open cards (a call to act, not just a list)
   ukb list                         every project on the board with its counts
-  ukb board [--project p] [--json [--brief]]
+  ukb board [--project p] [--subproject s] [--json [--brief]]
                                      the whole board, or one project's slice
                                      (--json emits { projects, someday, todo,
                                      doing, review, done } for scripts and the
@@ -167,7 +170,8 @@ board:
   ukb show <id>                    card detail + event history
 
 work:
-  ukb add "<title>" [--body "..."] [--assignee X] [--reviewer Y] [--project p]
+  ukb add "<title>" [--body "..."] [--assignee X] [--reviewer Y]
+                                     [--project p] [--subproject s]
                                      [--priority high|normal|low]
   ukb claim <id>                   todo → doing, assigned to you (do this first!)
   ukb review <id> [<id> …]         → review, one line per card
@@ -177,7 +181,8 @@ work:
                                      someday parks a card for later: it leaves
                                      the to-do list and is unhooked from its
                                      owner (assignee and reviewer are cleared)
-  ukb edit <id> [--title T] [--body B] [--assignee X] [--reviewer Y] [--project p]
+  ukb edit <id> [--title T] [--body B] [--assignee X] [--reviewer Y]
+                                     [--project p] [--subproject s]
                                      [--priority high|normal|low]
   ukb delete <id> [<id> …]         creator only
   ukb block <id> --by <id>         make a card wait on another
@@ -232,6 +237,12 @@ priority:
                                      because its lines already carry six other
                                      markers and ukb show states the priority
                                      outright.
+
+scope:
+  project names the code repository; subproject names a direction inside it,
+  so one repo can hold several streams without becoming several projects.
+  ukb add "…" --project web --subproject auth
+  A subproject needs a project. Clearing the project clears the direction.
 
 hierarchy:
   Umbrella cards (a big goal) and their children (the work that supports it)
@@ -315,7 +326,11 @@ export async function runCommand(
       case "mine": {
         io.stdout(
           formatMine(
-            kanban.mine(actor.name, flagString(parsed.flags, "project")),
+            kanban.mine(
+              actor.name,
+              flagString(parsed.flags, "project"),
+              flagString(parsed.flags, "subproject"),
+            ),
             actor.name,
             new Map(kanban.cards().map((card) => [card.id, card])),
           ),
@@ -332,7 +347,10 @@ export async function runCommand(
         return 0;
       }
       case "board": {
-        const board = kanban.board(flagString(parsed.flags, "project"));
+        const board = kanban.board(
+          flagString(parsed.flags, "project"),
+          flagString(parsed.flags, "subproject"),
+        );
         // `--json` is the raw machine door onto the same board the text
         // renderer shows. `--brief` is its list projection: the Pi overlay only
         // needs identity/ownership, not 100 KiB of bodies, notes and audit data.
@@ -387,7 +405,8 @@ export async function runCommand(
             body: flagString(parsed.flags, "body") ?? null,
             assignee: flagString(parsed.flags, "assignee") ?? null,
             reviewer: flagString(parsed.flags, "reviewer") ?? null,
-            project: flagString(parsed.flags, "project"),
+            project: clearableFlag(parsed.flags, "project"),
+            subproject: clearableFlag(parsed.flags, "subproject"),
             priority: flagPriority(parsed.flags),
             blockedBy: flagNumbers(parsed.flags, "blocked-by"),
           },
@@ -406,7 +425,8 @@ export async function runCommand(
             body: flagString(parsed.flags, "body"),
             assignee: flagString(parsed.flags, "assignee"),
             reviewer: flagString(parsed.flags, "reviewer"),
-            project: flagString(parsed.flags, "project"),
+            project: clearableFlag(parsed.flags, "project"),
+            subproject: clearableFlag(parsed.flags, "subproject"),
             priority: flagPriority(parsed.flags),
           },
           actor,
@@ -703,6 +723,21 @@ function hereUrl(): string | undefined {
   }
   const entry = process.argv[1];
   return entry ? pathToFileURL(resolve(entry)).href : undefined;
+}
+
+/**
+ * A flag whose empty spelling means "clear it".
+ *
+ * `--project ""` and `--subproject ""` need a way to say null: the slug
+ * schemas reject an empty string, and without this the CLI could set a scope
+ * but never take it back.
+ */
+function clearableFlag(
+  flags: Record<string, string | true>,
+  name: string,
+): string | null | undefined {
+  const value = flagString(flags, name);
+  return value === "" ? null : value;
 }
 
 /**

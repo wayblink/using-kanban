@@ -52,6 +52,7 @@ export class Projection {
           assignee: payload.assignee,
           reviewer: payload.reviewer,
           project: payload.project,
+          subproject: payload.subproject,
           priority: payload.priority,
           blockedBy: payload.blockedBy,
           blocks: [],
@@ -306,14 +307,17 @@ export class Projection {
     return found;
   }
 
-  board(project?: string | null): {
+  board(
+    project?: string | null,
+    subproject?: string | null,
+  ): {
     someday: Card[];
     todo: Card[];
     doing: Card[];
     review: Card[];
     done: Card[];
   } {
-    const all = this.inProject(project);
+    const all = this.inProject(project, subproject);
     return {
       someday: all.filter((card) => card.state === "someday"),
       todo: all.filter((card) => card.state === "todo"),
@@ -328,15 +332,23 @@ export class Projection {
    * excluded deliberately: a parked card is not a candidate for "what should I
    * work on", which is the point of parking it.
    */
-  openFor(assignee: string, project?: string | null): Card[] {
-    return this.inProject(project).filter(
+  openFor(
+    assignee: string,
+    project?: string | null,
+    subproject?: string | null,
+  ): Card[] {
+    return this.inProject(project, subproject).filter(
       (card) => card.assignee === assignee && onRadar(card.state),
     );
   }
 
   /** Cards in review where `reviewer` is the expected reviewer. */
-  reviewQueueFor(reviewer: string, project?: string | null): Card[] {
-    return this.inProject(project).filter(
+  reviewQueueFor(
+    reviewer: string,
+    project?: string | null,
+    subproject?: string | null,
+  ): Card[] {
+    return this.inProject(project, subproject).filter(
       (card) => card.reviewer === reviewer && card.state === "review",
     );
   }
@@ -346,10 +358,18 @@ export class Projection {
    * project are only visible when no project is selected — a project filter is
    * a partition, not a "show everything tagged" overlay.
    */
-  private inProject(project?: string | null): Card[] {
-    const all = this.all();
-    if (project === undefined || project === null) return all;
-    return all.filter((card) => card.project === project);
+  private inProject(
+    project?: string | null,
+    subproject?: string | null,
+  ): Card[] {
+    let all = this.all();
+    if (project !== undefined && project !== null) {
+      all = all.filter((card) => card.project === project);
+    }
+    if (subproject !== undefined && subproject !== null) {
+      all = all.filter((card) => card.subproject === subproject);
+    }
+    return all;
   }
 
   /**
@@ -453,6 +473,9 @@ export class Projection {
       ...(patch?.assignee !== undefined ? { assignee: patch.assignee } : {}),
       ...(patch?.reviewer !== undefined ? { reviewer: patch.reviewer } : {}),
       ...(patch?.project !== undefined ? { project: patch.project } : {}),
+      ...(patch?.subproject !== undefined
+        ? { subproject: patch.subproject }
+        : {}),
       ...(patch?.priority !== undefined ? { priority: patch.priority } : {}),
       updatedAt: ts,
       revision: card.revision + 1,

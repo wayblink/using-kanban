@@ -14,6 +14,7 @@ import {
   axisTicks,
   blockedCardIds,
   bodyExcerpt,
+  cardScope,
   describeEvent,
   docKindOf,
   escapeHtml,
@@ -697,7 +698,36 @@ describe("documentation in both languages", () => {
   });
 });
 
+describe("card scope", () => {
+  it("prints project, or project/direction", () => {
+    expect(cardScope(card({ project: null }))).toBeNull();
+    expect(cardScope(card({ project: "web" }))).toBe("web");
+    expect(cardScope(card({ project: "web", subproject: "auth" }))).toBe(
+      "web/auth",
+    );
+  });
+});
+
 describe("project filtering", () => {
+  it("narrows by direction inside a project", () => {
+    const cards = [
+      card({ id: 1, project: "web", subproject: "auth" }),
+      card({ id: 2, project: "web", subproject: "billing" }),
+      card({ id: 3, project: "api", subproject: "auth" }),
+    ];
+    expect(filterCards(cards, { project: "web" }).map((c) => c.id)).toEqual([
+      1, 2,
+    ]);
+    expect(
+      filterCards(cards, { project: "web", subproject: "auth" }).map(
+        (c) => c.id,
+      ),
+    ).toEqual([1]);
+    expect(filterCards(cards, { subproject: "auth" }).map((c) => c.id)).toEqual(
+      [1, 3],
+    );
+  });
+
   const cards = [
     {
       id: 1,

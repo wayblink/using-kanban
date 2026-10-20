@@ -46,12 +46,20 @@ export const ProjectSchema = z
 /** Optional project field: `undefined` = leave as-is, `null` = clear. */
 export const ClearableProjectSchema = ProjectSchema.nullish();
 
+/**
+ * Optional subproject: same slug rules as a project, and only meaningful under
+ * one. The cross-field rule (a subproject needs a project) is enforced by the
+ * mutation, not here — the schema cannot see the card's current project.
+ */
+export const ClearableSubprojectSchema = ProjectSchema.nullish();
+
 export const AddCardInputSchema = z.object({
   title: z.string().trim().min(1, "must not be empty"),
   body: ClearableTextSchema,
   assignee: ClearableTextSchema,
   reviewer: ClearableTextSchema,
   project: ClearableProjectSchema,
+  subproject: ClearableSubprojectSchema,
   priority: CardPrioritySchema.default(DEFAULT_CARD_PRIORITY),
   blockedBy: z.array(z.number().int().positive()).default([]),
 });
@@ -63,6 +71,7 @@ export const EditCardInputSchema = z.object({
   assignee: ClearableTextSchema,
   reviewer: ClearableTextSchema,
   project: ClearableProjectSchema,
+  subproject: ClearableSubprojectSchema,
   priority: CardPrioritySchema.optional(),
 });
 export type EditCardInput = z.input<typeof EditCardInputSchema>;
@@ -131,6 +140,7 @@ export const CardPatchSchema = z.object({
   assignee: z.string().nullable().optional(),
   reviewer: z.string().nullable().optional(),
   project: z.string().nullable().optional(),
+  subproject: z.string().nullable().optional(),
   priority: CardPrioritySchema.optional(),
 });
 export type CardPatch = z.infer<typeof CardPatchSchema>;
@@ -151,6 +161,8 @@ export const CardCreatedPayloadSchema = z.object({
   reviewer: z.string().nullable(),
   /** Absent on events written before projects existed. */
   project: z.string().nullable().default(null),
+  /** Absent on events written before directions existed. */
+  subproject: z.string().nullable().default(null),
   /**
    * Absent on events written before priorities existed. Values written before
    * `pending` was retired must be migrated before this schema can replay them —

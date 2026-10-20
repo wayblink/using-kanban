@@ -23,6 +23,7 @@ function makeCard(over: Partial<Card> = {}): Card {
     assignee: "codex",
     reviewer: "jyxc",
     project: null,
+    subproject: null,
     priority: "normal",
     blockedBy: [],
     blocks: [],

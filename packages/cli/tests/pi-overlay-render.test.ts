@@ -726,3 +726,64 @@ describe("sanitizeTerminalText", () => {
     expect(sanitizeTerminalText("keep 🎯 unicode")).toBe("keep 🎯 unicode");
   });
 });
+
+describe("scope in the panel", () => {
+  const web = card({
+    id: 1,
+    title: "OAuth callback",
+    project: "web",
+    subproject: "auth",
+  });
+  const api = card({ id: 2, title: "Retry", project: "api", state: "doing" });
+
+  it("parses a direction from brief JSON", () => {
+    const parsed = parseBoardJson(
+      JSON.stringify({
+        todo: [
+          {
+            id: 1,
+            title: "OAuth",
+            assignee: null,
+            reviewer: null,
+            project: "web",
+            subproject: "auth",
+            blockedBy: [],
+          },
+        ],
+        doing: [],
+        review: [],
+        done: [],
+        projects: ["web"],
+      }),
+    );
+    expect(parsed?.todo[0]?.subproject).toBe("auth");
+  });
+
+  it("prints the repository and direction when the scope spans all", () => {
+    const lines = renderOverlay(
+      snapshot({ todo: [web], doing: [api] }),
+      renderOptions({ scopeLabel: "all", showProject: true }),
+    );
+    const text = lines.join("\n");
+    expect(text).toContain("web/auth #1");
+    expect(text).toContain("api #2");
+  });
+
+  it("prints the scope in a single-project view too", () => {
+    const lines = renderOverlay(
+      snapshot({ todo: [web] }),
+      renderOptions({ scopeLabel: "web", showProject: true }),
+    );
+    expect(lines.join("\n")).toContain("web/auth #1");
+  });
+
+  it("groups by project/direction, not just the repository", () => {
+    const { rows } = selectOverlayRows(
+      snapshot({ todo: [web, api] }),
+      10,
+      "project",
+      ["todo"],
+    );
+    expect(rows.map((row) => row.groupLabel)).toEqual(["api", "web/auth"]);
+  });
+});

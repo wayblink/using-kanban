@@ -150,6 +150,15 @@ export interface Card {
   /** Project slug this card belongs to, or null for "no project". */
   readonly project: string | null;
   /**
+   * Direction inside that project, or null.
+   *
+   * By convention `project` is the repository name and `subproject` is a
+   * direction within it, so one repo can hold several streams without turning
+   * each into a top-level project. A subproject is meaningless without a
+   * project: clearing one clears the other.
+   */
+  readonly subproject: string | null;
+  /**
    * How urgently this card wants attention. `normal` unless set, including on
    * cards created before priorities existed — see `CardCreatedPayloadSchema`.
    */

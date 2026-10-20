@@ -65,9 +65,9 @@ export class Kanban {
   /* ------------------------------ queries ------------------------------ */
 
   /** The whole board, or just one project's slice of it. */
-  board(project?: string | null): Board {
+  board(project?: string | null, subproject?: string | null): Board {
     this.projection.sync(this.log);
-    return this.projection.board(project);
+    return this.projection.board(project, subproject);
   }
 
   cards(): Card[] {
@@ -96,15 +96,23 @@ export class Kanban {
   }
 
   /** Open cards assigned to `assignee` — the "what should I work on" call. */
-  mine(assignee: string, project?: string | null): Card[] {
+  mine(
+    assignee: string,
+    project?: string | null,
+    subproject?: string | null,
+  ): Card[] {
     this.projection.sync(this.log);
-    return this.projection.openFor(assignee, project);
+    return this.projection.openFor(assignee, project, subproject);
   }
 
   /** Cards waiting for `reviewer` to review. */
-  reviewQueue(reviewer: string, project?: string | null): Card[] {
+  reviewQueue(
+    reviewer: string,
+    project?: string | null,
+    subproject?: string | null,
+  ): Card[] {
     this.projection.sync(this.log);
-    return this.projection.reviewQueueFor(reviewer, project);
+    return this.projection.reviewQueueFor(reviewer, project, subproject);
   }
 
   /** Direct children of a card that still exist — an umbrella's parts. */
@@ -170,6 +178,14 @@ export class Kanban {
   ): MutationResult {
     const parsed = this.parseInput(AddCardInputSchema, input);
     this.projection.sync(this.log);
+    const project = parsed.project?.trim() || null;
+    const subproject = parsed.subproject?.trim() || null;
+    if (subproject !== null && project === null) {
+      throw new KanbanError(
+        "invalid_input",
+        "a subproject needs a project — set the project (the repository name) first",
+      );
+    }
     for (const blockerId of parsed.blockedBy ?? []) {
       this.mustCard(blockerId);
     }
@@ -183,7 +199,8 @@ export class Kanban {
         body: parsed.body ?? null,
         assignee: parsed.assignee ?? null,
         reviewer: parsed.reviewer ?? null,
-        project: parsed.project?.trim() || null,
+        project,
+        subproject,
         priority: parsed.priority,
         blockedBy: parsed.blockedBy ?? [],
         notes: [],
@@ -214,6 +231,37 @@ export class Kanban {
       patch.reviewer = parsed.reviewer?.trim() || null;
     if (parsed.project !== undefined)
       patch.project = parsed.project?.trim() || null;
+    if (parsed.subproject !== undefined)
+      patch.subproject = parsed.subproject?.trim() || null;
+    // A direction without a repository is not a shape this board has. Clearing
+    // the project takes its direction with it; setting one under no project is
+    // refused rather than silently dropped.
+    const nextProject =
+      parsed.project !== undefined
+        ? parsed.project?.trim() || null
+        : card.project;
+    // Moving a card to another repository drops its old direction: a
+    // direction belongs to one repository, and silently carrying the name
+    // across would invent a stream that repository may not have. An explicit
+    // --subproject in the same edit still wins.
+    const projectChanged =
+      parsed.project !== undefined && nextProject !== card.project;
+    let nextSubproject =
+      parsed.subproject !== undefined
+        ? parsed.subproject?.trim() || null
+        : projectChanged
+          ? null
+          : card.subproject;
+    if (nextProject === null) {
+      if (nextSubproject !== null && parsed.subproject !== undefined) {
+        throw new KanbanError(
+          "invalid_input",
+          "a subproject needs a project — set the project (the repository name) first",
+        );
+      }
+      nextSubproject = null;
+    }
+    if (nextSubproject !== card.subproject) patch.subproject = nextSubproject;
     if (parsed.priority !== undefined) patch.priority = parsed.priority;
     if (Object.keys(patch).length === 0) {
       return { card, events: [] };

@@ -39,6 +39,7 @@ function card(overrides: Partial<Card> & { id: number }): Card {
     assignee: null,
     reviewer: null,
     project: null,
+    subproject: null,
     priority: "normal",
     blockedBy: [],
     blocks: [],
@@ -276,11 +277,64 @@ describe("buildInsights", () => {
       days: 7,
       now: NOW,
     });
-    expect(at(insights.aging.doing, 0).id).toBe(1);
-    expect(at(insights.aging.doing, 0).days).toBe(9);
-    expect(at(insights.aging.review, 0).id).toBe(2);
-    expect(at(insights.aging.review, 0).days).toBe(2);
+    expect(insights.aging.cards.map((entry) => entry.id)).toEqual([1, 2]);
+    expect(at(insights.aging.cards, 0)).toMatchObject({
+      state: "doing",
+      days: 9,
+      assignee: null,
+      since: "2026-10-10T10:00:00.000Z",
+      sinceDate: "2026-10-10",
+    });
+    expect(at(insights.aging.cards, 1)).toMatchObject({
+      state: "review",
+      days: 2,
+    });
+    expect(insights.aging.counts).toEqual({ doing: 1, review: 1 });
+    expect(insights.aging.stale).toEqual({ doing: 1, review: 1 });
+    expect(insights.aging.thresholds).toEqual({ doing: 3, review: 2 });
     expect(insights.aging.blocked).toBe(1);
+  });
+
+  it("leaves cards under the threshold out of the ranking", () => {
+    const insights = buildInsights({
+      events: [
+        created("2026-10-16T09:00:00.000Z", 1),
+        moved("2026-10-17T10:00:00.000Z", 1, "todo", "doing"),
+        created("2026-10-17T09:00:00.000Z", 2),
+        moved("2026-10-18T10:00:00.000Z", 2, "todo", "review"),
+      ],
+      cards: [
+        card({ id: 1, state: "doing" }),
+        card({ id: 2, state: "review" }),
+      ],
+      days: 7,
+      now: NOW,
+    });
+    // Doing has a 2-day rope, review 1: both are still within theirs.
+    expect(insights.aging.cards).toEqual([]);
+    expect(insights.aging.counts).toEqual({ doing: 1, review: 1 });
+    expect(insights.aging.stale).toEqual({ doing: 0, review: 0 });
+  });
+
+  it("caps the ranking at ten but counts every stale card", () => {
+    const events = [];
+    const cards = [];
+    for (let index = 0; index < 12; index += 1) {
+      const id = index + 1;
+      events.push(created("2026-10-10T09:00:00.000Z", id));
+      events.push(moved("2026-10-12T10:00:00.000Z", id, "todo", "doing"));
+      cards.push(card({ id, state: "doing", assignee: "claude-code" }));
+    }
+    const insights = buildInsights({
+      events,
+      cards,
+      days: 7,
+      now: NOW,
+    });
+    expect(insights.aging.cards).toHaveLength(10);
+    expect(insights.aging.stale.doing).toBe(12);
+    // Newest id last in the tie-break, so the order is stable.
+    expect(at(insights.aging.cards, 0).id).toBe(1);
   });
 });
 

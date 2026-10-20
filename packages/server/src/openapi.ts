@@ -10,6 +10,11 @@ const CARD_SCHEMA = {
     },
     assignee: { type: ["string", "null"] },
     reviewer: { type: ["string", "null"] },
+    subproject: {
+      type: ["string", "null"],
+      description:
+        "direction inside the project — by convention the project is the repository name",
+    },
     blockedBy: {
       type: "array",
       items: { type: "integer" },
@@ -96,7 +101,7 @@ export function openApiSpec(): Record<string, unknown> {
       title: "using-kanban API",
       version: "0.1.0",
       description:
-        "Headless kanban for AI agents and humans. Board state is event-sourced; " +
+        "A kanban for agents and the operator who steers them. Board state is event-sourced; " +
         "subscribe to /api/events for live updates. Mutations require a bearer token.",
     },
     servers: [{ url: "/", description: "this server" }],

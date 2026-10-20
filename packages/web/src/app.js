@@ -69,11 +69,13 @@ export function filterCards(cards, filter = {}) {
   const assignee = String(filter.assignee ?? "").trim();
   const reviewer = String(filter.reviewer ?? "").trim();
   const project = String(filter.project ?? "").trim();
+  const subproject = String(filter.subproject ?? "").trim();
 
   return cards.filter((card) => {
     if (assignee && card.assignee !== assignee) return false;
     if (reviewer && card.reviewer !== reviewer) return false;
     if (project && card.project !== project) return false;
+    if (subproject && card.subproject !== subproject) return false;
     if (q && !cardHaystack(card).includes(q)) return false;
     return true;
   });
@@ -241,6 +243,17 @@ export function tickIndices(count) {
 /** `2026-10-19` → `10-19`, the shortest label that still reads as a date. */
 export function shortDate(date) {
   return String(date ?? "").slice(5);
+}
+
+/**
+ * A card's scope as one token: `project` or `project/subproject`.
+ *
+ * The same spelling the CLI, MCP and the overlay use, so a direction is named
+ * one way everywhere. Null when the card has no project.
+ */
+export function cardScope(card) {
+  if (!card.project) return null;
+  return card.subproject ? `${card.project}/${card.subproject}` : card.project;
 }
 
 /** Priority bands, in the order the board's other doors use. */
@@ -720,6 +733,8 @@ export const I18N = {
     "insights.range90": "90 days",
     "insights.loading": "Reading the log…",
     "insights.failed": "Could not load insights.",
+    "insights.outdated":
+      "This page is newer than the server it is talking to. Restart ukb web (or ukb-server), then press Retry.",
     "insights.retry": "Retry",
     "insights.states": "Board right now",
     "insights.statesLead": "Every card, by the column it sits in.",
@@ -740,13 +755,28 @@ export const I18N = {
     "insights.openProject": "Open {project} on the board",
     "insights.flow": "Cumulative flow",
     "insights.flowLead": "The board's shape at the end of each day.",
-    "insights.bottlenecks": "Where it is stuck",
-    "insights.agingDoing": "Longest in doing",
-    "insights.agingReview": "Longest in review",
+    "insights.health": "Flow health",
+    "insights.healthLead":
+      "Cycle time for this window; column counts and blocked work as of now.",
+    "insights.stuck": "Stuck cards",
+    "insights.stuckLead":
+      "Doing for {doing}+ days, review for {review}+ days — the ten oldest, as of now. The window above does not move this list.",
+    "insights.stuckCounts":
+      "{doing} in doing · {review} in review · {stale} past the threshold",
+    "insights.stuckEmptyState": "Nothing is in doing or review.",
+    "insights.stuckEmptyThreshold": "Nothing is past the threshold yet.",
+    "insights.stuckEmptyProject": "Nothing stuck in {project}.",
+    "insights.filterAllProjects": "all projects",
+    "insights.openCard": "Open card #{id}",
+    "insights.colCard": "Card",
+    "insights.colState": "State",
+    "insights.colDays": "Days",
+    "insights.colProject": "Project",
+    "insights.colOwner": "Owner",
+    "insights.colSince": "Since",
     "insights.ageDays": "{n}d",
-    "insights.agingNone": "Nothing has been sitting here.",
     "insights.blocked": "{n} waiting on an upstream card",
-    "insights.cycle": "{n} finished — median {median}d, P85 {p85}d",
+    "insights.cycle": "{n} finished this window — median {median}d, P85 {p85}d",
     "insights.cycleNone": "Nothing finished in this window.",
     "insights.empty": "No cards yet.",
     "insights.chartThroughput": "Throughput over time",
@@ -784,11 +814,16 @@ export const I18N = {
     "column.showLess": "show less",
     "column.empty": "nothing here",
     "card.project": "project:",
+    "card.subproject": "sub:",
+    "drawer.subproject": "Subproject",
+    "drawer.subprojectPlaceholder": "direction, e.g. auth",
+    "drawer.subprojectFirst": "set a project first",
     "card.priority": "priority:",
     "priority.high": "high",
     "priority.normal": "normal",
     "priority.low": "low",
     "filter.anyProject": "any project",
+    "filter.anySubproject": "any subproject",
     "filter.anyAssignee": "any assignee",
     "filter.anyReviewer": "any reviewer",
     "card.reviewer": "reviewer:",
@@ -876,6 +911,8 @@ export const I18N = {
     "error.payload_too_large": "payload too large",
     "error.internal_error": "internal error",
     "error.network": "request failed",
+    "error.not_json":
+      "The server answered with something other than JSON — it is probably older than this page. Restart ukb web (or ukb-server), then press Retry.",
   },
   zh: {
     "nav.docs": "文档",
@@ -890,6 +927,8 @@ export const I18N = {
     "insights.range90": "90 天",
     "insights.loading": "正在读取事件日志…",
     "insights.failed": "洞察加载失败。",
+    "insights.outdated":
+      "这个页面比它连接的服务端新。重启 ukb web（或 ukb-server）后点重试。",
     "insights.retry": "重试",
     "insights.states": "当前看板",
     "insights.statesLead": "每张卡片，按它所在的列统计。",
@@ -908,11 +947,25 @@ export const I18N = {
     "insights.openProject": "在看板中只看 {project}",
     "insights.flow": "累积流",
     "insights.flowLead": "每天结束时，整块看板的形状。",
-    "insights.bottlenecks": "卡在哪",
-    "insights.agingDoing": "进行中停留最久",
-    "insights.agingReview": "审查中停留最久",
+    "insights.health": "流动健康度",
+    "insights.healthLead": "周期时间看本期；列计数与被阻塞数看现在。",
+    "insights.stuck": "卡住的卡片",
+    "insights.stuckLead":
+      "进行中 ≥{doing} 天、审查中 ≥{review} 天——按停留时间取最久的 10 张，当前快照。上面的时间窗口不会改变它。",
+    "insights.stuckCounts":
+      "进行中 {doing} 张 · 审查中 {review} 张 · 超过阈值 {stale} 张",
+    "insights.stuckEmptyState": "进行中和审查中都没有卡片。",
+    "insights.stuckEmptyThreshold": "暂时没有超过阈值的卡片。",
+    "insights.stuckEmptyProject": "{project} 里没有卡住的卡片。",
+    "insights.filterAllProjects": "全部项目",
+    "insights.openCard": "打开卡片 #{id}",
+    "insights.colCard": "卡片",
+    "insights.colState": "状态",
+    "insights.colDays": "天数",
+    "insights.colProject": "项目",
+    "insights.colOwner": "负责人",
+    "insights.colSince": "进入时间",
     "insights.ageDays": "{n} 天",
-    "insights.agingNone": "这里没有积压。",
     "insights.blocked": "{n} 张在等上游卡片",
     "insights.cycle": "本期完成 {n} 张 · 中位数 {median} 天 · P85 {p85} 天",
     "insights.cycleNone": "本期没有完成的卡片。",
@@ -951,11 +1004,16 @@ export const I18N = {
     "column.showLess": "收起",
     "column.empty": "暂无卡片",
     "card.project": "项目：",
+    "card.subproject": "子项目：",
+    "drawer.subproject": "子项目",
+    "drawer.subprojectPlaceholder": "方向，例如 auth",
+    "drawer.subprojectFirst": "请先设置项目",
     "card.priority": "优先级：",
     "priority.high": "高",
     "priority.normal": "普通",
     "priority.low": "低",
     "filter.anyProject": "全部项目",
+    "filter.anySubproject": "全部子项目",
     "filter.anyAssignee": "全部负责人",
     "filter.anyReviewer": "全部审查者",
     "card.reviewer": "审查：",
@@ -1041,6 +1099,8 @@ export const I18N = {
     "error.payload_too_large": "内容过大",
     "error.internal_error": "内部错误",
     "error.network": "请求失败",
+    "error.not_json":
+      "服务端返回的不是 JSON——它可能比这个页面旧。重启 ukb web（或 ukb-server）后点重试。",
   },
 };
 
@@ -1052,20 +1112,22 @@ const DOCS_EN = [
   {
     id: "overview",
     title: "What is using-kanban?",
-    lead: "A headless kanban board for AI agents and humans.",
+    lead: "A kanban for agents and the operator who steers them.",
     blocks: [
       {
         t: "p",
         text:
-          "One board for the whole machine, stored centrally at `~/.ukb/`. Agents and the human share it: " +
-          "agents pick up work through MCP tools or the CLI, the human watches and steers through this UI. " +
-          "Projects are separated by the `project` field on cards, not by directory.",
+          "One board for the whole machine, stored centrally at `~/.ukb/`. The operator and the agents share " +
+          "it: an agent picks up work through MCP tools or the CLI, the operator sets the work and steers it " +
+          "through this UI. Projects are separated by the `project` field on cards (by convention the repository " +
+          "name), with `subproject` naming a direction inside one — not by directory.",
       },
       {
         t: "p",
         text:
-          "The API is the product. The CLI, the MCP server, and this Web UI are all thin consumers of the same " +
-          "event-sourced core — so you can build your own front end, or embed the board in another product.",
+          "The engine underneath is small and event-sourced. The CLI, the MCP server, and this Web UI are all " +
+          "thin clients of the same core — so you can build your own front end, or embed the board in another " +
+          "product.",
       },
       { t: "h", text: "Why it is built this way" },
       {
@@ -1154,10 +1216,11 @@ const DOCS_EN = [
       {
         t: "p",
         text:
-          "A card is fixed-size and says three things in the same order every time: the title, a few lines " +
-          "of the body's gist (markdown stripped, so it reads as prose), and the labels — who has it, its " +
-          "priority and project, what it waits on. Only the three labels a reader acts on are printed; the " +
-          "rest collapse into `+N`, whose tooltip names them. The card dialog has all of them.",
+          "A card is fixed-size and says four things in the same order every time: the title, the scope " +
+          "(project, and the direction inside it), a few lines of the body's gist (markdown stripped, so it " +
+          "reads as prose), and the labels — who has it, its priority, what it waits on. The scope sits outside " +
+          "the label cap on purpose, so a crowded card cannot lose the repository it belongs to; only the three " +
+          "labels a reader acts on are printed, and the rest collapse into `+N`, whose tooltip names them.",
       },
       {
         t: "p",
@@ -1204,7 +1267,7 @@ const DOCS_EN = [
           ],
           [
             "Filters",
-            "search by id (#983), title or body, then narrow by assignee and reviewer.",
+            "search by id (#983), title or body, then narrow by project, subproject, assignee and reviewer.",
           ],
           [
             "Live",
@@ -1248,8 +1311,8 @@ const DOCS_EN = [
             "the board's shape at the end of each day — WIP that keeps growing, or a review queue that never drains, shows up here",
           ],
           [
-            "Where it is stuck",
-            "the cards sitting longest in doing and review, the median and P85 cycle time, and how many cards wait on an unfinished upstream",
+            "Flow health and stuck cards",
+            "cycle time for the window and blocked work, then the doing/review cards past the threshold (doing 3+ days, review 2+). Click a row to open the card; the ranking is a snapshot of now, not of the window.",
           ],
         ],
       },
@@ -1272,6 +1335,10 @@ const DOCS_EN = [
           [
             "Cycle time",
             "created to finished, for the cards that finished inside the window; the median and the 85th percentile, in days.",
+          ],
+          [
+            "Stuck ranking",
+            "a snapshot of now: `doing` for 3+ days, `review` for 2+; sorted by days and capped at ten, so the page never re-sorts its own slice.",
           ],
           [
             "Cost",
@@ -1440,9 +1507,13 @@ const DOCS_EN = [
         t: "table",
         head: ["Method", "Path", "Purpose"],
         rows: [
-          ["GET", "/api/board", "columns + cards"],
+          ["GET", "/api/board?project=&subproject=", "columns + cards, scoped"],
           ["GET", "/api/insights?days=&tz=", "throughput, flow, aging"],
-          ["GET", "/api/cards?state=open&assignee=me&q=text", "filtered cards"],
+          [
+            "GET",
+            "/api/cards?state=open&project=&subproject=&assignee=me&q=text",
+            "filtered cards",
+          ],
           ["GET", "/api/cards/:id", "card + event history"],
           ["POST", "/api/cards", "create a card (todo)"],
           ["PATCH", "/api/cards/:id", "edit fields"],
@@ -1505,7 +1576,7 @@ const DOCS_EN = [
   {
     id: "concepts",
     title: "Concepts",
-    lead: "The five things worth knowing.",
+    lead: "The concepts worth knowing.",
     blocks: [
       {
         t: "ul",
@@ -1513,6 +1584,10 @@ const DOCS_EN = [
           [
             "Actors",
             "{ type: human | agent, name }. One namespace, so a human can review an agent's card and vice versa.",
+          ],
+          [
+            "Project and subproject",
+            "project names the code repository; subproject names a direction inside it (both lowercase slugs). A subproject needs a project; clearing or changing the project drops the direction. `ukb board --project web --subproject auth` slices the board that way, and a card's badge reads `web/auth`.",
           ],
           [
             "Relations",
@@ -1577,6 +1652,11 @@ const DOCS_EN = [
             "mutation without a token",
             "pass the token from the ukb web URL",
           ],
+          [
+            "Insights says the page is newer than the server",
+            "a long-running ukb web is still serving its old API after an upgrade",
+            "restart ukb web (or ukb-server), then press Retry",
+          ],
         ],
       },
       {
@@ -1594,17 +1674,18 @@ const DOCS_ZH = [
   {
     id: "overview",
     title: "什么是 using-kanban？",
-    lead: "一个面向 AI 智能体与人类的无头看板。",
+    lead: "给 agent 和操作者的看板。",
     blocks: [
       {
         t: "p",
         text:
-          "全机共用一块看板，集中存放在 `~/.ukb/`。智能体与人类共用它：智能体通过 MCP 工具或命令行认领工作，" +
-          "人类通过这个界面观察与调度。项目之间靠卡片上的 `project` 字段区分，而不是靠目录。",
+          "全机共用一块看板，集中存放在 `~/.ukb/`。操作者与智能体共用它：智能体通过 MCP 工具或命令行认领工作，" +
+          "操作者在这里设定工作、观察并调度。项目之间靠卡片上的 `project` 字段区分（约定写仓库名），" +
+          "`subproject` 表示仓库里的方向——而不是靠目录。",
       },
       {
         t: "p",
-        text: "API 即产品。命令行、MCP 服务器和这个 Web 界面都只是同一套事件溯源内核的薄消费者——因此你可以构建自己的前端，或把看板嵌入到其他产品中。",
+        text: "底下的内核很小，且是事件溯源的：命令行、MCP 服务器和这个 Web 界面都只是同一套内核的薄客户端——因此你可以自己写前端，或把看板嵌进别的产品。",
       },
       { t: "h", text: "为什么这样设计" },
       {
@@ -1680,7 +1761,7 @@ const DOCS_ZH = [
       },
       {
         t: "p",
-        text: "每张卡片高度固定，且总是按同一顺序说三件事：标题、正文梗概（去掉 markdown，按散文读），以及标签——谁在处理、优先级和项目、在等什么。标签只印读者会真正动手的那三个，其余收进 `+N`，悬停可看全；卡片详情里有完整的一份。",
+        text: "每张卡片高度固定，且总是按同一顺序说四件事：标题、归属（项目，以及项目里的方向）、正文梗概（去掉 markdown，按散文读），以及标签——谁在处理、优先级、在等什么。归属刻意不占标签名额，再拥挤的卡片也不会丢掉仓库信息；标签只印读者会真正动手的那三个，其余收进 `+N`，悬停可看全。",
       },
       {
         t: "p",
@@ -1712,7 +1793,10 @@ const DOCS_ZH = [
             "备注",
             "带文档链接的说明。本机的 markdown 或 HTML 文件会直接在文档查看器中打开；https 链接则在新标签页打开。",
           ],
-          ["筛选", "按编号（#983）、标题、内容搜索，再按负责人、审查者收窄。"],
+          [
+            "筛选",
+            "按编号（#983）、标题、内容搜索，再按项目、子项目、负责人、审查者收窄。",
+          ],
           [
             "实时",
             "看板通过 SSE 更新——智能体、命令行或其他浏览器标签页移动的卡片都会自动出现，无需刷新。",
@@ -1751,8 +1835,8 @@ const DOCS_ZH = [
             "每天结束时整块看板的形状——WIP 一直涨，或者审查队列只进不出，在这里都看得见",
           ],
           [
-            "卡在哪",
-            "在做和审查里停留最久的卡片、周期时间的中位数与 P85，以及多少卡片在等未完成的上游",
+            "流动健康度与卡住的卡片",
+            "本期的周期时间与被阻塞的工作，然后是超过阈值的卡片（进行中 ≥3 天、审查中 ≥2 天）。点一行直接打开卡片；排行是当前快照，不随时间窗口变化。",
           ],
         ],
       },
@@ -1775,6 +1859,10 @@ const DOCS_ZH = [
           [
             "周期时间",
             "从创建到完成，只统计窗口内完成的卡片；给出中位数和第 85 百分位，单位是天。",
+          ],
+          [
+            "卡住排行",
+            "当前快照：进行中 ≥3 天、审查中 ≥2 天；按天数倒序、最多 10 张，页面不自己再排序。",
           ],
           [
             "开销",
@@ -1923,9 +2011,17 @@ const DOCS_ZH = [
         t: "table",
         head: ["方法", "路径", "用途"],
         rows: [
-          ["GET", "/api/board", "各列与卡片"],
+          [
+            "GET",
+            "/api/board?project=&subproject=",
+            "各列与卡片，可按项目/方向",
+          ],
           ["GET", "/api/insights?days=&tz=", "吞吐、流动、积压"],
-          ["GET", "/api/cards?state=open&assignee=me&q=文本", "筛选卡片"],
+          [
+            "GET",
+            "/api/cards?state=open&project=&subproject=&assignee=me&q=文本",
+            "筛选卡片",
+          ],
           ["GET", "/api/cards/:id", "卡片与事件历史"],
           ["POST", "/api/cards", "创建卡片（待办）"],
           ["PATCH", "/api/cards/:id", "编辑字段"],
@@ -1981,7 +2077,7 @@ const DOCS_ZH = [
   {
     id: "concepts",
     title: "概念",
-    lead: "值得了解的五件事。",
+    lead: "值得了解的概念。",
     blocks: [
       {
         t: "ul",
@@ -1989,6 +2085,10 @@ const DOCS_ZH = [
           [
             "操作者",
             "{ type: human | agent, name }。同一套命名空间，因此人类可以审查智能体的卡片，反之亦然。",
+          ],
+          [
+            "项目与子项目",
+            "project 用代码仓库名，subproject 用仓库里的方向（两者都是小写 slug）。子项目必须挂在项目下；清空或更换项目会丢掉方向。`ukb board --project web --subproject auth` 就是按这个切片，卡片徽章显示 `web/auth`。",
           ],
           [
             "上下游关系",
@@ -2049,6 +2149,11 @@ const DOCS_ZH = [
             "未携带令牌的变更操作",
             "传入 ukb web 输出的 URL 中的令牌",
           ],
+          [
+            "洞察提示页面比服务端新",
+            "升级后仍有一个旧 ukb web 进程在跑",
+            "重启 ukb web（或 ukb-server）后点重试",
+          ],
         ],
       },
       {
@@ -2092,6 +2197,7 @@ function startApp() {
     filterQ: document.getElementById("filter-q"),
     filters: document.getElementById("filters"),
     filterProject: document.getElementById("filter-project"),
+    filterSubproject: document.getElementById("filter-subproject"),
     filterAssignee: document.getElementById("filter-assignee"),
     filterReviewer: document.getElementById("filter-reviewer"),
     newCard: document.getElementById("new-card"),
@@ -2107,7 +2213,13 @@ function startApp() {
   const state = {
     cards: [],
     actor: { name: "me", type: "human" },
-    filter: { q: "", project: "", assignee: "", reviewer: "" },
+    filter: {
+      q: "",
+      project: "",
+      subproject: "",
+      assignee: "",
+      reviewer: "",
+    },
     /** Columns the user has expanded past their collapsed preview. */
     expanded: new Set(),
     openCardId: null,
@@ -2136,7 +2248,13 @@ function startApp() {
       cursors: [null],
     },
     /** The Insights page: the aggregate over the selected window. */
-    insights: { data: null, loading: false, error: null, days: 30 },
+    insights: {
+      data: null,
+      loading: false,
+      error: null,
+      days: 30,
+      project: "",
+    },
   };
 
   /** Guards against re-rendering the docs when only the section hash changes. */
@@ -2216,8 +2334,12 @@ function startApp() {
    * `#/board` means the whole board, which is also the way back out.
    */
   function syncBoardDeepLink() {
-    const project = hashParams().get("project");
-    state.filter.project = project === null ? "" : project;
+    const params = hashParams();
+    const project = params.get("project");
+    state.filter.project = project ?? "";
+    const subproject = params.get("subproject");
+    // A direction without a repository is not a scope.
+    state.filter.subproject = project ? (subproject ?? "") : "";
   }
 
   /** The section targeted by `#/docs/<id>`, if any. */
@@ -2369,7 +2491,15 @@ function startApp() {
       const label = t(`error.${code}`);
       throw new Error(label === code ? message : `${label}: ${message}`);
     }
-    return response.status === 204 ? null : response.json();
+    if (response.status === 204) return null;
+    // A server that predates a route may fall through to the UI bundle and
+    // answer an API call with HTML. `response.json()` would report a syntax
+    // error against `<!doctype`, which reads like a bug in the page.
+    const type = response.headers.get("content-type") ?? "";
+    if (!type.includes("application/json")) {
+      throw new Error(t("error.not_json"));
+    }
+    return response.json();
   }
 
   /* ----------------------------- identity ---------------------------- */
@@ -2427,6 +2557,15 @@ function startApp() {
       // board it names has arrived — so the row is redrawn once the cards are
       // here, instead of showing a bare `#31` until the next load.
       if (state.route === "events") renderEventList();
+      // A card dialog opened from a ranking is a guest on that page: a save
+      // there has to redraw the dialog, and the aggregate behind it is now one
+      // event stale.
+      if (state.route !== "board" && state.openCardId !== null) {
+        void renderCardDialog();
+      }
+      if (state.route === "insights" && state.insights.data) {
+        scheduleInsightsRefresh();
+      }
     } catch (error) {
       toast(error.message, "error");
     }
@@ -2589,8 +2728,19 @@ function startApp() {
   function settleGists() {
     for (const gist of els.board.querySelectorAll(".card-excerpt")) {
       const line = parseFloat(getComputedStyle(gist).lineHeight);
-      if (!Number.isFinite(line)) continue;
-      if (gist.clientHeight + 0.5 < line) gist.remove();
+      if (!Number.isFinite(line) || line <= 0) continue;
+      const lines = Math.floor((gist.clientHeight + 0.5) / line);
+      if (lines < 1) {
+        gist.remove();
+        continue;
+      }
+      // The flex row can leave the gist a fractional number of lines, and a
+      // clamped box whose height ends mid-line slices the last line through
+      // the middle. Keep only the lines that fit whole.
+      if (lines < 3) {
+        gist.style.webkitLineClamp = String(lines);
+        gist.style.maxHeight = `${lines * line}px`;
+      }
     }
   }
 
@@ -2615,6 +2765,11 @@ function startApp() {
     // relation chips, so a card can be named in conversation — "#983 is
     // blocked" — without opening it. It lives outside .card-title so that
     // element still holds nothing but the title.
+    //
+    // The project / subproject line below the head is deliberately outside the
+    // badge row: badges are capped and the scope was the first thing pushed
+    // into `+N`, which made a card's repository invisible on exactly the
+    // crowded cards that needed it most.
     const head = document.createElement("div");
     head.className = "card-head";
 
@@ -2635,6 +2790,32 @@ function startApp() {
     if (gist) {
       gist.className = "card-excerpt";
       gist.textContent = excerpt;
+    }
+
+    // Both halves of the scope, always: `project: web › auth`. The slug alone
+    // (`web/auth`) was easy to mistake for a project name, and the two values
+    // were not separable at a glance.
+    const scope = cardScope(card);
+    let scopeLine = null;
+    if (scope) {
+      scopeLine = document.createElement("div");
+      scopeLine.className = "card-scope";
+      // Both halves as chips, each with its label: `project:web` in the accent
+      // colour, `sub:runtime` in the quiet one. The old single dim line was
+      // accurate and easy to miss; the scope is the first thing a reader needs
+      // when a board mixes repositories.
+      const projectChip = document.createElement("span");
+      projectChip.className = "scope-project";
+      projectChip.textContent = `${t("card.project")}${card.project}`;
+      projectChip.title = `${t("drawer.project")}: ${card.project}`;
+      scopeLine.append(projectChip);
+      if (card.subproject) {
+        const subChip = document.createElement("span");
+        subChip.className = "scope-sub";
+        subChip.textContent = `${t("card.subproject")}${card.subproject}`;
+        subChip.title = `${t("drawer.subproject")}: ${card.subproject}`;
+        scopeLine.append(subChip);
+      }
     }
 
     const meta = document.createElement("div");
@@ -2660,8 +2841,6 @@ function startApp() {
           `priority priority-${card.priority}`,
         ),
       );
-    if (card.project)
-      badges.push(badge(`${t("card.project")}${card.project}`, "project"));
     if (card.reviewer)
       badges.push(badge(`${t("card.reviewer")}${card.reviewer}`, "reviewer"));
     if (blocked) {
@@ -2694,8 +2873,13 @@ function startApp() {
     meta.append(...spendBadges(badges));
 
     // The badges sit at the foot of the card, so a column of cards reads as
-    // title, gist, labels — the same order the card dialog puts them in.
-    element.append(head, ...(gist ? [gist] : []), meta);
+    // title, scope, gist, labels — the same order the card dialog puts them in.
+    element.append(
+      head,
+      ...(scopeLine ? [scopeLine] : []),
+      ...(gist ? [gist] : []),
+      meta,
+    );
 
     element.addEventListener("click", () => openCardDialog(card.id));
     element.addEventListener("keydown", (event) => {
@@ -2761,6 +2945,11 @@ function startApp() {
       t("filter.anyProject"),
     );
     fillSelect(
+      els.filterSubproject,
+      subprojectOptions(state.cards, state.filter.project),
+      t("filter.anySubproject"),
+    );
+    fillSelect(
       els.filterAssignee,
       actorOptions(state.cards, "assignee"),
       t("filter.anyAssignee"),
@@ -2776,6 +2965,22 @@ function startApp() {
   function projectOptions(cards) {
     const names = new Set();
     for (const card of cards) if (card.project) names.add(card.project);
+    return [...names].sort();
+  }
+
+  /**
+   * Directions available under the selected project.
+   *
+   * A subproject is scoped to its repository, so choosing a project narrows
+   * the list; choosing none offers every direction on the board.
+   */
+  function subprojectOptions(cards, project = "") {
+    const names = new Set();
+    for (const card of cards) {
+      if (!card.subproject) continue;
+      if (project && card.project !== project) continue;
+      names.add(card.subproject);
+    }
     return [...names].sort();
   }
 
@@ -2802,6 +3007,7 @@ function startApp() {
   /** Which filter field a given <select> owns. */
   function filterKeyFor(select) {
     if (select === els.filterProject) return "project";
+    if (select === els.filterSubproject) return "subproject";
     if (select === els.filterAssignee) return "assignee";
     return "reviewer";
   }
@@ -2862,6 +3068,24 @@ function startApp() {
     const rest = badge(`+${hidden.length}`, "more");
     rest.title = hidden.map((entry) => entry.textContent).join(" · ");
     return [...shown, rest];
+  }
+
+  /**
+   * The direction control in the card dialog.
+   *
+   * Disabled without a project: the server refuses an orphan direction, and a
+   * field that can only produce an error is worse than a field that says why.
+   */
+  function subprojectField(card) {
+    const input = textInput(card.subproject ?? "", async (value) => {
+      await saveCard(card.id, { subproject: value.trim() || null });
+    });
+    input.placeholder = t("drawer.subprojectPlaceholder");
+    if (!card.project) {
+      input.disabled = true;
+      input.placeholder = t("drawer.subprojectFirst");
+    }
+    return input;
   }
 
   async function renderCardDialog() {
@@ -2948,6 +3172,7 @@ function startApp() {
           await saveCard(id, { project: value || null });
         }).element,
       ),
+      field(t("drawer.subproject"), subprojectField(card)),
       field(
         t("drawer.priority"),
         selectInput(
@@ -3566,6 +3791,8 @@ function startApp() {
     const assignee = textInput(state.actor.name, () => {});
     const reviewer = textInput("", () => {});
     const project = projectPicker("", () => {});
+    const subproject = textInput("", () => {});
+    subproject.placeholder = t("drawer.subprojectPlaceholder");
     const priority = selectInput(
       "normal",
       PRIORITY_OPTIONS.map((value) => ({
@@ -3581,6 +3808,7 @@ function startApp() {
       field(t("drawer.assignee"), assignee),
       field(t("drawer.reviewer"), reviewer),
       field(t("drawer.project"), project.element),
+      field(t("drawer.subproject"), subproject),
       field(t("drawer.priority"), priority),
     );
 
@@ -3609,6 +3837,7 @@ function startApp() {
             // No project is not a project: the field stays unset rather than
             // becoming the empty string, which the schema rejects.
             project: project.value() || undefined,
+            subproject: subproject.value.trim() || undefined,
             priority: priority.value,
           },
         });
@@ -3741,6 +3970,21 @@ function startApp() {
       return;
     }
 
+    // The UI is read from disk on every request, so a long-running server can
+    // outlive the bundle it started with: the browser may be newer than the
+    // API it is talking to. That is a restart, not a crash — say so instead of
+    // throwing halfway through the render.
+    if (!insightsPayloadOk(data)) {
+      const panel = panelEl(t("insights.title"), null);
+      panel.append(insightEl("p", "panel-lead", t("insights.outdated")));
+      const retry = insightEl("button", "primary", t("insights.retry"));
+      retry.type = "button";
+      retry.addEventListener("click", () => void loadInsights());
+      panel.append(retry);
+      els.insights.append(panel);
+      return;
+    }
+
     const total = CHART_STATES.reduce(
       (sum, stateId) => sum + (data.states[stateId] ?? 0),
       0,
@@ -3756,11 +4000,25 @@ function startApp() {
     grid.append(
       insightsStatesPanel(data, total),
       insightsThroughputPanel(data),
-      insightsBottlenecksPanel(data),
+      insightsHealthPanel(data),
+      insightsStuckPanel(data),
       insightsProjectsPanel(data),
       insightsFlowPanel(data),
     );
     els.insights.append(grid);
+  }
+
+  /** Whether the payload has the shape this page was built against. */
+  function insightsPayloadOk(data) {
+    return Boolean(
+      data &&
+      Array.isArray(data.series) &&
+      data.aging &&
+      Array.isArray(data.aging.cards) &&
+      data.aging.counts &&
+      data.aging.stale &&
+      data.aging.thresholds,
+    );
   }
 
   function insightsHeader() {
@@ -4121,9 +4379,10 @@ function startApp() {
     return panel;
   }
 
-  function insightsBottlenecksPanel(data) {
-    const panel = panelEl(t("insights.bottlenecks"), null);
+  function insightsHealthPanel(data) {
+    const panel = panelEl(t("insights.health"), t("insights.healthLead"));
     panel.classList.add("panel-bottlenecks");
+
     const cycle = data.cycle
       ? t("insights.cycle", {
           n: data.cycle.completed,
@@ -4131,7 +4390,19 @@ function startApp() {
           p85: data.cycle.p85Days,
         })
       : t("insights.cycleNone");
-    panel.append(insightEl("p", "insight-summary", cycle));
+    const stale = data.aging.stale.doing + data.aging.stale.review;
+    panel.append(
+      insightEl("p", "insight-summary", cycle),
+      insightEl(
+        "p",
+        "insight-counts",
+        t("insights.stuckCounts", {
+          doing: data.aging.counts.doing,
+          review: data.aging.counts.review,
+          stale,
+        }),
+      ),
+    );
     if (data.aging.blocked > 0) {
       panel.append(
         insightEl(
@@ -4141,45 +4412,156 @@ function startApp() {
         ),
       );
     }
-    panel.append(
-      agingGroup(t("insights.agingDoing"), data.aging.doing),
-      agingGroup(t("insights.agingReview"), data.aging.review),
-    );
     return panel;
   }
 
-  /** Three days is the point a card stops looking "in progress" and starts
-   *  looking stuck; below it, the list would just be the column again. */
-  const AGING_THRESHOLD_DAYS = 3;
+  /** The sentinel a project filter uses for cards with no project. */
+  const NO_PROJECT = "__none";
 
-  function agingGroup(title, cards) {
-    const group = insightEl("div", "aging-group");
-    group.append(insightEl("h3", "aging-title", title));
-    const overdue = cards
-      .filter((card) => card.days >= AGING_THRESHOLD_DAYS)
-      .slice(0, 3);
-    if (overdue.length === 0) {
-      group.append(insightEl("p", "aging-none", t("insights.agingNone")));
-      return group;
+  /**
+   * The stuck ranking: the cards that have been in `doing` / `review` longest.
+   *
+   * The order and the thresholds come from the server (`aging.cards` is already
+   * sorted and filtered), so the page never re-sorts its own slice — the CLI
+   * and any future report see the same ranking. The project control only
+   * narrows that list; it does not change what counts as stuck.
+   */
+  function insightsStuckPanel(data) {
+    const panel = insightEl("section", "panel panel-stuck");
+    const head = insightEl("div", "panel-head");
+    const copy = insightEl("div", "panel-head-copy");
+    copy.append(
+      insightEl("h2", "panel-title", t("insights.stuck")),
+      insightEl(
+        "p",
+        "panel-lead",
+        t("insights.stuckLead", data.aging.thresholds),
+      ),
+    );
+    head.append(copy, stuckProjectFilter(data));
+    panel.append(head);
+
+    if (data.aging.counts.doing + data.aging.counts.review === 0) {
+      panel.append(
+        insightEl("p", "stuck-empty", t("insights.stuckEmptyState")),
+      );
+      return panel;
     }
-    const list = insightEl("ul", "aging-list");
-    for (const card of overdue) {
-      const item = insightEl("li", "aging-item");
-      item.append(
+
+    const filter = state.insights.project;
+    const rows = filter
+      ? data.aging.cards.filter(
+          (card) => (card.project ?? NO_PROJECT) === filter,
+        )
+      : data.aging.cards;
+    if (rows.length === 0) {
+      const label =
+        filter === NO_PROJECT
+          ? t("insights.noProject")
+          : filter || t("insights.filterAllProjects");
+      panel.append(
+        insightEl(
+          "p",
+          "stuck-empty",
+          filter
+            ? t("insights.stuckEmptyProject", { project: label })
+            : t("insights.stuckEmptyThreshold"),
+        ),
+      );
+      return panel;
+    }
+
+    panel.append(stuckTable(rows));
+    return panel;
+  }
+
+  function stuckProjectFilter(data) {
+    const select = document.createElement("select");
+    select.className = "stuck-filter";
+    select.setAttribute("aria-label", t("insights.filterAllProjects"));
+
+    const options = [["", t("insights.filterAllProjects")]];
+    for (const project of data.projects) {
+      options.push([
+        project.project ?? NO_PROJECT,
+        project.project ?? t("insights.noProject"),
+      ]);
+    }
+    const known = new Set(options.map(([value]) => value));
+    // A filter for a project that no longer exists would show an empty list
+    // with no way to tell why.
+    if (!known.has(state.insights.project)) state.insights.project = "";
+
+    for (const [value, label] of options) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      select.append(option);
+    }
+    select.value = state.insights.project;
+    select.addEventListener("change", () => {
+      state.insights.project = select.value;
+      renderInsights();
+    });
+    return select;
+  }
+
+  function stuckTable(cards) {
+    const table = insightEl("div", "stuck-table");
+    const head = insightEl("div", "stuck-head");
+    head.setAttribute("aria-hidden", "true");
+    for (const key of [
+      "insights.colCard",
+      "insights.colState",
+      "insights.colDays",
+      "insights.colProject",
+      "insights.colOwner",
+      "insights.colSince",
+    ]) {
+      head.append(insightEl("span", null, t(key)));
+    }
+
+    const list = insightEl("div", "stuck-list");
+    for (const card of cards) {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "stuck-row";
+      row.setAttribute("aria-label", t("insights.openCard", { id: card.id }));
+      row.addEventListener("click", () => void openCardDialog(card.id));
+
+      const title = insightEl("span", "stuck-card");
+      title.append(
+        insightEl("span", "stuck-id", `#${card.id}`),
+        document.createTextNode(card.title),
+      );
+
+      const stateCell = insightEl("span", "stuck-state");
+      stateCell.style.setProperty("--state-color", `var(--col-${card.state})`);
+      stateCell.append(
+        insightEl("i", "stuck-dot"),
+        document.createTextNode(t(`column.${card.state}`)),
+      );
+
+      row.append(
+        title,
+        stateCell,
         insightEl(
           "span",
-          "aging-days",
+          "stuck-days",
           t("insights.ageDays", { n: card.days }),
         ),
-        insightEl("span", "aging-card", `#${card.id} ${card.title}`),
+        insightEl("span", "stuck-project", cardScope(card) ?? "—"),
+        insightEl(
+          "span",
+          "stuck-owner",
+          card.assignee ? `@${card.assignee}` : "—",
+        ),
+        insightEl("span", "stuck-since", shortDate(card.sinceDate)),
       );
-      if (card.project) {
-        item.append(insightEl("span", "aging-project", card.project));
-      }
-      list.append(item);
+      list.append(row);
     }
-    group.append(list);
-    return group;
+    table.append(head, list);
+    return table;
   }
 
   /* -------------------------------- docs ------------------------------ */
@@ -4194,7 +4576,7 @@ function startApp() {
     const tagline = document.createElement("p");
     tagline.className = "docs-tagline";
     tagline.textContent =
-      "A headless kanban for AI agents and humans — the API is the product, UIs are pluggable.";
+      "A kanban for agents and the operator who steers them.";
 
     const cta = document.createElement("a");
     cta.className = "docs-cta";
@@ -4809,6 +5191,14 @@ function startApp() {
   });
   els.filterProject.addEventListener("change", () => {
     state.filter.project = els.filterProject.value;
+    // A direction belongs to one repository; carrying it across a project
+    // change would leave a filter that can never match.
+    state.filter.subproject = "";
+    renderFilterOptions();
+    renderBoard();
+  });
+  els.filterSubproject.addEventListener("change", () => {
+    state.filter.subproject = els.filterSubproject.value;
     renderBoard();
   });
   els.filterReviewer.addEventListener("change", () => {
