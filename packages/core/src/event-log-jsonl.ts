@@ -22,6 +22,8 @@ export class JsonlEventLog implements EventLog {
   private events: Event[] = [];
   private readonly filePath: string;
   private nextId = 1;
+  /** Next card id to hand out. Counts cards, not events — see `EventLog`. */
+  private nextCardId = 1;
   private loadedSize = -1;
   private loadedMtimeMs = -1;
 
@@ -36,13 +38,15 @@ export class JsonlEventLog implements EventLog {
     for (const row of rows) {
       const id = this.nextId;
       this.nextId += 1;
+      const cardId = row.cardId ?? this.nextCardId;
+      this.nextCardId = Math.max(this.nextCardId, cardId + 1);
       const event: Event = {
         id,
         ts: new Date().toISOString(),
         actor: row.actor,
         source: row.source,
         type: row.type,
-        cardId: row.cardId ?? id,
+        cardId,
         payload: row.payload,
       };
       this.events.push(event);
@@ -86,15 +90,21 @@ export class JsonlEventLog implements EventLog {
     const text = readFileSync(this.filePath, "utf8");
     const events: Event[] = [];
     let nextId = 1;
+    let nextCardId = 1;
     for (const line of text.split("\n")) {
       const trimmed = line.trim();
       if (trimmed.length === 0) continue;
       const event = StoredEventSchema.parse(JSON.parse(trimmed) as unknown);
       events.push(event);
       nextId = event.id + 1;
+      // The file is the whole truth about card ids too: a board written before
+      // the split carries ids from the event sequence, and new cards must
+      // continue above them.
+      nextCardId = Math.max(nextCardId, event.cardId + 1);
     }
     this.events = events;
     this.nextId = nextId;
+    this.nextCardId = nextCardId;
     this.loadedSize = stat.size;
     this.loadedMtimeMs = stat.mtimeMs;
   }

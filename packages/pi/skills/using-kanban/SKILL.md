@@ -197,6 +197,11 @@ machine, so **the directory you run `ukb` from does not matter** — `ukb board`
 from anywhere shows the same cards. Projects are separated by the `project`
 field on cards, which is what you filter on.
 
+A card id counts cards, not edits: after `add, edit, add` the second card is
+`#2`, not `#3`. Ids are never reused, so a deleted card's number stays retired —
+the gaps you see are deletions and boards older than this rule, never a
+missing card.
+
 ## The human is watching
 
 In Pi the board is also mounted above the editor as a live panel: your `doing`,

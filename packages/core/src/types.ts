@@ -248,8 +248,10 @@ export interface NewEvent {
   readonly source: EventSource;
   readonly type: EventType;
   /**
-   * Null for `card.created` — the log assigns the card id, which equals the
-   * id of the creation event.
+   * Null for `card.created` — the log allocates the card id from its own
+   * sequence, which counts cards (not events), so `add, edit, add` yields #1
+   * and #2. It is seeded above every card id the log already carries, so a
+   * board written before the split keeps going without collisions.
    */
   readonly cardId: number | null;
   readonly payload: Readonly<Record<string, unknown>>;

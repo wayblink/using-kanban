@@ -45,6 +45,30 @@ describe("Projection", () => {
     expect(replayed.lastAppliedEventId).toBe(log.maxId());
   });
 
+  it("files a card under its own id, not under its creation event's id", () => {
+    // Event ids and card ids are separate sequences: a card created after two
+    // moves is card #2 but event #4. The projection used to key the new card on
+    // `event.id`, which silently lost it as soon as the two diverged.
+    const log = new MemoryEventLog();
+    const kanban = new Kanban({ log });
+    const first = kanban.add({ title: "a" }, human).card;
+    kanban.claim(first.id, agent);
+    kanban.reopen(first.id, human);
+    kanban.add({ title: "b" }, human);
+
+    const created = log
+      .since(0)
+      .filter((event) => event.type === "card.created")
+      .at(-1);
+    expect(created?.id).toBe(4);
+    expect(created?.cardId).toBe(2);
+
+    const replayed = new Projection();
+    for (const event of log.since(0)) replayed.apply(event);
+    expect(replayed.card(created!.cardId)?.title).toBe("b");
+    expect(replayed.card(created!.id)).toBeUndefined();
+  });
+
   it("syncs incrementally", () => {
     const log = new MemoryEventLog();
     const kanban = new Kanban({ log });

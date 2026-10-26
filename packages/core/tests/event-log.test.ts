@@ -55,6 +55,21 @@ function moved(cardId: number): NewEvent {
   };
 }
 
+function deleted(cardId: number): NewEvent {
+  return {
+    actor,
+    source: "cli",
+    type: "card.deleted",
+    cardId,
+    payload: {},
+  };
+}
+
+/** A card-created event carrying its own id, as a pre-split board's rows do. */
+function legacyCreated(title: string, cardId: number): NewEvent {
+  return { ...created(title), cardId };
+}
+
 const logs = [
   ["memory", () => new MemoryEventLog()],
   ["jsonl", () => new JsonlEventLog(join(tempDir(), "events.jsonl"))],
@@ -62,15 +77,40 @@ const logs = [
 ] as const;
 
 describe.each(logs)("%s event log", (_name, open) => {
-  it("assigns sequential ids and links card.created to its own id", () => {
+  it("gives a card its own id, independent of the event sequence", () => {
     const log = open();
-    const [first, second] = log.append([created("a"), created("b")]);
+    const [first, second, third] = log.append([
+      created("a"),
+      moved(1),
+      created("b"),
+    ]);
 
-    expect(first?.id).toBe(1);
+    // Event ids are the log's own sequence: one per event, gaps allowed.
+    expect([first?.id, second?.id, third?.id]).toEqual([1, 2, 3]);
+    // Card ids count cards. A board's edit history must not inflate them: the
+    // second card is #2 even though its creation is event 3.
     expect(first?.cardId).toBe(1);
-    expect(second?.id).toBe(2);
-    expect(second?.cardId).toBe(2);
-    expect(log.maxId()).toBe(2);
+    expect(second?.cardId).toBe(1);
+    expect(third?.cardId).toBe(2);
+    expect(log.maxId()).toBe(3);
+    log.close();
+  });
+
+  it("starts above the card ids already in the log", () => {
+    // A board written before the split carries card ids from the event
+    // sequence — 900 here. The first new card must not collide with them.
+    const log = open();
+    log.append([legacyCreated("old", 900)]);
+    const [fresh] = log.append([created("new")]);
+    expect(fresh?.cardId).toBe(901);
+    log.close();
+  });
+
+  it("does not reuse the id of a deleted card", () => {
+    const log = open();
+    log.append([created("a"), deleted(1)]);
+    const [next] = log.append([created("b")]);
+    expect(next?.cardId).toBe(2);
     log.close();
   });
 
@@ -125,6 +165,21 @@ describe("SqliteEventLog", () => {
     expect(event?.id).toBe(2);
     second.close();
   });
+
+  it("keeps card ids dense across a reopen, with events in between", () => {
+    // The bug this replaces: before the split, `add, move, add` produced #3 for
+    // the second card. The card sequence must survive a reopen too.
+    const path = join(tempDir(), "board.db");
+    const first = new SqliteEventLog(path);
+    first.append([created("a"), moved(1), moved(1)]);
+    first.close();
+
+    const second = new SqliteEventLog(path);
+    const [event] = second.append([created("b")]);
+    expect(event?.id).toBe(4);
+    expect(event?.cardId).toBe(2);
+    second.close();
+  });
 });
 
 describe("JsonlEventLog", () => {
@@ -141,6 +196,19 @@ describe("JsonlEventLog", () => {
     const second = new JsonlEventLog(path);
     expect(second.maxId()).toBe(2);
     expect(second.byCard(1)).toHaveLength(2);
+    second.close();
+  });
+
+  it("keeps card ids dense across a reopen, with events in between", () => {
+    const path = join(tempDir(), "events.jsonl");
+    const first = new JsonlEventLog(path);
+    first.append([created("a"), moved(1), moved(1)]);
+    first.close();
+
+    const second = new JsonlEventLog(path);
+    const [event] = second.append([created("b")]);
+    expect(event?.id).toBe(4);
+    expect(event?.cardId).toBe(2);
     second.close();
   });
 

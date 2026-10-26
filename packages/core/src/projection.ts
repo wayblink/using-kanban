@@ -44,8 +44,10 @@ export class Projection {
     switch (event.type) {
       case "card.created": {
         const payload = CardCreatedPayloadSchema.parse(event.payload);
-        this.cards.set(event.id, {
-          id: event.id,
+        // `event.cardId`, not `event.id`: the log gives a card its own id from
+        // the card sequence, which no longer equals the creation event's id.
+        this.cards.set(event.cardId, {
+          id: event.cardId,
           title: payload.title,
           body: payload.body,
           state: "todo",
@@ -67,7 +69,7 @@ export class Projection {
         // A card created with blockers is the successor end of those edges, so
         // the predecessors have to learn about it too.
         for (const upstreamId of payload.blockedBy) {
-          this.link(event.id, upstreamId, event.ts);
+          this.link(event.cardId, upstreamId, event.ts);
         }
         return;
       }

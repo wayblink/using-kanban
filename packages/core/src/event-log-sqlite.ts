@@ -15,6 +15,13 @@ CREATE TABLE IF NOT EXISTS events (
   payload    TEXT    NOT NULL
 );
 CREATE INDEX IF NOT EXISTS events_card_id_idx ON events (card_id);
+-- Card ids count cards; event ids count events. Before the split they were one
+-- sequence (a card took its creation event's id), so a board's edit history
+-- inflated the handle a human types. This table is the card sequence, seeded
+-- lazily from whatever ids the events already carry.
+CREATE TABLE IF NOT EXISTS card_seq (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT
+);
 `;
 
 /**
@@ -24,7 +31,8 @@ CREATE INDEX IF NOT EXISTS events_card_id_idx ON events (card_id);
 export class SqliteEventLog implements EventLog {
   private readonly db: Database.Database;
   private readonly insertStatement: Database.Statement;
-  private readonly linkCardStatement: Database.Statement;
+  private readonly seedCardSeqStatement: Database.Statement;
+  private readonly nextCardSeqStatement: Database.Statement;
   private readonly sinceStatement: Database.Statement;
   private readonly byCardStatement: Database.Statement;
   private readonly appendTransaction: (rows: readonly NewEvent[]) => Event[];
@@ -39,14 +47,24 @@ export class SqliteEventLog implements EventLog {
       `INSERT INTO events (ts, actor_type, actor_name, source, type, card_id, payload)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
     );
-    this.linkCardStatement = this.db.prepare(
-      `UPDATE events SET card_id = ? WHERE id = ?`,
-    );
     this.sinceStatement = this.db.prepare(
       `SELECT * FROM events WHERE id > ? ORDER BY id ASC`,
     );
     this.byCardStatement = this.db.prepare(
       `SELECT * FROM events WHERE card_id = ? ORDER BY id ASC`,
+    );
+    // Seeding is part of the append transaction, and it is a write statement so
+    // SQLite serialises it: two processes creating a card at the same instant
+    // cannot both read the same high-water mark. `HAVING`, not `WHERE`: the
+    // guard has to be evaluated after the aggregate, or an empty events table
+    // would seed 0 on every append and collide with itself.
+    this.seedCardSeqStatement = this.db.prepare(
+      `INSERT INTO card_seq (id)
+       SELECT COALESCE(MAX(card_id), 0) FROM events
+       HAVING NOT EXISTS (SELECT 1 FROM card_seq)`,
+    );
+    this.nextCardSeqStatement = this.db.prepare(
+      `INSERT INTO card_seq DEFAULT VALUES`,
     );
 
     this.appendTransaction = this.db.transaction(
@@ -54,20 +72,17 @@ export class SqliteEventLog implements EventLog {
         const stored: Event[] = [];
         for (const row of rows) {
           const ts = new Date().toISOString();
+          const cardId = row.cardId ?? this.nextCardId();
           const info = this.insertStatement.run(
             ts,
             row.actor.type,
             row.actor.name,
             row.source,
             row.type,
-            row.cardId ?? 0,
+            cardId,
             JSON.stringify(row.payload),
           );
           const id = Number(info.lastInsertRowid);
-          const cardId = row.cardId ?? id;
-          if (row.cardId === null) {
-            this.linkCardStatement.run(cardId, id);
-          }
           stored.push({
             id,
             ts,
@@ -81,6 +96,16 @@ export class SqliteEventLog implements EventLog {
         return stored;
       },
     );
+  }
+
+  /**
+   * The next card id: above every id the events already carry, and from this
+   * sequence thereafter. `AUTOINCREMENT` keeps it monotonic, so a deleted
+   * card's id is never handed out twice.
+   */
+  private nextCardId(): number {
+    this.seedCardSeqStatement.run();
+    return Number(this.nextCardSeqStatement.run().lastInsertRowid);
   }
 
   append(rows: readonly NewEvent[]): Event[] {

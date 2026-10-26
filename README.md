@@ -221,6 +221,10 @@ prints the URL to open. Flags pass straight through (`/ukb web --port 4000`,
   the `project` field; `--dir` / `UKB_DIR` points elsewhere.
 - **Storage**: SQLite (default, WAL — safe appends from several processes),
   `--storage jsonl` (zero deps, git-friendly), or `memory` (tests).
+- **Ids**: a card id counts cards, an event id counts events. They are separate
+  sequences, so `add, edit, add` gives you `#1` and `#2` rather than `#1` and
+  `#3` — the number you type is never inflated by a board's edit history. Ids
+  are monotonic and never reused, including the id of a deleted card.
 - **Identity**: every event carries an actor. `--agent <name> --agent-type
 human|agent` (or `UKB_AGENT` / `UKB_AGENT_TYPE`); the Web UI acts as that same
   default actor, so a browser and a terminal on one machine are one person.
