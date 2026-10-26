@@ -111,14 +111,12 @@ describe("overlay view", () => {
 });
 
 describe("resolveOverlayStates", () => {
-  it("defaults to the flow plus the shelf, without done", () => {
-    expect(resolveOverlayStates({})).toEqual(DEFAULT_OVERLAY_STATES);
-    expect(resolveOverlayStates({})).toEqual([
-      "doing",
-      "todo",
-      "review",
-      "someday",
-    ]);
+  it("defaults to the flow, and hands the renderer the shared constant", () => {
+    // The shelf is not in the default list: the renderer adds it while the
+    // board is quiet, which it can only tell apart from an explicit list when
+    // the default arrives by identity.
+    expect(resolveOverlayStates({})).toBe(DEFAULT_OVERLAY_STATES);
+    expect(resolveOverlayStates({})).toEqual(["doing", "todo", "review"]);
   });
 
   it("reads a comma-separated env list, overriding the file", () => {

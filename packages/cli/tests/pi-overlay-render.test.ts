@@ -32,6 +32,7 @@ function card(over: Partial<CardLite> & { id: number }): CardLite {
     project: null,
     blockedBy: [],
     priority: "normal",
+    updatedAt: null,
     ...over,
   };
 }
@@ -484,6 +485,193 @@ describe("selectOverlayRows", () => {
     });
     const { rows } = selectOverlayRows(board, 10);
     expect(rows.map((row) => `${row.depth}:${row.card.id}`)).toEqual(["0:2"]);
+  });
+});
+
+/* ---------------------------- recency ordering ---------------------------- */
+
+describe("recency ordering", () => {
+  it("decodes updatedAt and treats a missing or non-string one as unknown", () => {
+    const parsed = parseBoardJson(
+      JSON.stringify({
+        projects: [],
+        todo: [
+          { id: 1, title: "dated", updatedAt: "2026-10-20T09:00:00Z" },
+          { id: 2, title: "legacy" },
+          { id: 3, title: "broken", updatedAt: 17 },
+        ],
+        doing: [],
+        review: [],
+        done: [],
+      }),
+    );
+    expect(parsed?.todo.map((item) => item.updatedAt)).toEqual([
+      "2026-10-20T09:00:00Z",
+      null,
+      null,
+    ]);
+  });
+
+  it("orders a state's rows newest-touched first", () => {
+    const board = snapshot({
+      todo: [
+        card({ id: 1, updatedAt: "2026-10-01T00:00:00Z" }),
+        card({ id: 2, updatedAt: "2026-10-03T00:00:00Z" }),
+        card({ id: 3, updatedAt: "2026-10-02T00:00:00Z" }),
+      ],
+    });
+    const { rows } = selectOverlayRows(board, 10);
+    expect(rows.map((row) => row.card.id)).toEqual([2, 3, 1]);
+  });
+
+  it("treats a card with no timestamp as the oldest and breaks ties by priority then id", () => {
+    const board = snapshot({
+      todo: [
+        card({ id: 1, priority: "low", updatedAt: "2026-10-01T00:00:00Z" }),
+        card({ id: 2 }),
+        card({ id: 3, priority: "high", updatedAt: "2026-10-01T00:00:00Z" }),
+        card({ id: 4 }),
+      ],
+    });
+    const { rows } = selectOverlayRows(board, 10);
+    // same instant: priority decides; no timestamp at all: they sink, id order.
+    expect(rows.map((row) => row.card.id)).toEqual([3, 1, 2, 4]);
+  });
+
+  it("ranks an umbrella by the newest card anywhere in it and keeps it whole", () => {
+    const board = snapshot({
+      todo: [
+        card({
+          id: 1,
+          title: "epic",
+          children: [2, 3],
+          updatedAt: "2026-10-01T00:00:00Z",
+        }),
+        card({
+          id: 10,
+          title: "standalone",
+          updatedAt: "2026-10-10T00:00:00Z",
+        }),
+        card({
+          id: 2,
+          title: "part old",
+          parent: 1,
+          updatedAt: "2026-10-02T00:00:00Z",
+        }),
+        card({
+          id: 3,
+          title: "part fresh",
+          parent: 1,
+          updatedAt: "2026-10-20T00:00:00Z",
+        }),
+      ],
+    });
+    const { rows } = selectOverlayRows(board, 10);
+    // The epic outranks #10 because a part of it was touched later, and its
+    // parts stay glued to it, newest first — never interleaved with #10.
+    expect(rows.map((row) => `${row.depth}:${row.card.id}`)).toEqual([
+      "0:1",
+      "1:3",
+      "1:2",
+      "0:10",
+    ]);
+  });
+
+  it("ranks a part of a part by the newest card in its own subtree", () => {
+    const board = snapshot({
+      todo: [
+        card({
+          id: 1,
+          children: [2, 4],
+          updatedAt: "2026-10-01T00:00:00Z",
+        }),
+        card({ id: 10, updatedAt: "2026-10-15T00:00:00Z" }),
+        card({
+          id: 2,
+          parent: 1,
+          children: [3],
+          updatedAt: "2026-10-02T00:00:00Z",
+        }),
+        card({ id: 4, parent: 1, updatedAt: "2026-10-10T00:00:00Z" }),
+        card({ id: 3, parent: 2, updatedAt: "2026-10-25T00:00:00Z" }),
+      ],
+    });
+    const { rows } = selectOverlayRows(board, 10);
+    // #2's own timestamp is older than #4's, but its task was touched last.
+    expect(rows.map((row) => `${row.depth}:${row.card.id}`)).toEqual([
+      "0:1",
+      "1:2",
+      "2:3",
+      "1:4",
+      "0:10",
+    ]);
+  });
+
+  it("orders inside a project group by recency as well", () => {
+    const board = snapshot({
+      todo: [
+        card({ id: 1, project: "web", updatedAt: "2026-10-01T00:00:00Z" }),
+        card({ id: 2, project: "web", updatedAt: "2026-10-05T00:00:00Z" }),
+        card({ id: 3, project: "api", updatedAt: "2026-10-02T00:00:00Z" }),
+      ],
+    });
+    const { rows } = selectOverlayRows(board, 10, "project");
+    expect(rows.map((row) => row.card.id)).toEqual([3, 2, 1]);
+  });
+});
+
+/* ------------------------------ the shelf --------------------------------- */
+
+describe("someday is the fallback shelf", () => {
+  const crowded = (other: number) =>
+    snapshot({
+      todo: Array.from({ length: other }, (_unused, index) =>
+        card({ id: index + 1 }),
+      ),
+      someday: [
+        card({ id: 90, title: "parked", state: "someday" }),
+        card({ id: 91, title: "also parked", state: "someday" }),
+      ],
+    });
+
+  it("joins the panel while fewer than five other cards are visible", () => {
+    const lines = renderOverlay(crowded(4), renderOptions());
+    expect(lines[0]).toBe("○ ukb · 4 todo · 2 someday");
+    expect(lines.join("\n")).toContain("[someday][normal] #90 parked");
+  });
+
+  it("stays off the panel once five other cards are visible", () => {
+    const board = crowded(5);
+    const lines = renderOverlay(board, renderOptions());
+    // Neither a row nor a count: the shelf is not part of this panel at all.
+    expect(lines[0]).toBe("○ ukb · 5 todo");
+    expect(lines.join("\n")).not.toContain("someday");
+    // and it is not part of what keeps the panel alive either
+    expect(visibleCardCount(board)).toBe(5);
+  });
+
+  it("counts every other displayed state toward the threshold, not just todo", () => {
+    const board = snapshot({
+      doing: [card({ id: 1, state: "doing" }), card({ id: 2, state: "doing" })],
+      review: [card({ id: 3, state: "review" })],
+      todo: [card({ id: 4 }), card({ id: 5 })],
+      someday: [card({ id: 6, state: "someday" })],
+    });
+    expect(visibleCardCount(board)).toBe(5);
+    expect(renderOverlay(board, renderOptions())[0]).toBe(
+      "● ukb · 2 doing · 2 todo · 1 review",
+    );
+  });
+
+  it("shows the shelf when it is asked for, however busy the board is", () => {
+    // An explicit `states=` is a deliberate request; the heuristic is only the
+    // default.
+    const lines = renderOverlay(
+      crowded(9),
+      renderOptions({ states: ["todo", "someday"] }),
+    );
+    expect(lines[0]).toBe("○ ukb · 9 todo · 2 someday");
+    expect(lines.join("\n")).toContain("#90 parked");
   });
 });
 

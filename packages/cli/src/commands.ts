@@ -65,9 +65,7 @@ const TRANSITION_VERBS = {
 } as const;
 
 /** The fields a list consumer needs; leaves bodies, notes and audit metadata out. */
-function briefCard(
-  card: Card,
-): Pick<
+function briefCard(card: Card): Pick<
   Card,
   | "id"
   | "title"
@@ -80,6 +78,9 @@ function briefCard(
   | "blockedBy"
   | "parent"
   | "children"
+  // The Pi panel orders rows by recency; without it every card ties at zero and
+  // the panel falls back to priority/id, i.e. its pre-recency order.
+  | "updatedAt"
 > {
   const {
     id,
@@ -93,6 +94,7 @@ function briefCard(
     blockedBy,
     parent,
     children,
+    updatedAt,
   } = card;
   return {
     id,
@@ -106,6 +108,7 @@ function briefCard(
     blockedBy,
     parent,
     children,
+    updatedAt,
   };
 }
 
@@ -211,9 +214,12 @@ gui (the Pi panel — /ukb gui, not a CLI verb):
   /ukb gui help
   scope: current-project | mine | all | project:<slug>
   group: state | project | owner | none
-  states: doing, todo, review, someday, done (default: all but done)
-  rows: doing, then todo, then review, then someday — ordered by priority
-                                     inside each state
+  states: doing, todo, review, someday, done (default: doing/todo/review,
+                                     and someday joins while those hold fewer
+                                     than 5 cards)
+  rows: doing, then todo, then review, then someday — newest change first
+                                     inside each state, umbrella cards kept
+                                     whole and ranked by their freshest card
 
 setup:
   ukb web [--port N] [--no-open]    start the API + Web UI

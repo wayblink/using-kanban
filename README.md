@@ -197,10 +197,17 @@ mounts a panel above the editor, scoped to the current Git project:
 ```
 
 An umbrella's parts follow it, indented one step per level, wherever they are in the
-flow. Which states the panel shows is a setting: `overlay.states` in
+flow. Rows are ordered newest-change-first inside each state, and an umbrella is
+ranked by the freshest card anywhere in it — a part you just touched lifts its
+umbrella instead of escaping from under it.
+
+Which states the panel shows is a setting: `overlay.states` in
 `~/.config/ukb/config.json`, `UKB_OVERLAY_STATES`, or `states=…` for one
-session. The default is `doing`, `todo`, `review`, `someday` — the shelf is
-visible, history is not.
+session. The default is `doing`, `todo`, `review` — history is not on the panel,
+and `someday` joins those three only while they hold fewer than five cards. On a
+busy board the shelf is noise; on a quiet one it is the only thing left worth
+showing. Naming `someday` in `overlay.states` keeps it on regardless, and
+`done` adds history.
 
 The same slash command is the door to the Web UI: `/ukb web` starts the API and
 the UI in the background — it is the CLI's `ukb web`, detached, because that

@@ -52,15 +52,16 @@ export type OverlayState = (typeof OVERLAY_STATES)[number];
 /**
  * Which states the panel shows by default.
  *
- * The shelf is in — a parked card you cannot see is a parked card you forget —
- * and `done` is out, because history is not what the panel is for. Add `done`
- * back (or drop anything else) with `overlay.states`.
+ * The flow, and only the flow: `done` is out because history is not what the
+ * panel is for, and `someday` is out because a shelf of parked work competes
+ * with live work for the same few rows. The shelf is not gone — the renderer
+ * adds it back whenever the flow is quiet (`SOMEDAY_VISIBLE_BELOW` in
+ * `overlay-render.ts`), and naming it in `overlay.states` keeps it always.
  */
 export const DEFAULT_OVERLAY_STATES: readonly OverlayState[] = [
   "doing",
   "todo",
   "review",
-  "someday",
 ];
 
 export interface UkbOverlayConfig {
@@ -80,7 +81,10 @@ export interface UkbOverlayConfig {
   readonly display?: OverlayDisplay;
   /**
    * Which states the panel shows — each one gets a heading count and, if it has
-   * cards, rows. Defaults to `DEFAULT_OVERLAY_STATES` (someday in, done out).
+   * cards, rows. Defaults to `DEFAULT_OVERLAY_STATES` (the flow), where the
+   * `someday` shelf joins automatically while the flow holds fewer than five
+   * cards. Naming `someday` here keeps the shelf on regardless of how busy the
+   * board is; naming `done` adds history.
    */
   readonly states?: readonly OverlayState[];
 }

@@ -907,6 +907,9 @@ describe("board --json", () => {
       blockedBy: [],
       parent: null,
       children: [],
+      // The Pi panel orders rows by this; a brief projection without it would
+      // silently drop the panel back to id order.
+      updatedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
     });
     expect(brief.out.join("\n")).not.toContain("large private body");
     expect(parsed.todo[0]).not.toHaveProperty("notes");

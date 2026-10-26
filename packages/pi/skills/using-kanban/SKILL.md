@@ -143,7 +143,9 @@ ukb show 38                 # children: 4/6 (4 done · 1 review · 1 todo) + the
 In the Pi panel the parts follow their umbrella row, indented one step per
 level, whatever column they are in — a child in `review` sits under a `todo` umbrella,
 not in the review group, and it is not repeated there. A child whose umbrella is
-not on screen stays a top-level row with a `⤷#parent` marker.
+not on screen stays a top-level row with a `⤷#parent` marker. The panel's row
+order is by last change, and an umbrella ranks as fresh as its freshest part, so
+touching one part lifts the whole goal without scattering it.
 
 Three rules, all deliberate:
 
@@ -198,11 +200,12 @@ field on cards, which is what you filter on.
 ## The human is watching
 
 In Pi the board is also mounted above the editor as a live panel: your `doing`,
-`todo` and `review` cards (plus `someday`), and who each one is waiting on. It
-repaints after every `ukb` call, so a card you claimed and never moved is visibly
-stuck, and a card left in `review` is visibly waiting on someone. Keep the board
-current as you work — the panel is the difference between the human trusting the
-board and ignoring it.
+`todo` and `review` cards, and who each one is waiting on, newest change first.
+The `someday` shelf joins it only while those hold fewer than five cards, so a
+busy panel does not spend its rows on parked work. It repaints after every `ukb`
+call, so a card you claimed and never moved is visibly stuck, and a card left in
+`review` is visibly waiting on someone. Keep the board current as you work — the
+panel is the difference between the human trusting the board and ignoring it.
 
 ## If there is no board yet
 

@@ -678,8 +678,10 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
     "/ukb gui help",
     "scope: current-project | mine | all | project:<slug>",
     "group: state | project | owner | none",
-    "states: doing, todo, review, someday, done (default: all but done)",
-    "rows: doing, then todo, then review, then someday",
+    "states: doing, todo, review, someday, done (default: the flow — someday",
+    "        joins it while doing/todo/review hold fewer than 5 cards)",
+    "rows: doing, then todo, then review, then someday; newest change first",
+    "      inside a state, umbrella cards kept whole",
     "default: current Git project, grouped by state",
     "persistent settings: ~/.config/ukb/config.json → overlay",
   ].join("\n");

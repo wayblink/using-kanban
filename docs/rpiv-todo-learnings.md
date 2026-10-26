@@ -80,6 +80,17 @@ Design decisions worth keeping:
   to rows that have one, and the reader cannot tell "normal" from "this card
   predates priorities" — which matters, because the two sort differently against
   a `low` card. Consistency beat the width.
+- **Rows are ordered by recency, not priority.** The panel answers "what is the
+  working set", so the card whose last event is newest sits on top; priority and
+  id break ties, which is also what keeps a snapshot with no timestamps in the
+  order it always had. An umbrella is never split by this: it ranks as fresh as
+  the freshest card in its subtree, and its parts stay beneath it.
+- **`someday` is a fallback shelf, not a column.** It joins the panel only while
+  `doing`/`todo`/`review` hold fewer than five cards: on a busy board parked work
+  steals rows from live work, but on a quiet one it is the only thing left to
+  show, and a parked card that is invisible is a forgotten one. Naming `someday`
+  in `overlay.states` keeps it unconditionally — an explicit request outranks a
+  heuristic — and the gate only ever applies to the untouched default view.
 - **Overflow drops the todo tail first and never silently drops a `doing` row.**
   A card someone is working on is the last thing to disappear, and one row is
   reserved for `└─ +N more (2 todo, 1 review)` so the trimming is always visible.

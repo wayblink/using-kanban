@@ -10,15 +10,24 @@
  * backlog — then the `review` queue, because a review row is work the reader is
  * *waiting* on rather than work they can pick up, then the `someday` shelf.
  *
- * Which states appear at all is the view's `states`, defaulting to the flow plus
- * the shelf and **not** `done`: history is not what the panel is for, and it can
- * grow without bound. Adding `done` back is a config change, and its rows are
- * trimmed first when the budget runs out. That is what keeps the widget bounded
- * on a board with a hundred cards in it.
+ * Which states appear at all is the view's `states`, defaulting to the flow and
+ * **not** `done` or the `someday` shelf: history is not what the panel is for,
+ * and it can grow without bound, while a shelf of parked work is noise on a
+ * board that already has plenty to do. The shelf joins the panel only when the
+ * flow is quiet (see `SOMEDAY_VISIBLE_BELOW`) — a parked card you cannot see is
+ * a parked card you forget, so it must not be invisible on an idle board, but
+ * it must not compete with live work either. Adding either state back is a
+ * config change, and rows are trimmed by the budget first. That is what keeps
+ * the widget bounded on a board with a hundred cards in it.
  *
- * Inside a state, priority orders the rows: `high`, `normal`, `low`. Without
- * it a board with a long backlog interleaves minor work with live work, and the
- * panel stops answering "what should I do next".
+ * Inside a state, recency orders the rows: whatever was touched last sits on
+ * top, which is the working set. Priority and then id break ties, so a board
+ * whose brief JSON predates `updatedAt` (or a batch written at one instant)
+ * still has a stable order — the same one it had before.
+ *
+ * An umbrella never gets split by that ordering: it sorts by the newest card
+ * anywhere in its subtree and keeps its parts directly beneath it, so a fresh
+ * part lifts its umbrella rather than escaping from it.
  *
  * The order matters more than it looks. On a board where one project has eleven
  * review cards and fourteen todo cards, putting review first hid every piece of
@@ -59,8 +68,13 @@ export interface CardLite {
   readonly subproject?: string | null;
   readonly blockedBy: readonly number[];
   /**
-   * The umbrella this card is part of, or null. One level deep: a card is
-   * either an umbrella or a child, never both. Absent on older brief JSON.
+   * When the card last changed. `null` on brief JSON from a producer that
+   * predates the field (and on a card nothing has been done to yet).
+   */
+  readonly updatedAt: string | null;
+  /**
+   * The umbrella this card is part of, or null. Absent on older brief JSON.
+   * Hierarchies nest to any depth, so an umbrella can itself be a part.
    */
   readonly parent?: number | null;
   readonly children?: readonly number[];
@@ -263,6 +277,7 @@ function toCardLite(value: unknown, state: CardState): CardLite | null {
       (CARD_PRIORITIES as readonly string[]).includes(priority)
         ? (priority as CardPriority)
         : "normal",
+    updatedAt: stringOrNull(value.updatedAt),
   };
 }
 
@@ -416,18 +431,61 @@ export function openCardCount(snapshot: BoardSnapshot): number {
 }
 
 /**
+ * How many cards the rest of the panel may hold before the shelf is dropped.
+ *
+ * `someday` is a fallback, not a column the reader works from: while the flow
+ * (doing/todo/review) holds this many cards or more, a parked card is noise —
+ * but on a quiet board it is the only thing left worth showing, and a card you
+ * cannot see is a card you forget. An idle board must never look broken.
+ */
+export const SOMEDAY_VISIBLE_BELOW = 5;
+
+/**
+ * The states the panel actually renders.
+ *
+ * The default view is the flow; the `someday` shelf joins it while fewer than
+ * `SOMEDAY_VISIBLE_BELOW` cards are visible, and drops out again when the board
+ * is busy enough to fill the panel on its own. A view that names its own states
+ * — `overlay.states` in the config, `states=` on `/ukb gui` — is taken exactly
+ * as written: a deliberate request outranks a heuristic, in both directions.
+ */
+export function effectiveStates(
+  snapshot: BoardSnapshot,
+  states: readonly CardState[] = DEFAULT_OVERLAY_STATES,
+): readonly CardState[] {
+  if (!isDefaultView(states)) return states;
+  let visible = 0;
+  for (const state of states) visible += snapshot[state].length;
+  return visible < SOMEDAY_VISIBLE_BELOW ? [...states, "someday"] : states;
+}
+
+/**
+ * Whether a view is the default one, i.e. nobody asked for a state list.
+ *
+ * Identity, not value: the default is one shared constant that
+ * `resolveOverlayStates` hands back untouched, so a list the caller built —
+ * even one that spells out the same three states — is an explicit request and
+ * is taken as written. That is what lets `states=doing,todo,review` mean "the
+ * flow only" to someone who does not want the shelf back on a quiet board.
+ */
+function isDefaultView(states: readonly CardState[]): boolean {
+  return states === DEFAULT_OVERLAY_STATES;
+}
+
+/**
  * How many cards the panel accounts for given its displayed states. This is the
  * auto-hide test: zero means there is nothing to watch, so the caller
  * unregisters rather than leaving an empty banner. Unlike `openCardCount` it
- * honours the configured states — a project whose only visible cards are on the
- * shelf still gets a panel.
+ * honours the displayed states — a project whose only visible cards are on the
+ * shelf still gets a panel, because the shelf joins an otherwise quiet view.
  */
 export function visibleCardCount(
   snapshot: BoardSnapshot,
   states: readonly CardState[] = DEFAULT_OVERLAY_STATES,
 ): number {
   let total = 0;
-  for (const state of states) total += snapshot[state].length;
+  for (const state of effectiveStates(snapshot, states))
+    total += snapshot[state].length;
   return total;
 }
 
@@ -450,12 +508,15 @@ export interface OverlayLayout {
   readonly hidden: readonly OverlayRow[];
 }
 
-function byId(cards: readonly CardLite[]): readonly CardLite[] {
-  return [...cards].sort(compareByPriority);
-}
+/** A comparator that puts the most recently touched card first. */
+type CardOrder = (a: CardLite, b: CardLite) => number;
 
 /**
- * Reading order inside one state: priority, then id.
+ * Reading order tiebreak inside one state: priority, then id.
+ *
+ * Recency leads (see `selectOverlayRows`); these two are what makes a board
+ * whose brief JSON carries no `updatedAt`, or a batch of cards written in the
+ * same instant, come out in a stable order.
  *
  * A deliberate copy of `compareByPriority` in `packages/core`, for the same
  * reason the sanitizer is a copy — see the note on `sanitizeTerminalText`.
@@ -466,6 +527,19 @@ function compareByPriority(a: CardLite, b: CardLite): number {
     CARD_PRIORITIES.indexOf(a.priority ?? "normal") -
       CARD_PRIORITIES.indexOf(b.priority ?? "normal") || a.id - b.id
   );
+}
+
+/**
+ * A card's own last-change instant in ms, or 0 when the snapshot does not say.
+ *
+ * `Date.parse` rather than a string compare: the log writes the offset that was
+ * current when the event happened, so a lexicographic order would file `+08:00`
+ * and `Z` in the wrong sequence.
+ */
+function touchedAt(card: CardLite): number {
+  if (!card.updatedAt) return 0;
+  const parsed = Date.parse(card.updatedAt);
+  return Number.isNaN(parsed) ? 0 : parsed;
 }
 
 /** Row order within a group: what you can act on, then the shelf, then history. */
@@ -497,6 +571,7 @@ export function cardScope(card: CardLite): string | null {
 function groupedRows(
   cards: readonly CardLite[],
   groupBy: "project" | "owner",
+  order: CardOrder,
 ): OverlayRow[] {
   const keyed = cards.map((card) => ({
     card,
@@ -509,7 +584,7 @@ function groupedRows(
     (a, b) =>
       a.label.localeCompare(b.label) ||
       STATE_ORDER[a.card.state] - STATE_ORDER[b.card.state] ||
-      compareByPriority(a.card, b.card),
+      order(a.card, b.card),
   );
   let previous: string | null = null;
   return keyed.map(({ card, label }) => {
@@ -539,6 +614,19 @@ function groupedRows(
  * keeps its `⤷#parent` marker. Parts are never repeated in their own group: one
  * card, one row.
  *
+ * **Recency orders the rows, and an umbrella is never split by it.** Inside a
+ * state the last-touched card goes first; priority and then id break ties so a
+ * snapshot without timestamps keeps the order it always had. An umbrella sorts
+ * by the newest card anywhere in its subtree, so a fresh part lifts its own
+ * umbrella instead of jumping out from under it, and its parts are ordered the
+ * same way among themselves — each by its own subtree, so a phase looks as
+ * fresh as the task someone just touched inside it.
+ *
+ * A state the view does not display is not displayed anywhere, including
+ * nested: a `someday` part of a `todo` umbrella has no row while the shelf is
+ * off. It still counts in the umbrella's `▸done/total`, because progress is a
+ * property of the subtree rather than of what happens to fit on screen.
+ *
  * Earlier states win the budget: `doing` is only ever dropped when it alone
  * exceeds it, and the tail (the shelf, then history) goes first. A card someone
  * is working on is the last thing to vanish.
@@ -549,7 +637,9 @@ export function selectOverlayRows(
   groupBy: OverlayGroup = "state",
   states: readonly CardState[] = DEFAULT_OVERLAY_STATES,
 ): OverlayLayout {
-  const shown = DISPLAY_STATE_ORDER.filter((state) => states.includes(state));
+  const shown = DISPLAY_STATE_ORDER.filter((state) =>
+    effectiveStates(snapshot, states).includes(state),
+  );
   // The column is authoritative. Tests deliberately reuse a card fixture with
   // a stale `state`, and old JSON producers may do the same.
   const cards: CardLite[] = shown.flatMap((state) =>
@@ -569,15 +659,33 @@ export function selectOverlayRows(
       roots.push(card);
     }
   }
-  for (const list of childrenByParent.values()) list.sort(compareByPriority);
+  // Recency is the reading order, and an umbrella counts as fresh as the
+  // freshest card anywhere in it — so a part touched today lifts its umbrella
+  // instead of escaping from underneath it.
+  const newestAt = new Map<number, number>();
+  const subtreeRecency = (card: CardLite): number => {
+    const cached = newestAt.get(card.id);
+    if (cached !== undefined) return cached;
+    let newest = touchedAt(card);
+    for (const child of childrenByParent.get(card.id) ?? [])
+      newest = Math.max(newest, subtreeRecency(child));
+    newestAt.set(card.id, newest);
+    return newest;
+  };
+  const compareByRecency: CardOrder = (a, b) =>
+    subtreeRecency(b) - subtreeRecency(a) || compareByPriority(a, b);
+  const sortCards = (list: readonly CardLite[]): readonly CardLite[] =>
+    [...list].sort(compareByRecency);
+
+  for (const list of childrenByParent.values()) list.sort(compareByRecency);
 
   const rootRows: OverlayRow[] =
     groupBy === "project" || groupBy === "owner"
-      ? groupedRows(roots, groupBy)
+      ? groupedRows(roots, groupBy, compareByRecency)
       : (groupBy === "none"
-          ? byId(roots)
+          ? sortCards(roots)
           : shown.flatMap((state) =>
-              byId(roots.filter((card) => card.state === state)),
+              sortCards(roots.filter((card) => card.state === state)),
             )
         ).map((card) => ({
           card,
@@ -782,7 +890,10 @@ export function renderOverlay(
   snapshot: BoardSnapshot,
   options: OverlayRenderOptions,
 ): string[] {
-  const states = options.states ?? DEFAULT_OVERLAY_STATES;
+  const states = effectiveStates(
+    snapshot,
+    options.states ?? DEFAULT_OVERLAY_STATES,
+  );
   // Nothing visible means nothing to watch — the caller unregisters the widget.
   if (visibleCardCount(snapshot, states) === 0) return [];
 
