@@ -196,7 +196,7 @@ mounts a panel above the editor, scoped to the current Git project:
 └─ [review][normal] #3 Overlay widget above the editor     → human
 ```
 
-An umbrella's children follow it, indented one level, wherever they are in the
+An umbrella's parts follow it, indented one step per level, wherever they are in the
 flow. Which states the panel shows is a setting: `overlay.states` in
 `~/.config/ukb/config.json`, `UKB_OVERLAY_STATES`, or `states=…` for one
 session. The default is `doing`, `todo`, `review`, `someday` — the shelf is
@@ -247,7 +247,7 @@ GET    /api/cards/:id                 card + event history
 POST   /api/cards                     { title, body, assignee, reviewer, blockedBy }
 PATCH  /api/cards/:id                 edit fields
 POST   /api/cards/:id/{claim,review,done,reopen,move}
-POST   /api/cards/:id/{parent,unparent}   umbrella ↔ parts (one level)
+POST   /api/cards/:id/{parent,unparent}   umbrella ↔ parts (any depth, no cycles)
 POST   /api/cards/:id/{block,unblock}     { blockedBy }
 POST   /api/cards/:id/{relate,unrelate}   { other, direction }
 POST   /api/cards/:id/notes           { text, url }

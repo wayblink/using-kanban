@@ -437,8 +437,12 @@ export interface OverlayRow {
   /** Inline group column. Only the first row in a group prints the label. */
   readonly groupLabel: string | null;
   readonly groupStart: boolean;
-  /** True for a child rendered under its umbrella, indented one level. */
-  readonly nested: boolean;
+  /**
+   * How far below the root of its subtree this row sits: 0 for a top-level
+   * card, 1 for a part, 2 for a part of a part, and so on. An umbrella's parts
+   * are indented by it, whatever state they are in.
+   */
+  readonly depth: number;
 }
 
 export interface OverlayLayout {
@@ -514,7 +518,7 @@ function groupedRows(
       state: card.state,
       groupLabel: label,
       groupStart: label !== previous,
-      nested: false,
+      depth: 0,
     };
     previous = label;
     return row;
@@ -527,12 +531,13 @@ function groupedRows(
  * one row is reserved for the overflow summary, so `rows.length + 1 <=
  * bodyBudget` on the overflow path.
  *
- * **Hierarchy nests.** An umbrella is a top-level row and its children follow
- * it, indented one level, whatever state they are in — a `review` child of a
- * `todo` umbrella sits under the umbrella, not in the review group. A card
- * whose parent is not displayed (hidden state, or filtered out by scope) is a
- * top-level row and keeps its `⤷#parent` marker. Children are never repeated in
- * their own group: one card, one row.
+ * **Hierarchy nests, to any depth.** An umbrella is a row and its parts follow
+ * it, each indented one step per level below it, whatever state they are in — a
+ * `review` part of a `todo` umbrella sits under the umbrella, not in the review
+ * group, and a part of that part follows it. A card whose parent is not
+ * displayed (hidden state, or filtered out by scope) is a top-level row and
+ * keeps its `⤷#parent` marker. Parts are never repeated in their own group: one
+ * card, one row.
  *
  * Earlier states win the budget: `doing` is only ever dropped when it alone
  * exceeds it, and the tail (the shelf, then history) goes first. A card someone
@@ -579,20 +584,32 @@ export function selectOverlayRows(
           state: card.state,
           groupLabel: null,
           groupStart: false,
-          nested: false,
+          depth: 0,
         }));
 
+  // Parts follow their umbrella at any depth, and none of them is repeated in
+  // the group its own state belongs to: one card, one row.
   const all: OverlayRow[] = [];
+  const appendSubtree = (
+    card: CardLite,
+    depth: number,
+    groupLabel: string | null,
+  ): void => {
+    all.push({
+      card,
+      state: card.state,
+      groupLabel,
+      groupStart: false,
+      depth,
+    });
+    for (const child of childrenByParent.get(card.id) ?? []) {
+      appendSubtree(child, depth + 1, groupLabel);
+    }
+  };
   for (const row of rootRows) {
     all.push(row);
     for (const child of childrenByParent.get(row.card.id) ?? []) {
-      all.push({
-        card: child,
-        state: child.state,
-        groupLabel: row.groupLabel,
-        groupStart: false,
-        nested: true,
-      });
+      appendSubtree(child, 1, row.groupLabel);
     }
   }
 
@@ -738,11 +755,11 @@ function renderRow(
       ? `${rawGroup ? theme.fg("muted", rawGroup) : ""}${groupPad} `
       : "";
   const priority = priorityTag(row.card);
-  const hierarchy = hierarchySuffix(row.card, byId, row.nested);
+  const hierarchy = hierarchySuffix(row.card, byId, row.depth > 0);
   const hierarchyText = hierarchy ? ` ${hierarchy}` : "";
   const scope = showProject ? cardScope(row.card) : null;
   const scopeText = scope ? ` ${sanitizeTerminalText(scope)}` : "";
-  const indent = row.nested ? "  " : "";
+  const indent = "  ".repeat(row.depth);
   const frozen = `${indent}${plainGroup}${STATE_TAG[row.state]}${priority ? priority : ""}${scopeText} #${row.card.id} ${title}${hierarchyText}`;
   const titleColor = row.state === "doing" ? "text" : "dim";
   const colored = `${coloredGroup}${theme.fg(stateColor, STATE_TAG[row.state])}${priority ? theme.fg("warning", priority) : ""}${scope ? ` ${theme.fg("muted", scope)}` : ""} ${theme.fg("accent", `#${row.card.id}`)} ${theme.fg(titleColor, title)}${hierarchy ? ` ${theme.fg("muted", hierarchy)}` : ""}`;
@@ -818,8 +835,8 @@ export function renderOverlay(
   const ownerColumn = rows.reduce((widest, row) => {
     if (!ownerSuffix(row)) return widest;
     const groupWidth = groupColumn > 0 ? groupColumn + 1 : 0;
-    const indent = row.nested ? 2 : 0;
-    const hierarchy = hierarchySuffix(row.card, byId, row.nested);
+    const indent = row.depth * 2;
+    const hierarchy = hierarchySuffix(row.card, byId, row.depth > 0);
     return Math.max(
       widest,
       indent +

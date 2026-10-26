@@ -234,14 +234,28 @@ describe("umbrella cards", () => {
     expect(closed.out.join("\n")).toContain("#1 [done] epic");
   });
 
-  it("keeps the hierarchy one level", async () => {
+  it("nests a part under a part", async () => {
     const dir = tempDir();
     await epic(dir);
 
-    // #2 is a child, so it cannot become a parent
+    // #2 is a part of #1 and a goal of its own: the plan gets a level deeper
+    const out = await run(["parent", "3", "--of", "2"], dir);
+    expect(out.out.join("\n")).toContain("child of #2");
+    const nested = await run(["show", "3"], dir);
+    expect(nested.out.join("\n")).toContain("parent: #2");
+    const middle = await run(["show", "2"], dir);
+    expect(middle.out.join("\n")).toContain("children: 0/1");
+  });
+
+  it("refuses a cycle", async () => {
+    const dir = tempDir();
+    await epic(dir);
+    await run(["parent", "3", "--of", "2"], dir);
+
+    // #1 > #2 > #3, so #2 cannot go under #3
     await expect(
-      runCommand(["parent", "3", "--of", "2"], makeIo(dir)),
-    ).rejects.toThrow(/one level/);
+      runCommand(["parent", "2", "--of", "3"], makeIo(dir)),
+    ).rejects.toThrow(/already inside it/);
   });
 
   it("unparents back to a top-level card", async () => {

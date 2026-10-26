@@ -446,8 +446,11 @@ export class Kanban {
   /**
    * Make card `id` a part of card `parentId`.
    *
-   * Hierarchy is deliberately one level: the child must be a leaf and the parent
-   * must be top-level, so nothing can gain a grandparent.
+   * Nesting is arbitrary deep: a part may itself be a goal with parts of its
+   * own, which is how a plan gets a chapter per phase without inventing a board.
+   * What is refused is a cycle — a card cannot become a part of something that
+   * is already inside it, or of itself — because a cycle has no root and the
+   * derived progress and the two-ends rule would have nothing to count from.
    *
    * Attaching makes `parentId` an umbrella and `id` one of its parts, so the pair
    * has to satisfy the same contract `transition` enforces. It is checked here
@@ -477,17 +480,21 @@ export class Kanban {
       );
     }
     if (card.parent === parentId) return { card, events: [] };
-    if (card.children.length > 0) {
-      throw new KanbanError(
-        "invalid_state",
-        `card ${id} has children of its own — the hierarchy is one level, so a card cannot be both a parent and a child`,
-      );
-    }
-    if (parentCard.parent !== null) {
-      throw new KanbanError(
-        "invalid_state",
-        `card ${parentId} is itself a child of #${parentCard.parent} — the hierarchy is one level, so it cannot also be a parent`,
-      );
+    // Walking up from the new parent has to reach the top without meeting the
+    // card being attached. A cycle would leave the pair with no root, so the
+    // derived progress could not be counted and `assertHierarchy` could not say
+    // which end has to move first.
+    const seen = new Set<number>();
+    let cursor: number | null = parentId;
+    while (cursor !== null && !seen.has(cursor)) {
+      if (cursor === id) {
+        throw new KanbanError(
+          "invalid_input",
+          `card ${id} cannot be a part of #${parentId} — #${parentId} is already inside it`,
+        );
+      }
+      seen.add(cursor);
+      cursor = this.projection.card(cursor)?.parent ?? null;
     }
     if (isInPlay(card.state) && parentCard.state !== "doing") {
       throw new KanbanError(

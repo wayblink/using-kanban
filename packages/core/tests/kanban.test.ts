@@ -585,20 +585,61 @@ describe("parent / child", () => {
     expect(kanban.card(child.id)?.parent).toBe(parent.id);
   });
 
-  it("keeps the hierarchy one level", () => {
+  it("nests to any depth", () => {
     const { kanban, parent, a, b } = tree();
     kanban.parent(a.id, parent.id, human, "cli");
 
-    // a is a child, so it cannot become a parent
+    // a is a part of the goal and a goal of its own: a part of a part is a
+    // plan with chapters, not a second board
+    kanban.parent(b.id, a.id, human, "cli");
+    expect(kanban.card(b.id)?.parent).toBe(a.id);
+    expect(kanban.card(a.id)?.children).toEqual([b.id]);
+
+    // and the tree can be walked in both directions
+    expect(kanban.card(a.id)?.parent).toBe(parent.id);
+    expect(kanban.card(parent.id)?.children).toEqual([a.id]);
+  });
+
+  it("refuses to make a card a part of something inside it", () => {
+    const { kanban, parent, a, b } = tree();
+    kanban.parent(a.id, parent.id, human, "cli");
+    kanban.parent(b.id, a.id, human, "cli");
+
+    // parent > a > b, so neither a nor parent may go under b
     expectKanbanError(
-      () => kanban.parent(b.id, a.id, human, "cli"),
-      "invalid_state",
+      () => kanban.parent(a.id, b.id, human, "cli"),
+      "invalid_input",
     );
-    // parent is an umbrella, so it cannot become a child
     expectKanbanError(
       () => kanban.parent(parent.id, b.id, human, "cli"),
+      "invalid_input",
+    );
+  });
+
+  it("keeps a deep chain's ends in agreement", () => {
+    const { kanban, parent, a, b } = tree();
+    kanban.parent(a.id, parent.id, human, "cli");
+    kanban.parent(b.id, a.id, human, "cli");
+
+    // the part of a part cannot start before its own goal does
+    expectKanbanError(() => kanban.claim(b.id, human, "cli"), "invalid_state");
+    kanban.claim(parent.id, human, "cli");
+    expectKanbanError(() => kanban.claim(b.id, human, "cli"), "invalid_state");
+    kanban.claim(a.id, human, "cli");
+    kanban.claim(b.id, human, "cli");
+
+    // and no level can finish while a level below it is still open
+    expectKanbanError(() => kanban.done(a.id, human, "cli"), "invalid_state");
+    expectKanbanError(
+      () => kanban.done(parent.id, human, "cli"),
       "invalid_state",
     );
+
+    // finishing bottom-up is what the rule allows
+    kanban.done(b.id, human, "cli");
+    kanban.done(a.id, human, "cli");
+    kanban.done(parent.id, human, "cli");
+    expect(kanban.card(parent.id)?.state).toBe("done");
   });
 
   it("refuses a card as its own parent", () => {

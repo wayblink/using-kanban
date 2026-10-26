@@ -140,16 +140,18 @@ ukb unparent 601            # ...and this makes it top-level again
 ukb show 38                 # children: 4/6 (4 done · 1 review · 1 todo) + the list
 ```
 
-In the Pi panel the children follow their umbrella row, indented one level,
-whatever column they are in — a child in `review` sits under a `todo` umbrella,
+In the Pi panel the parts follow their umbrella row, indented one step per
+level, whatever column they are in — a child in `review` sits under a `todo` umbrella,
 not in the review group, and it is not repeated there. A child whose umbrella is
 not on screen stays a top-level row with a `⤷#parent` marker.
 
 Three rules, all deliberate:
 
-- **One level deep.** An umbrella has children; a child has none. `ukb parent`
-  refuses anything that would create a grandparent, so there is exactly one
-  shape to reason about.
+- **Nests to any depth.** A part may itself be a goal with parts of its own, so
+  a plan can have a chapter per phase without a second board. What `ukb parent`
+  refuses is a cycle: a card cannot become a part of something already inside
+  it, because a cycle has no root for the progress or the two-ends rule to
+  count from.
 - **Composition, not blocking.** An umbrella does _not_ block its children —
   they are how it gets done, not what it waits for. Use `relate`/`block` for
   ordering; use `parent` for belonging. A card can be someone's child _and_
@@ -233,7 +235,7 @@ ukb move <id> <someday|todo|doing|review|done>
 ukb reopen <id>                  # back to todo
 ukb block <id> --by <other>      # make a card wait on another
 ukb unblock <id> --by <other>
-ukb parent <id> --of <parent>    # make a card a part of an umbrella (one level)
+ukb parent <id> --of <parent>    # make a card a part of an umbrella (any depth)
 ukb unparent <id>                # make it a top-level card again
 ukb relate <id> --with <other> --as upstream    # or downstream
 ukb unrelate <id> --with <other>

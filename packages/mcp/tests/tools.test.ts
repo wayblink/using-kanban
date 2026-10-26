@@ -279,31 +279,49 @@ describe("the agent workflow", () => {
     expect(unrelated.content[0]?.text).not.toContain("blocks:");
   });
 
-  it("links an umbrella and its parts, one level deep", async () => {
-    await call("kanban_add", { title: "epic" });
-    await call("kanban_add", { title: "part one" });
-    await call("kanban_add", { title: "part two" });
+  it("links an umbrella and its parts, nested", async () => {
+    const idOf = (result: { content: { type: string; text?: string }[] }) =>
+      Number(/#(\d+)/.exec(result.content[0]?.text ?? "")?.[1]);
+    const epic = await call("kanban_add", { title: "epic" });
+    const one = await call("kanban_add", { title: "part one" });
+    const two = await call("kanban_add", { title: "part two" });
+    const epicId = idOf(epic);
+    const oneId = idOf(one);
+    const twoId = idOf(two);
 
-    const linked = await call("kanban_parent", { id: 2, parent: 1 });
+    const linked = await call("kanban_parent", { id: oneId, parent: epicId });
     expect(linked.isError).toBeFalsy();
-    expect(linked.content[0]?.text).toContain("child of #1");
-    await call("kanban_parent", { id: 3, parent: 1 });
-    await call("kanban_done", { id: 2 });
+    expect(linked.content[0]?.text).toContain(`child of #${epicId}`);
+    await call("kanban_parent", { id: twoId, parent: epicId });
+    await call("kanban_done", { id: oneId });
 
-    const shown = await call("kanban_show", { id: 1 });
+    const shown = await call("kanban_show", { id: epicId });
     expect(shown.content[0]?.text).toContain("children: 1/2");
-    expect(shown.content[0]?.text).toContain("#2 [done] part one");
+    expect(shown.content[0]?.text).toContain("[done] part one");
 
-    const child = await call("kanban_show", { id: 3 });
-    expect(child.content[0]?.text).toContain("parent: #1 epic");
+    const child = await call("kanban_show", { id: twoId });
+    expect(child.content[0]?.text).toContain(`parent: #${epicId} epic`);
 
-    // One level only: a child cannot become a parent.
-    const deeper = await call("kanban_parent", { id: 3, parent: 2 });
-    expect(deeper.isError).toBe(true);
-    expect(deeper.content[0]?.text).toContain("one level");
-
-    const detached = await call("kanban_unparent", { id: 3 });
+    const detached = await call("kanban_unparent", { id: twoId });
     expect(detached.content[0]?.text).toContain("now top-level");
+
+    // A part may be a goal of its own, so a plan can nest: phase, then task.
+    const phaseId = idOf(await call("kanban_add", { title: "phase" }));
+    const taskId = idOf(await call("kanban_add", { title: "task" }));
+    expect(
+      (await call("kanban_parent", { id: phaseId, parent: epicId })).isError,
+    ).toBeFalsy();
+    expect(
+      (await call("kanban_parent", { id: taskId, parent: phaseId })).isError,
+    ).toBeFalsy();
+    expect(
+      (await call("kanban_show", { id: taskId })).content[0]?.text,
+    ).toContain(`parent: #${phaseId} phase`);
+
+    // ...but not back up into itself: a cycle has no root to count from.
+    const cycle = await call("kanban_parent", { id: phaseId, parent: taskId });
+    expect(cycle.isError).toBe(true);
+    expect(cycle.content[0]?.text).toContain("already inside it");
   });
 
   it("keeps a note with a document link on the card", async () => {

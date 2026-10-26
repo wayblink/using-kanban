@@ -246,8 +246,9 @@ scope:
 
 hierarchy:
   Umbrella cards (a big goal) and their children (the work that supports it)
-  are one level deep: an umbrella has children, a child has none. This is
-  composition, not blocking — an umbrella does not block its children, and
+  nest to any depth: a part may be a goal of its own, and only a cycle is
+  refused. This is composition, not blocking — an umbrella does not block its
+  children, and
   a card can be both someone's child and blocked by a third card. The two ends
   move together: an umbrella goes to doing first, then its parts may be doing
   or review, and the umbrella cannot be reviewed or done until every part is

@@ -454,9 +454,27 @@ describe("selectOverlayRows", () => {
     const { rows } = selectOverlayRows(board, 10);
     // #1 is the root; #2 and #3 follow it (a review child under a todo
     // umbrella); #4 is not displayed because `done` is hidden by default.
-    expect(
-      rows.map((row) => `${row.nested ? "-" : "+"}${row.card.id}`),
-    ).toEqual(["+1", "-2", "-3"]);
+    expect(rows.map((row) => `${row.depth}:${row.card.id}`)).toEqual([
+      "0:1",
+      "1:2",
+      "1:3",
+    ]);
+  });
+
+  it("nests a part of a part, one step deeper", () => {
+    const board = snapshot({
+      todo: [card({ id: 1, title: "epic", children: [2] })],
+      doing: [card({ id: 2, title: "phase", parent: 1, children: [3] })],
+      someday: [card({ id: 3, title: "task", parent: 2 })],
+    });
+    const { rows } = selectOverlayRows(board, 10);
+
+    // the phase follows the epic, and its own task follows the phase
+    expect(rows.map((row) => `${row.depth}:${row.card.id}`)).toEqual([
+      "0:1",
+      "1:2",
+      "2:3",
+    ]);
   });
 
   it("keeps a child top-level when its parent is not displayed", () => {
@@ -465,9 +483,7 @@ describe("selectOverlayRows", () => {
       todo: [card({ id: 2, title: "orphan row", parent: 1 })],
     });
     const { rows } = selectOverlayRows(board, 10);
-    expect(
-      rows.map((row) => `${row.nested ? "-" : "+"}${row.card.id}`),
-    ).toEqual(["+2"]);
+    expect(rows.map((row) => `${row.depth}:${row.card.id}`)).toEqual(["0:2"]);
   });
 });
 
