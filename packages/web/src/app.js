@@ -857,6 +857,10 @@ export const I18N = {
     "drawer.relate": "Relate",
     "drawer.notes": "Notes — remarks and document links",
     "drawer.body": "Body",
+    "drawer.edit": "Edit",
+    "drawer.editHint": "Markdown — click to edit the source",
+    "drawer.saveEdit": "Done",
+    "drawer.bodyEmpty": "no description yet — click to write one",
     "drawer.history": "History",
     "drawer.title": "Title",
     "drawer.claim": "Claim",
@@ -1046,6 +1050,10 @@ export const I18N = {
     "drawer.relate": "关联",
     "drawer.notes": "备注 — 说明与文档链接",
     "drawer.body": "描述",
+    "drawer.edit": "编辑",
+    "drawer.editHint": "Markdown — 点击编辑源码",
+    "drawer.saveEdit": "完成",
+    "drawer.bodyEmpty": "暂无描述 — 点击撰写",
     "drawer.history": "历史记录",
     "drawer.title": "标题",
     "drawer.claim": "认领",
@@ -3142,11 +3150,19 @@ function startApp() {
           await saveCard(id, { title: value });
         }),
       ),
-      field(
+      markdownField(
         t("drawer.body"),
-        textArea(card.body ?? "", async (value) => {
-          await saveCard(id, { body: value });
+        markdownBlock({
+          value: card.body ?? "",
+          hint: t("drawer.editHint"),
+          doneLabel: t("drawer.saveEdit"),
+          placeholder: t("drawer.bodyEmpty"),
+          rows: 16,
+          onSave: async (value) => {
+            await saveCard(id, { body: value });
+          },
         }),
+        t("drawer.edit"),
       ),
     );
 
@@ -3187,7 +3203,7 @@ function startApp() {
         ),
       ),
     );
-    main.append(fields, notesField(card));
+    main.append(notesField(card));
 
     // The transitions live in the footer, next to the one destructive action —
     // the same shape the new-card modal's footer uses.
@@ -3221,7 +3237,10 @@ function startApp() {
       actions.append(button);
     }
 
-    side.append(hierarchyField(card));
+    // The left column is what the card *is* — title, body, notes. Everything
+    // about who owns it and how it connects belongs on the right, so the
+    // reader does not scroll past five inputs to reach the prose.
+    side.append(fields, hierarchyField(card));
 
     // relations — one edge, shown from both ends
     side.append(
@@ -3510,10 +3529,28 @@ function startApp() {
       const item = document.createElement("div");
       item.className = "note";
 
-      const text = document.createElement("div");
-      text.className = "note-text";
-      text.textContent = note.text;
-      item.append(text);
+      const text = markdownBlock({
+        value: note.text,
+        hint: t("drawer.editHint"),
+        doneLabel: t("drawer.saveEdit"),
+        rows: 6,
+        className: "note-body",
+        // A remark is markdown too — a checklist or a shell snippet in a note
+        // should read as one, not as its punctuation.
+        onSave: async (value) => {
+          try {
+            await api(`/api/cards/${card.id}/notes/${note.id}`, {
+              method: "PATCH",
+              body: { text: value },
+            });
+            await refresh();
+          } catch (error) {
+            toast(error.message, "error");
+            await refresh();
+          }
+        },
+      });
+      item.append(text.element);
 
       if (note.url) {
         const kind = docKindOf(note.url);
@@ -5273,6 +5310,164 @@ function textArea(value, onChange) {
   textarea.value = value;
   textarea.addEventListener("change", () => onChange(textarea.value));
   return textarea;
+}
+
+/**
+ * A markdown block that reads by default and is edited on demand.
+ *
+ * A card's body and its remarks are markdown — headings, lists, tables,
+ * fences — and a textarea renders all of that as punctuation. So the block
+ * shows the rendered document, and the raw source only appears while you are
+ * editing: click the block (or focus it and press Enter) for the source, Escape
+ * to leave without saving, blur to save. An unedited blur writes nothing: a
+ * card's history is a record of changes, and a click that changed nothing is
+ * not one.
+ *
+ * Returns the element plus `startEdit`, so a label can carry an Edit button that
+ * opens the same editor rather than a second code path.
+ */
+function markdownBlock({
+  value,
+  onSave,
+  hint,
+  doneLabel,
+  placeholder = "",
+  rows = 10,
+  className = "",
+}) {
+  const host = document.createElement("div");
+  host.className = `markdown-block ${className}`.trim();
+  host.tabIndex = 0;
+  host.setAttribute("role", "button");
+  host.setAttribute("aria-label", hint);
+  host.title = hint;
+
+  const original = String(value ?? "");
+
+  const showRendered = () => {
+    host.textContent = "";
+    if (original.trim() === "") {
+      const empty = document.createElement("p");
+      empty.className = "markdown-empty";
+      empty.textContent = placeholder;
+      host.append(empty);
+      return;
+    }
+    const article = document.createElement("article");
+    article.className = "markdown";
+    article.innerHTML = markdownToHtml(original);
+    host.append(article);
+  };
+
+  let editing = false;
+  const startEdit = () => {
+    if (editing) return;
+    editing = true;
+
+    const area = document.createElement("textarea");
+    area.className = "markdown-source";
+    area.rows = rows;
+    area.spellcheck = false;
+    area.value = original;
+    host.textContent = "";
+    host.append(area);
+    host.removeAttribute("title");
+    area.focus();
+    area.setSelectionRange(0, 0);
+
+    // An explicit Done button, because leaving the source must not depend on
+    // where focus went: a blur that never fires looks exactly like a save that
+    // did nothing. The button takes the click on `mousedown` (so the textarea
+    // keeps focus and does not blur first) and saves what is in the box.
+    const toolbar = document.createElement("div");
+    toolbar.className = "markdown-toolbar";
+    const shortcut = document.createElement("span");
+    shortcut.className = "markdown-shortcut";
+    shortcut.textContent = "Markdown · Esc";
+    const done = document.createElement("button");
+    done.type = "button";
+    done.className = "markdown-done";
+    done.textContent = doneLabel;
+    done.addEventListener("mousedown", (event) => event.preventDefault());
+    done.addEventListener("click", () => leave(true));
+    toolbar.append(shortcut, done);
+    host.append(toolbar);
+
+    let leaving = false;
+    const leave = (save) => {
+      if (leaving) return;
+      leaving = true;
+      editing = false;
+      const next = area.value;
+      host.title = hint;
+      showRendered();
+      // Saving is the caller's business (and it re-renders from the server
+      // afterwards); the block only reports what changed.
+      if (save && next !== original) void onSave(next);
+    };
+
+    // Every documented way out of the editor: blur, the native change event a
+    // textarea fires on blur, and ⌘↵.
+    area.addEventListener("blur", () => leave(true));
+    area.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        area.value = original; // discard, then blur without saving
+        area.blur();
+      }
+      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        leave(true);
+      }
+    });
+  };
+
+  // A drag that selected text is a copy, not an edit: entering the editor would
+  // throw the selection away under the reader's cursor.
+  host.addEventListener("click", () => {
+    const selection = window.getSelection?.();
+    if (
+      selection &&
+      selection.rangeCount > 0 &&
+      !selection.isCollapsed &&
+      host.contains(selection.anchorNode)
+    ) {
+      return;
+    }
+    startEdit();
+  });
+  host.addEventListener("keydown", (event) => {
+    if (host.tabIndex < 0) return;
+    if (event.key === "Enter" || event.key === " ") {
+      // Only when the block itself has focus: a keystroke inside the editor
+      // must reach the textarea, not reopen it.
+      if (event.target === host) {
+        event.preventDefault();
+        startEdit();
+      }
+    }
+  });
+
+  showRendered();
+  return { element: host, startEdit };
+}
+
+/** A markdown field: the label carries an Edit button, the block does the rest. */
+function markdownField(label, block, editLabel) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "field markdown-field";
+  const head = document.createElement("div");
+  head.className = "field-head";
+  const labelEl = document.createElement("label");
+  labelEl.textContent = label;
+  const edit = document.createElement("button");
+  edit.type = "button";
+  edit.className = "field-action";
+  edit.textContent = editLabel;
+  edit.addEventListener("click", () => block.startEdit());
+  head.append(labelEl, edit);
+  wrapper.append(head, block.element);
+  return wrapper;
 }
 
 /**

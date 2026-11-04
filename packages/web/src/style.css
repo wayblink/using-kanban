@@ -733,6 +733,135 @@ button.icon-only:hover:not(:disabled) {
   font-size: 13.5px;
 }
 
+/* A markdown field reads, then edits. The block is the whole hit target, so a
+   reader does not have to find a pencil to change a sentence; the source only
+   exists while it is being edited. */
+.field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.field-head > label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+}
+
+.field-action {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.field-action:hover {
+  border-color: var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.markdown-block {
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  cursor: text;
+  /* Long design docs live on cards. Cap the pane and scroll it, so the dialog
+     keeps its shape instead of growing to the length of the body. */
+  max-height: 46vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.markdown-block:hover,
+.markdown-block:focus-visible {
+  border-color: var(--border);
+  background: var(--surface-2);
+  outline: none;
+}
+
+.markdown-block:focus-visible {
+  border-color: var(--accent);
+}
+
+.markdown-block .markdown {
+  font-size: 13.5px;
+}
+
+.markdown-block .markdown > :first-child {
+  margin-top: 0;
+}
+
+.markdown-block .markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-empty {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.markdown-source {
+  width: 100%;
+  min-height: 160px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+/* While editing: the raw source, then one line saying how to get out — the
+   keyboard way, and a button for everyone else. */
+.markdown-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.markdown-shortcut {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.markdown-done {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 12px;
+  font-size: 12px;
+  font-weight: 550;
+  cursor: pointer;
+}
+
+.markdown-done:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* A remark is smaller than the body: same behaviour, less furniture. */
+.markdown-block.note-body {
+  max-height: 30vh;
+  padding: 4px 6px;
+  margin: -4px -6px;
+}
+
+.markdown-block.note-body .markdown {
+  font-size: 13px;
+}
+
+.markdown-block.note-body .markdown-source {
+  min-height: 100px;
+}
+
 /* Two fields to a row. This used to be a flex row of four, and flex items
    refuse to shrink below the width of their own inputs — so the project and
    priority controls hung out of the modal's right edge. A grid with
@@ -871,9 +1000,8 @@ button.icon-only:hover:not(:disabled) {
   background: var(--surface-2);
 }
 
-.note-text {
+.note-body {
   font-size: 13px;
-  white-space: pre-wrap;
   word-break: break-word;
 }
 
