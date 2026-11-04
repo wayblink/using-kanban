@@ -1039,7 +1039,7 @@ export const I18N = {
     "drawer.blockedBy": "上游 — 本卡片等待",
     "drawer.blocks": "下游 — 等待本卡片",
     "drawer.hierarchy": "层级 — 所属伞卡与它的子卡",
-    "drawer.parent": "设为子卡",
+    "drawer.parent": "设为父卡",
     "drawer.setParent": "父卡 #",
     "drawer.unparent": "从 #{id} 摘除",
     "drawer.childProgress": "{done}/{total} 已完成",
@@ -3319,6 +3319,50 @@ function startApp() {
    * (they wait on this card). Adding from either side writes the same edge.
    */
   /** The umbrella this card belongs to, and the parts it is composed of. */
+  /**
+   * `[# card] [action]` on one line, in a column narrow enough to break it.
+   *
+   * The pair is a grid, not a flex row: flex items refuse to shrink below the
+   * intrinsic width of the input inside them, which is how the parent input,
+   * its button and the child input ended up stacked on top of each other.
+   * `minmax(0, 1fr)` lets the field shrink; the button keeps its word.
+   */
+  function linkRow({ placeholder, label, onSubmit }) {
+    const row = document.createElement("div");
+    row.className = "link-row";
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = "1";
+    input.inputMode = "numeric";
+    input.placeholder = placeholder;
+    const press = document.createElement("button");
+    press.type = "button";
+    press.className = "mini-button";
+    press.textContent = label;
+    const submit = () => {
+      const id = Number(input.value);
+      if (!Number.isInteger(id) || id <= 0) {
+        toast(t("modal.enterId"), "error");
+        return;
+      }
+      void onSubmit(id).then(
+        () => {
+          input.value = "";
+        },
+        () => undefined,
+      );
+    };
+    press.addEventListener("click", submit);
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        submit();
+      }
+    });
+    row.append(input, press);
+    return row;
+  }
+
   function hierarchyField(card) {
     const wrapper = field(t("drawer.hierarchy"));
     const chips = document.createElement("div");
@@ -3356,31 +3400,23 @@ function startApp() {
     } else if ((card.children ?? []).length === 0) {
       // A card with children is an umbrella and cannot gain a parent; a
       // standalone card may go either way.
-      const input = document.createElement("input");
-      input.type = "number";
-      input.min = "1";
-      input.placeholder = t("drawer.setParent");
-      const set = document.createElement("button");
-      set.type = "button";
-      set.textContent = t("drawer.parent");
-      set.addEventListener("click", async () => {
-        const parent = Number(input.value);
-        if (!Number.isInteger(parent) || parent <= 0) {
-          toast(t("modal.enterId"), "error");
-          return;
-        }
-        try {
-          await api(`/api/cards/${card.id}/parent`, {
-            method: "POST",
-            body: { parent },
-          });
-          input.value = "";
-          await refresh();
-        } catch (error) {
-          toast(error.message, "error");
-        }
-      });
-      chips.append(input, set);
+      chips.append(
+        linkRow({
+          placeholder: t("drawer.setParent"),
+          label: t("drawer.parent"),
+          onSubmit: async (parent) => {
+            try {
+              await api(`/api/cards/${card.id}/parent`, {
+                method: "POST",
+                body: { parent },
+              });
+              await refresh();
+            } catch (error) {
+              toast(error.message, "error");
+            }
+          },
+        }),
+      );
     }
 
     const children = (card.children ?? [])
@@ -3406,32 +3442,24 @@ function startApp() {
     }
 
     if (card.parent == null) {
-      const childInput = document.createElement("input");
-      childInput.type = "number";
-      childInput.min = "1";
-      childInput.placeholder = t("drawer.addChild");
-      const addChild = document.createElement("button");
-      addChild.type = "button";
-      addChild.textContent = t("drawer.addChildButton");
-      addChild.addEventListener("click", async () => {
-        const child = Number(childInput.value);
-        if (!Number.isInteger(child) || child <= 0) {
-          toast(t("modal.enterId"), "error");
-          return;
-        }
-        try {
-          // Attaching changes the child card, so the call is addressed to it.
-          await api(`/api/cards/${child}/parent`, {
-            method: "POST",
-            body: { parent: card.id },
-          });
-          childInput.value = "";
-          await refresh();
-        } catch (error) {
-          toast(error.message, "error");
-        }
-      });
-      chips.append(childInput, addChild);
+      chips.append(
+        linkRow({
+          placeholder: t("drawer.addChild"),
+          label: t("drawer.addChildButton"),
+          onSubmit: async (child) => {
+            try {
+              // Attaching changes the child card, so the call is addressed to it.
+              await api(`/api/cards/${child}/parent`, {
+                method: "POST",
+                body: { parent: card.id },
+              });
+              await refresh();
+            } catch (error) {
+              toast(error.message, "error");
+            }
+          },
+        }),
+      );
     }
 
     wrapper.append(chips);
@@ -3479,34 +3507,26 @@ function startApp() {
       chips.append(chip);
     }
 
-    const input = document.createElement("input");
-    input.type = "number";
-    input.min = "1";
-    input.placeholder = placeholder;
-    const add = document.createElement("button");
-    add.type = "button";
-    add.textContent = t("drawer.relate");
-    add.addEventListener("click", async () => {
-      const other = Number(input.value);
-      if (!Number.isInteger(other) || other <= 0) {
-        toast(t("modal.enterId"), "error");
-        return;
-      }
-      try {
-        await api(`/api/cards/${card.id}/relate`, {
-          method: "POST",
-          body: {
-            other,
-            direction: side === "blocks" ? "downstream" : "upstream",
-          },
-        });
-        input.value = "";
-        await refresh();
-      } catch (error) {
-        toast(error.message, "error");
-      }
-    });
-    chips.append(input, add);
+    chips.append(
+      linkRow({
+        placeholder,
+        label: t("drawer.relate"),
+        onSubmit: async (other) => {
+          try {
+            await api(`/api/cards/${card.id}/relate`, {
+              method: "POST",
+              body: {
+                other,
+                direction: side === "blocks" ? "downstream" : "upstream",
+              },
+            });
+            await refresh();
+          } catch (error) {
+            toast(error.message, "error");
+          }
+        },
+      }),
+    );
     wrapper.append(chips);
     return wrapper;
   }
