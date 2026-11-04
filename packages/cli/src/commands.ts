@@ -212,6 +212,8 @@ gui (the Pi panel — /ukb gui, not a CLI verb):
   /ukb gui more | less              grow / shrink the row budget
   /ukb gui hide                     remove it
   /ukb gui collapse | expand        one line / full height
+  /ukb gui split | split=off        add a second pane beside the flow
+  /ukb gui right scope=… states=…   address the right pane (left returns)
   /ukb gui help
   scope: current-project | mine | all | project:<slug>
   group: state | project | owner | none
@@ -221,6 +223,9 @@ gui (the Pi panel — /ukb gui, not a CLI verb):
   rows: doing, then todo, then review, then someday — newest change first
                                      inside each state, umbrella cards kept
                                      whole and ranked by their freshest card
+  split: both panes share one row budget; the right pane shows someday and
+                                     inherits the left pane's scope unless it
+                                     names its own. Off by default.
 
 setup:
   ukb web [--port N] [--no-open]    start the API + Web UI

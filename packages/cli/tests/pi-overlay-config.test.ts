@@ -23,6 +23,7 @@ import {
   resolveOverlayGroup,
   resolveOverlayProject,
   resolveOverlayScope,
+  resolveOverlaySplit,
   resolveOverlayStates,
 } from "../../pi/extensions/using-kanban/overlay-config.js";
 
@@ -235,5 +236,69 @@ describe("resolveCollapseKey", () => {
         { overlay: { collapseKey: "alt+t" } },
       ),
     ).toBe("alt+o");
+  });
+});
+
+describe("resolveOverlaySplit", () => {
+  it("is off by default, holding the someday shelf when switched on", () => {
+    expect(resolveOverlaySplit({}, {})).toEqual({
+      enabled: false,
+      scope: null,
+      project: null,
+      states: ["someday"],
+      groupBy: null,
+    });
+  });
+
+  it("reads the pane from the config file", () => {
+    const config: UkbConfig = {
+      overlay: {
+        split: {
+          enabled: true,
+          scope: "all",
+          project: "web",
+          states: ["someday", "done"],
+          groupBy: "project",
+        },
+      },
+    };
+    expect(resolveOverlaySplit({}, config)).toEqual({
+      enabled: true,
+      scope: "all",
+      project: "web",
+      states: ["someday", "done"],
+      groupBy: "project",
+    });
+  });
+
+  it("lets UKB_OVERLAY_SPLIT switch it for one run", () => {
+    const on: UkbConfig = { overlay: { split: { enabled: true } } };
+    expect(resolveOverlaySplit({ UKB_OVERLAY_SPLIT: "off" }, on).enabled).toBe(
+      false,
+    );
+    expect(resolveOverlaySplit({ UKB_OVERLAY_SPLIT: "on" }, {}).enabled).toBe(
+      true,
+    );
+    // Anything unrecognised is not a decision, so the file still wins.
+    expect(
+      resolveOverlaySplit({ UKB_OVERLAY_SPLIT: "maybe" }, on).enabled,
+    ).toBe(true);
+  });
+
+  it("normalises a slugged project and ignores a bad one", () => {
+    expect(
+      resolveOverlaySplit({}, { overlay: { split: { project: " Web " } } })
+        .project,
+    ).toBe("web");
+    expect(
+      resolveOverlaySplit({}, { overlay: { split: { project: "not a slug" } } })
+        .project,
+    ).toBeNull();
+  });
+
+  it("falls back to the someday shelf when the state list is empty", () => {
+    expect(
+      resolveOverlaySplit({}, { overlay: { split: { states: [] } } }).states,
+    ).toEqual(["someday"]);
   });
 });

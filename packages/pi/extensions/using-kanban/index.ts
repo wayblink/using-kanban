@@ -23,6 +23,7 @@ import {
   resolveOverlayGroup,
   resolveOverlayProject,
   resolveOverlayScope,
+  resolveOverlaySplit,
   resolveOverlayStates,
 } from "./overlay-config.js";
 import { BoardOverlay } from "./overlay.js";
@@ -526,6 +527,7 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
   const overlayEnabled = !isOverlayDisabled(process.env, CONFIG);
   const configuredProject = resolveOverlayProject(process.env, CONFIG);
   const overlayDisplay = resolveOverlayDisplay(process.env, CONFIG);
+  const splitConfig = resolveOverlaySplit(process.env, CONFIG);
   let overlayView: OverlayView = {
     scope: resolveOverlayScope(process.env, CONFIG),
     project: configuredProject,
@@ -533,6 +535,15 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
     groupBy: resolveOverlayGroup(process.env, CONFIG),
     maxLines: resolveMaxLines(process.env, CONFIG),
     states: resolveOverlayStates(process.env, CONFIG),
+    // The second pane is off unless configured or asked for with `/ukb gui
+    // split`; `right.scope === null` means it follows the left pane.
+    split: splitConfig.enabled,
+    right: {
+      scope: splitConfig.scope,
+      project: splitConfig.project,
+      states: splitConfig.states,
+      groupBy: splitConfig.groupBy,
+    },
   };
 
   /** Current project = current Git root basename, falling back to cwd basename. */
@@ -672,6 +683,8 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
   const overlayHelp = [
     "ukb gui — the on-demand board panel",
     "/ukb gui [show] [scope=…] [group=…] [states=…] [project=…] [lines=<n>]",
+    "/ukb gui split | split=off        # the second pane, beside the flow",
+    "/ukb gui right scope=… states=…    # address the right pane (left too)",
     "/ukb gui more | less              # grow / shrink the row budget",
     "/ukb gui hide",
     "/ukb gui collapse | expand        # one line / full height",
@@ -683,6 +696,8 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
     "rows: doing, then todo, then review, then someday; newest change first",
     "      inside a state, umbrella cards kept whole",
     "default: current Git project, grouped by state",
+    "split: one row budget for both panes; the right pane shows someday and",
+    "       inherits the left pane's scope unless it names its own",
     "persistent settings: ~/.config/ukb/config.json → overlay",
   ].join("\n");
 
@@ -724,6 +739,18 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
         project: configuredProject ?? (await inferCurrentProject(ctx.cwd)),
       };
     }
+    if (
+      overlayView.right.scope === "current-project" &&
+      overlayView.right.project === null
+    ) {
+      overlayView = {
+        ...overlayView,
+        right: {
+          ...overlayView.right,
+          project: configuredProject ?? (await inferCurrentProject(ctx.cwd)),
+        },
+      };
+    }
     // `more` / `less` step the budget, so the reader who sees "+15 more" can
     // get the rest of their board without naming a number or editing config.
     if (command.action === "more" || command.action === "less") {
@@ -756,9 +783,13 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
           ? "registered, collapsed"
           : "registered, expanded"
         : "not registered";
+    const shelf =
+      status.split
+        ? `; split=on${status.rightCount === null ? " (shelf empty)" : ` (shelf ${status.rightCount})`}`
+        : "; split=off";
     const detail = status.error ? ` — ${status.error}` : "";
     ctx.ui.notify(
-      `ukb gui: ${state}; scope=${status.scopeLabel || status.scope}; group=${status.groupBy}; lines=${status.maxLines}; ui=${status.uiBound ? "bound" : "missing"}; ${board}${detail}`,
+      `ukb gui: ${state}; scope=${status.scopeLabel || status.scope}; group=${status.groupBy}; lines=${status.maxLines}; ui=${status.uiBound ? "bound" : "missing"}${shelf}; ${board}${detail}`,
       status.error ? "warning" : "info",
     );
   };

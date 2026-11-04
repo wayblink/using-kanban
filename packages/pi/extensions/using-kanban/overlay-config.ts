@@ -109,6 +109,64 @@ export function resolveOverlayProject(
   return null;
 }
 
+/** The shelf the second pane shows when the config names no states. */
+export const DEFAULT_SPLIT_STATES: readonly OverlayState[] = ["someday"];
+
+export interface ResolvedOverlaySplit {
+  readonly enabled: boolean;
+  /** Pane scope; `null` means "the same scope as the left pane". */
+  readonly scope: OverlayScope | null;
+  readonly project: string | null;
+  readonly states: readonly OverlayState[];
+  /** Pane grouping; `null` means "the same grouping as the left pane". */
+  readonly groupBy: OverlayGroup | null;
+}
+
+/**
+ * The optional second pane.
+ *
+ * Off unless asked for: a panel that splits itself takes width from what the
+ * reader was looking at, and two half-panels are worse than one full one.
+ * `UKB_OVERLAY_SPLIT=on|off` switches it for a single run.
+ */
+export function resolveOverlaySplit(
+  env: NodeJS.ProcessEnv,
+  config: UkbConfig = {},
+): ResolvedOverlaySplit {
+  const split = config.overlay?.split;
+  const fromEnv = env.UKB_OVERLAY_SPLIT?.trim().toLowerCase();
+
+  const scope =
+    typeof split?.scope === "string" &&
+    OVERLAY_SCOPES.includes(split.scope as OverlayScope)
+      ? (split.scope as OverlayScope)
+      : null;
+
+  const project =
+    typeof split?.project === "string"
+      ? normalizeOverlayProject(split.project)
+      : null;
+
+  const groupBy =
+    typeof split?.groupBy === "string" &&
+    OVERLAY_GROUPS.includes(split.groupBy as OverlayGroup)
+      ? (split.groupBy as OverlayGroup)
+      : null;
+
+  const states =
+    Array.isArray(split?.states) && split.states.length > 0
+      ? split.states
+      : DEFAULT_SPLIT_STATES;
+
+  let enabled = split?.enabled === true;
+  if (fromEnv === "on" || fromEnv === "true" || fromEnv === "1") enabled = true;
+  if (fromEnv === "off" || fromEnv === "false" || fromEnv === "0") {
+    enabled = false;
+  }
+
+  return { enabled, scope, project, states, groupBy };
+}
+
 export function resolveOverlayGroup(
   env: NodeJS.ProcessEnv,
   config: UkbConfig = {},

@@ -10,11 +10,14 @@ import { describe, expect, it } from "vitest";
 import {
   type BoardSnapshot,
   type CardLite,
+  type OverlayView,
   countCards,
   cardIndex,
   openCardCount,
   parseBoardJson,
   renderOverlay,
+  renderSplitColumns,
+  rightPaneView,
   sanitizeTerminalText,
   scopeBoard,
   selectOverlayRows,
@@ -76,6 +79,19 @@ const renderOptions = (
   budget: 12,
   collapsed: false,
   collapseKey: "ctrl+shift+k",
+  ...over,
+});
+
+/** An OverlayView with the optional second pane switched off. */
+const view = (over: Partial<OverlayView> = {}): OverlayView => ({
+  scope: "current-project",
+  project: null,
+  agent: "pi",
+  groupBy: "state",
+  maxLines: 12,
+  states: ["doing", "todo", "review", "someday"],
+  split: false,
+  right: { scope: null, project: null, states: ["someday"], groupBy: null },
   ...over,
 });
 
@@ -210,14 +226,7 @@ describe("scopeBoard", () => {
   });
 
   it("defaults the project view to one project's counts and rows", () => {
-    const scoped = scopeBoard(board, {
-      scope: "current-project",
-      project: "web",
-      agent: "pi",
-      groupBy: "state",
-      maxLines: 12,
-      states: ["doing", "todo", "review", "someday"],
-    });
+    const scoped = scopeBoard(board, view({ scope: "current-project", project: "web" }));
     expect(scoped.label).toBe("web");
     expect(countCards(scoped.snapshot)).toEqual({
       someday: 0,
@@ -229,27 +238,13 @@ describe("scopeBoard", () => {
   });
 
   it("defines mine as assigned to or reviewed by the current actor", () => {
-    const scoped = scopeBoard(board, {
-      scope: "mine",
-      project: null,
-      agent: "pi",
-      groupBy: "state",
-      maxLines: 12,
-      states: ["doing", "todo", "review", "someday"],
-    });
+    const scoped = scopeBoard(board, view({ scope: "mine", project: null }));
     expect(scoped.label).toBe("mine:pi");
     expect(scoped.snapshot.todo.map((item) => item.id)).toEqual([1, 2]);
   });
 
   it("falls back visibly to all when no current project can be inferred", () => {
-    const scoped = scopeBoard(board, {
-      scope: "current-project",
-      project: null,
-      agent: "pi",
-      groupBy: "state",
-      maxLines: 12,
-      states: ["doing", "todo", "review", "someday"],
-    });
+    const scoped = scopeBoard(board, view({ scope: "current-project", project: null }));
     expect(scoped.label).toBe("all");
     expect(scoped.snapshot.todo).toHaveLength(3);
   });
@@ -989,5 +984,119 @@ describe("scope in the panel", () => {
       ["todo"],
     );
     expect(rows.map((row) => row.groupLabel)).toEqual(["api", "web/auth"]);
+  });
+});
+
+describe("renderSplitColumns", () => {
+  const columns = (left: string[], right: string[], width = 80) =>
+    renderSplitColumns(left, right, {
+      width,
+      gap: " | ",
+      truncate,
+      visibleWidth: (text: string) => text.length,
+    });
+
+  it("puts the two panes side by side, aligned on one bar column", () => {
+    const lines = columns(["L1", "L2"], ["R1", "R2"]);
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toBe(`L1${" ".repeat(36)} | R1`);
+    expect(lines[1]).toBe(`L2${" ".repeat(36)} | R2`);
+    expect(lines[2]).toBe("");
+  });
+
+  it("pads the shorter pane instead of shifting the longer one", () => {
+    const lines = columns(["L1", "L2", "L3"], ["R1"]);
+    expect(lines[1]).toContain("L2");
+    expect(lines[1]?.split("|")[1]?.trim()).toBe("");
+    expect(lines[2]).toContain("L3");
+  });
+
+  it("truncates a line that does not fit its half", () => {
+    const wide = "x".repeat(120);
+    const lines = columns([wide], ["R1"], 61);
+    expect(lines[0]).toContain("…");
+    expect(lines[0]?.length).toBeLessThanOrEqual(61);
+    expect(lines[0]?.endsWith("| R1")).toBe(true);
+  });
+
+  it("refuses to split a terminal too narrow for two columns", () => {
+    // Two 20-column panes hold two truncated headings; one column is honest.
+    expect(columns(["L1", "L2"], ["R1"], 40)).toEqual(["L1", "L2", ""]);
+  });
+
+  it("keeps exactly one trailing blank row", () => {
+    const lines = columns(["L1", ""], ["R1", ""]);
+    expect(lines.at(-1)).toBe("");
+    expect(lines.at(-2)).not.toBe("");
+  });
+});
+
+describe("a split panel, composed the way the widget does it", () => {
+  const flow: BoardSnapshot = {
+    projects: ["using-kanban"],
+    doing: [
+      card({ id: 1, state: "doing", project: "using-kanban", title: "ship the split" }),
+    ],
+    todo: [
+      card({ id: 2, state: "todo", project: "using-kanban", title: "write the docs" }),
+    ],
+    review: [
+      card({
+        id: 3,
+        state: "review",
+        project: "using-kanban",
+        reviewer: "jyxc",
+        title: "review the split",
+      }),
+    ],
+    someday: [
+      card({ id: 4, state: "someday", project: "using-kanban", title: "someday: read old design" }),
+      card({ id: 5, state: "someday", project: "using-kanban", title: "someday: tidy the ledger" }),
+    ],
+    done: [],
+  };
+
+  const compose = (width: number): string[] => {
+    const left = renderOverlay(scopeBoard(flow, view({ project: "using-kanban" })).snapshot, {
+      ...renderOptions({ width }),
+      states: ["doing", "todo", "review"],
+      scopeLabel: "using-kanban",
+    });
+    const rightView = rightPaneView(view({ split: true, project: "using-kanban" }));
+    const rightScoped = scopeBoard(flow, rightView);
+    const right = renderOverlay(rightScoped.snapshot, {
+      ...renderOptions({ width }),
+      states: rightView.states,
+      groupBy: rightView.groupBy ?? "state",
+      scopeLabel: rightScoped.label,
+    });
+    return renderSplitColumns(left, right, {
+      width,
+      gap: " | ",
+      truncate,
+      visibleWidth: (text: string) => text.length,
+    });
+  };
+
+  it("puts the flow on the left and the shelf on the right", () => {
+    const lines = compose(120);
+    const head = lines[0] ?? "";
+    // Each pane heads itself: the left one is truncated at the pane edge, and
+    // the right one names its own scope and count.
+    expect(head.startsWith("● ukb · using-kanban · 1 doing")).toBe(true);
+    expect(head).toContain("ukb · using-kanban · 2 someday");
+    expect(head.indexOf("|")).toBeGreaterThan(40);
+
+    const shelf = lines.filter((line) => line.includes("someday:"));
+    expect(shelf).toHaveLength(2);
+    // Every shelf row starts after the bar — the panes never interleave.
+    for (const line of shelf) {
+      expect(line.indexOf("someday:")).toBeGreaterThan(line.indexOf("|"));
+    }
+  });
+
+  it("falls back to one column when the terminal cannot hold two", () => {
+    const lines = compose(50);
+    expect(lines.join("\n")).not.toContain("|");
   });
 });

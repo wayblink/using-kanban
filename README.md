@@ -209,6 +209,16 @@ busy board the shelf is noise; on a quiet one it is the only thing left worth
 showing. Naming `someday` in `overlay.states` keeps it on regardless, and
 `done` adds history.
 
+The panel can hold a second pane: `/ukb gui split` puts the shelf beside the
+flow — the flow on the left, `someday` on the right — and `/ukb gui split=off`
+folds it away again. Both panes share one row budget so their rows stay level,
+and each has its own scope: `/ukb gui right scope=all` moves only the shelf,
+`/ukb gui left scope=mine` only the flow. The right pane inherits the left
+pane's scope unless it names one, so a panel looking at this repository does
+not quietly show another project's parked work. It is off by default; make it
+persistent with `"overlay": { "split": { "enabled": true } }` in the config
+file (`scope`, `project`, `states` and `groupBy` are the pane's own settings).
+
 The same slash command is the door to the Web UI: `/ukb web` starts the API and
 the UI in the background — it is the CLI's `ukb web`, detached, because that
 verb serves until it is signalled and awaiting it would park the session — and

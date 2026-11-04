@@ -38,6 +38,8 @@ import {
   countCards,
   parseBoardJson,
   renderOverlay,
+  renderSplitColumns,
+  rightPaneView,
   scopeBoard,
   visibleCardCount,
 } from "./overlay-render.js";
@@ -89,6 +91,10 @@ export interface BoardOverlayStatus {
   readonly scopeLabel: string;
   /** Active content-row budget, including the heading. */
   readonly maxLines: number;
+  /** Whether the second pane is on. */
+  readonly split: boolean;
+  /** Cards the second pane is showing, or null when it is off or empty. */
+  readonly rightCount: number | null;
 }
 
 export class BoardOverlay {
@@ -142,6 +148,7 @@ export class BoardOverlay {
   }
 
   status(): BoardOverlayStatus {
+    const rightPane = this.rightPane();
     return {
       uiBound: this.uiCtx !== undefined,
       registered: this.widgetRegistered,
@@ -154,6 +161,11 @@ export class BoardOverlay {
       groupBy: this.view.groupBy,
       scopeLabel: this.scopeLabel,
       maxLines: this.view.maxLines,
+      split: this.view.split,
+      rightCount:
+        rightPane === undefined
+          ? null
+          : visibleCardCount(rightPane.snapshot, rightPaneView(this.view).states),
     };
   }
 
@@ -233,7 +245,8 @@ export class BoardOverlay {
     const snapshot = this.snapshot;
     const hasVisibleCards =
       snapshot !== undefined &&
-      visibleCardCount(snapshot, this.view.states) > 0;
+      (visibleCardCount(snapshot, this.view.states) > 0 ||
+        this.rightPane() !== undefined);
 
     if (!this.visible || !hasVisibleCards) {
       this.unregister();
@@ -270,16 +283,68 @@ export class BoardOverlay {
     this.tui = undefined;
   }
 
+  /**
+   * The second pane's snapshot, or undefined when the pane is off, empty, or
+   * the terminal is collapsed.
+   *
+   * Scoped from the *raw* board, not from the left pane's slice: a left pane
+   * fixed to this repository must not stop the right pane from showing the
+   * shelf elsewhere when it was asked for `scope=all`.
+   */
+  private rightPane(): { snapshot: BoardSnapshot; label: string } | undefined {
+    if (!this.view.split || this.collapsed) return undefined;
+    if (this.rawSnapshot === undefined) return undefined;
+    const view = rightPaneView(this.view);
+    const scoped = scopeBoard(this.rawSnapshot, view);
+    if (visibleCardCount(scoped.snapshot, view.states) === 0) return undefined;
+    return scoped;
+  }
+
   private renderWidget(theme: Theme, width: number): string[] {
     const snapshot = this.snapshot;
-    if (
-      snapshot === undefined ||
-      visibleCardCount(snapshot, this.view.states) === 0
-    ) {
+    if (snapshot === undefined) return [];
+    try {
+      const left =
+        visibleCardCount(snapshot, this.view.states) === 0
+          ? []
+          : renderOverlay(snapshot, this.renderOptions(theme, width));
+      const rightPane = this.rightPane();
+      if (rightPane === undefined) return left;
+      const rightView = rightPaneView(this.view);
+      const right = renderOverlay(rightPane.snapshot, {
+        ...this.renderOptions(theme, width),
+        scopeLabel: rightPane.label,
+        groupBy: rightView.groupBy ?? this.view.groupBy,
+        states: rightView.states,
+      });
+      // Nothing on the left: show the shelf at full width rather than half of
+      // a panel whose other half is blank.
+      if (left.length === 0) return right;
+      return renderSplitColumns(left, right, {
+        width,
+        gap: theme.fg("dim", " │ "),
+        truncate: (line, maxWidth) => truncateToWidth(line, maxWidth, "…"),
+        visibleWidth,
+      });
+    } catch (error) {
+      this.reported = true;
+      try {
+        this.uiCtx?.notify(
+          `ukb gui: render failed — ${error instanceof Error ? error.message : String(error)}`,
+          "warning",
+        );
+      } catch {
+        // Nothing further to do.
+      }
       return [];
     }
-    try {
-      return renderOverlay(snapshot, {
+  }
+
+  private renderOptions(
+    theme: Theme,
+    width: number,
+  ): Parameters<typeof renderOverlay>[1] {
+    return {
         theme,
         truncate: (line, maxWidth) => truncateToWidth(line, maxWidth, "…"),
         visibleWidth,
@@ -301,21 +366,7 @@ export class BoardOverlay {
           this.rawSnapshot === undefined
             ? undefined
             : cardIndex(this.rawSnapshot),
-      });
-    } catch (error) {
-      // A layout bug must not take the session down, but it must not be
-      // invisible either.
-      this.reported = true;
-      try {
-        this.uiCtx?.notify(
-          `ukb gui: render failed — ${error instanceof Error ? error.message : String(error)}`,
-          "warning",
-        );
-      } catch {
-        // Nothing further to do.
-      }
-      return [];
-    }
+    };
   }
 
   dispose(): void {

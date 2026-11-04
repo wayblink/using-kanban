@@ -132,7 +132,7 @@ export interface OverlayRenderOptions {
    * snapshot's own cards; pass the unscoped index when rendering a scoped
    * snapshot so `▸done/total` counts children the scope filtered out.
    */
-  readonly index?: ReadonlyMap<number, CardLite>;
+  readonly index?: ReadonlyMap<number, CardLite> | undefined;
 }
 
 const CARD_STATES: readonly CardState[] = [
@@ -344,6 +344,21 @@ export interface OverlayCounts {
   readonly done: number;
 }
 
+/**
+ * The second pane's own view of the board.
+ *
+ * `scope` and `groupBy` are null when the pane should follow the left one, which
+ * is the default: a panel scoped to this repository should not quietly show
+ * another project's shelf. `states` is never inherited — the point of the pane
+ * is a fixed shelf.
+ */
+export interface OverlayRightView {
+  readonly scope: OverlayScope | null;
+  readonly project: string | null;
+  readonly states: readonly CardState[];
+  readonly groupBy: OverlayGroup | null;
+}
+
 export interface OverlayView {
   readonly scope: OverlayScope;
   readonly project: string | null;
@@ -362,6 +377,24 @@ export interface OverlayView {
    * history is not.
    */
   readonly states: readonly CardState[];
+  /** Show the second pane beside the flow. Off by default. */
+  readonly split: boolean;
+  readonly right: OverlayRightView;
+}
+
+/** The view the second pane renders with, with inheritance resolved. */
+export function rightPaneView(view: OverlayView): OverlayView {
+  return {
+    scope: view.right.scope ?? view.scope,
+    project: view.right.project ?? view.project,
+    agent: view.agent,
+    groupBy: view.right.groupBy ?? view.groupBy,
+    maxLines: view.maxLines,
+    states: view.right.states,
+    // The pane does not recurse: a split inside a split is not a layout.
+    split: false,
+    right: view.right,
+  };
 }
 
 export interface ScopedBoard {
@@ -886,6 +919,72 @@ function renderRow(
  * the caller unregisters the widget rather than leaving an idle banner above
  * the editor.
  */
+/**
+ * Narrowest half that is worth rendering. Below this, two columns hold two
+ * truncated headings and the split costs more than it shows.
+ */
+export const MIN_SPLIT_COLUMN = 24;
+
+export interface SplitColumnsOptions {
+  readonly width: number;
+  /** Already themed: the caller owns the colour of what sits between panes. */
+  readonly gap: string;
+  readonly truncate: (line: string, width: number) => string;
+  readonly visibleWidth: (text: string) => number;
+}
+
+/**
+ * Two rendered panels, side by side.
+ *
+ * The left pane takes half the width and the right pane the remainder, so the
+ * pair always fills exactly the width it was given — a fixed right pane would
+ * leave a ragged edge whenever the terminal was resized. Rows are padded to the
+ * column width (a shorter pane shows blanks, it does not shift), and a line
+ * longer than its half is truncated rather than allowed to run under the
+ * neighbour. Too narrow to split, the left pane is returned alone: a split that
+ * cannot be read is worse than the single pane it replaced.
+ */
+export function renderSplitColumns(
+  left: readonly string[],
+  right: readonly string[],
+  options: SplitColumnsOptions,
+): string[] {
+  const gapWidth = options.visibleWidth(options.gap);
+  const leftWidth = Math.floor((options.width - gapWidth) / 2);
+  const rightWidth = options.width - gapWidth - leftWidth;
+  if (leftWidth < MIN_SPLIT_COLUMN || rightWidth < MIN_SPLIT_COLUMN) {
+    return trimTrailingBlanks([...left]);
+  }
+
+  const pad = (line: string, width: number): string => {
+    const clipped = options.truncate(line, width);
+    return clipped + " ".repeat(Math.max(0, width - options.visibleWidth(clipped)));
+  };
+
+  const height = Math.max(left.length, right.length);
+  const lines: string[] = [];
+  for (let index = 0; index < height; index += 1) {
+    const leftLine = pad(left[index] ?? "", leftWidth);
+    const rightLine = pad(right[index] ?? "", rightWidth).trimEnd();
+    // A row both panes leave empty is a spacer, not a divider; anything else
+    // keeps the bar, so the two columns read as one table rather than as two
+    // lists that happen to sit next to each other.
+    if (leftLine.trim() === "" && rightLine === "") {
+      lines.push("");
+      continue;
+    }
+    lines.push(`${leftLine}${options.gap}${rightLine}`.trimEnd());
+  }
+  return trimTrailingBlanks(lines);
+}
+
+/** One blank row at the end, the way a single panel renders. */
+function trimTrailingBlanks(lines: string[]): string[] {
+  while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+  lines.push("");
+  return lines;
+}
+
 export function renderOverlay(
   snapshot: BoardSnapshot,
   options: OverlayRenderOptions,

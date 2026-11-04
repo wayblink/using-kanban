@@ -524,6 +524,8 @@ describe("board commands", () => {
       "collapse",
       "expand",
       "hide",
+      "split",
+      "right",
     ]) {
       expect(cliSection, `ukb help lost "${value}"`).toContain(value);
       expect(extension, `extension help lost "${value}"`).toContain(value);

@@ -71,6 +71,26 @@ export const DEFAULT_OVERLAY_STATES: readonly OverlayState[] = [
   "review",
 ];
 
+/**
+ * The second pane: a shelf beside the flow.
+ *
+ * Off by default — a panel that splits itself takes width from the thing the
+ * reader was looking at. When it is on, `states` defaults to `someday`, and an
+ * unset `scope` follows the left pane rather than picking one of its own: a
+ * panel scoped to this repository should not quietly show another project's
+ * shelf.
+ */
+export interface OverlaySplitConfig {
+  readonly enabled?: boolean;
+  /** Pane scope; omitted means "the same scope as the left pane". */
+  readonly scope?: OverlayScope;
+  readonly project?: string;
+  /** Which states the pane shows. Defaults to `["someday"]`. */
+  readonly states?: readonly OverlayState[];
+  /** Omitted means the left pane's grouping. */
+  readonly groupBy?: OverlayGroup;
+}
+
 export interface UkbOverlayConfig {
   /** false hides the widget entirely. */
   readonly enabled?: boolean;
@@ -94,6 +114,8 @@ export interface UkbOverlayConfig {
    * board is; naming `done` adds history.
    */
   readonly states?: readonly OverlayState[];
+  /** The optional second pane. Absent means one pane, as before. */
+  readonly split?: OverlaySplitConfig;
 }
 
 export interface UkbConfig {
@@ -226,6 +248,58 @@ export function validateGuidanceFields(
   return Object.keys(guidance).length > 0 ? guidance : undefined;
 }
 
+function validateStates(
+  value: unknown,
+  fallback: readonly OverlayState[] | undefined,
+): readonly OverlayState[] | undefined {
+  if (!Array.isArray(value) || value.length === 0) return fallback;
+  const states = value.filter(
+    (state): state is OverlayState =>
+      typeof state === "string" &&
+      (OVERLAY_STATES as readonly string[]).includes(state),
+  );
+  // All-or-nothing: one unknown entry falls back to the whole default list
+  // rather than silently dropping a state the user asked for.
+  return states.length === value.length ? states : fallback;
+}
+
+function validateSplit(value: unknown): OverlaySplitConfig | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+
+  const split: {
+    enabled?: boolean;
+    scope?: OverlayScope;
+    project?: string;
+    states?: readonly OverlayState[];
+    groupBy?: OverlayGroup;
+  } = {};
+
+  if (typeof record.enabled === "boolean") split.enabled = record.enabled;
+
+  if (
+    typeof record.scope === "string" &&
+    OVERLAY_SCOPES.includes(record.scope as OverlayScope)
+  ) {
+    split.scope = record.scope as OverlayScope;
+  }
+
+  const project = nonEmptyString(record.project);
+  if (project !== undefined) split.project = project;
+
+  const states = validateStates(record.states, undefined);
+  if (states !== undefined) split.states = states;
+
+  if (
+    typeof record.groupBy === "string" &&
+    OVERLAY_GROUPS.includes(record.groupBy as OverlayGroup)
+  ) {
+    split.groupBy = record.groupBy as OverlayGroup;
+  }
+
+  return Object.keys(split).length > 0 ? split : undefined;
+}
+
 function validateOverlay(value: unknown): UkbOverlayConfig | undefined {
   const record = asRecord(value);
   if (!record) return undefined;
@@ -239,6 +313,7 @@ function validateOverlay(value: unknown): UkbOverlayConfig | undefined {
     groupBy?: OverlayGroup;
     display?: OverlayDisplay;
     states?: readonly OverlayState[];
+    split?: OverlaySplitConfig;
   } = {};
 
   if (typeof record.enabled === "boolean") overlay.enabled = record.enabled;
@@ -275,16 +350,11 @@ function validateOverlay(value: unknown): UkbOverlayConfig | undefined {
     overlay.display = record.display as OverlayDisplay;
   }
 
-  // All-or-nothing, like `guidance`: one unknown entry falls back to the whole
-  // default list rather than silently dropping a state the user asked for.
-  if (Array.isArray(record.states) && record.states.length > 0) {
-    const states = record.states.filter(
-      (state): state is OverlayState =>
-        typeof state === "string" &&
-        (OVERLAY_STATES as readonly string[]).includes(state),
-    );
-    if (states.length === record.states.length) overlay.states = states;
-  }
+  const states = validateStates(record.states, undefined);
+  if (states !== undefined) overlay.states = states;
+
+  const split = validateSplit(record.split);
+  if (split !== undefined) overlay.split = split;
 
   return Object.keys(overlay).length > 0 ? overlay : undefined;
 }

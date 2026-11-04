@@ -14,6 +14,8 @@ const current: OverlayView = {
   groupBy: "state",
   maxLines: 12,
   states: ["doing", "todo", "review", "someday"],
+  split: false,
+  right: { scope: null, project: null, states: ["someday"], groupBy: null },
 };
 
 describe("parseOverlayCommand", () => {
@@ -116,5 +118,61 @@ describe("parseOverlayCommand", () => {
       "usage:",
     );
     expect(parseOverlayCommand("wat", current).error).toContain("usage:");
+  });
+});
+
+describe("the second pane", () => {
+  it("switches on with `split`, and off with `split=off`", () => {
+    expect(parseOverlayCommand("split", current).view.split).toBe(true);
+    expect(parseOverlayCommand("split=on", current).view.split).toBe(true);
+    const on: OverlayView = { ...current, split: true };
+    expect(parseOverlayCommand("split=off", on).view.split).toBe(false);
+    expect(parseOverlayCommand("split=maybe", current).error).toMatch(/split/);
+  });
+
+  it("scopes each pane on its own", () => {
+    const afterRight = parseOverlayCommand(
+      "right scope=mine states=someday",
+      current,
+    ).view;
+    expect(afterRight.right.scope).toBe("mine");
+    expect(afterRight.right.states).toEqual(["someday"]);
+    // The left pane is untouched by a `right` clause ...
+    expect(afterRight.scope).toBe("current-project");
+
+    // ... and a later `left` clause goes back to it.
+    const both = parseOverlayCommand("right scope=all left scope=mine", current)
+      .view;
+    expect(both.scope).toBe("mine");
+    expect(both.right.scope).toBe("all");
+  });
+
+  it("keeps a bare parameter on the left pane", () => {
+    // Backwards compatibility: `scope=` alone has always meant the panel.
+    const view = parseOverlayCommand("scope=mine", current).view;
+    expect(view.scope).toBe("mine");
+    expect(view.right.scope).toBeNull();
+  });
+
+  it("names a project on whichever pane is selected", () => {
+    const view = parseOverlayCommand("right project=web", current).view;
+    expect(view.right).toMatchObject({
+      scope: "current-project",
+      project: "web",
+    });
+    expect(view.project).toBe("using-kanban");
+  });
+
+  it("shares one row budget between the panes, so they stay aligned", () => {
+    // `right lines=20` is not a second budget: two panels that scroll on their
+    // own would not line up, so the number is the pair's height.
+    const view = parseOverlayCommand("right lines=20", current).view;
+    expect(view.maxLines).toBe(20);
+  });
+
+  it("rejects a parameter a pane does not have", () => {
+    expect(parseOverlayCommand("right noodle=1", current).error).toMatch(
+      /right/,
+    );
   });
 });

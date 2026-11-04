@@ -163,6 +163,66 @@ describe("loadConfig", () => {
     expect(config).toEqual({ overlay: { maxLines: 6 } });
   });
 
+  it("reads the split pane block", () => {
+    const config = loadConfig(
+      withConfig(
+        tempHome(),
+        JSON.stringify({
+          overlay: {
+            split: {
+              enabled: true,
+              scope: "all",
+              project: "web",
+              states: ["someday"],
+              groupBy: "project",
+            },
+          },
+        }),
+      ),
+    );
+    expect(config).toEqual({
+      overlay: {
+        split: {
+          enabled: true,
+          scope: "all",
+          project: "web",
+          states: ["someday"],
+          groupBy: "project",
+        },
+      },
+    });
+  });
+
+  it("drops fields of a wrong-typed split block, and the block if nothing is left", () => {
+    expect(
+      loadConfig(
+        withConfig(
+          tempHome(),
+          JSON.stringify({ overlay: { split: { enabled: "yes" } } }),
+        ),
+      ),
+    ).toEqual({});
+    expect(
+      loadConfig(
+        withConfig(
+          tempHome(),
+          JSON.stringify({ overlay: { split: { enabled: false } } }),
+        ),
+      ),
+    ).toEqual({ overlay: { split: { enabled: false } } });
+  });
+
+  it("validates split.states all-or-nothing, like overlay.states", () => {
+    expect(
+      loadConfig(
+        withConfig(
+          tempHome(),
+          JSON.stringify({ overlay: { split: { states: ["someday", "nope"] } } }),
+        ),
+      ),
+    ).toEqual({});
+  });
+
   it("validates overlay.states all-or-nothing", () => {
     // one unknown state falls back to the whole default list, so a typo cannot
     // silently drop a column the user asked for.
