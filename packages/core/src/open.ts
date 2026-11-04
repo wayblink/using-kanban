@@ -31,6 +31,11 @@ export interface OpenKanbanOptions {
    * cannot tell the two apart otherwise.
    */
   readonly create?: boolean | undefined;
+  /**
+   * The human operating this machine (`config.owner`), carried into the
+   * permission guard: the owner may modify and delete any card.
+   */
+  readonly owner?: string | undefined;
 }
 
 /** Per-project store directory, created on first open. */
@@ -50,7 +55,10 @@ const DEFAULT_FILE_NAMES: Record<Exclude<StorageKind, "memory">, string> = {
 export function openKanban(options: OpenKanbanOptions = {}): Kanban {
   const storage = options.storage ?? "sqlite";
   if (storage === "memory") {
-    return new Kanban({ log: new MemoryEventLog() });
+    return new Kanban({
+      log: new MemoryEventLog(),
+      ...(options.owner !== undefined ? { owner: options.owner } : {}),
+    });
   }
 
   const dir = resolve(options.dir ?? homedir());
@@ -82,5 +90,8 @@ export function openKanban(options: OpenKanbanOptions = {}): Kanban {
 
   const log =
     storage === "sqlite" ? new SqliteEventLog(path) : new JsonlEventLog(path);
-  return new Kanban({ log });
+  return new Kanban({
+    log,
+    ...(options.owner !== undefined ? { owner: options.owner } : {}),
+  });
 }

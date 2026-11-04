@@ -226,12 +226,21 @@ prints the URL to open. Flags pass straight through (`/ukb web --port 4000`,
   `#3` — the number you type is never inflated by a board's edit history. Ids
   are monotonic and never reused, including the id of a deleted card.
 - **Identity**: every event carries an actor. `--agent <name> --agent-type
-human|agent` (or `UKB_AGENT` / `UKB_AGENT_TYPE`); the Web UI acts as that same
-  default actor, so a browser and a terminal on one machine are one person.
-  Humans and agents share one namespace.
-- **Config**: `~/.config/ukb/config.json` (or `$XDG_CONFIG_HOME/ukb/config.json`)
-  sets the default agent, the Pi tool's prompt copy (`guidance`), and the panel
-  (`overlay`). Environment variables override the file.
+human|agent` (or `UKB_AGENT` / `UKB_AGENT_TYPE`). An agent that names nobody
+  falls back to `agent` in the config file, then to the machine's owner.
+- **The owner** is the human on this machine: `owner` in the config file, else
+  the machine's name (`UKB_MACHINE_NAME` overrides it, `UKB_OWNER` outranks the
+  file). The CLI and the Web UI both act as the owner, so a terminal and a
+  browser are one person — and the owner may edit or delete **any** card, which
+  is what keeps a solo board usable while agents claim work under their own
+  names. Everyone else still has to be the card's creator or assignee.
+- **Config**: one file, `~/.config/ukb/config.json` (or
+  `$XDG_CONFIG_HOME/ukb/config.json`), read by all four front doors — the CLI,
+  the MCP server agents connect through, `ukb web`, and the Pi extension. It
+  sets `owner`, the default `agent` name, the Pi tool's prompt copy (`guidance`),
+  and the panel (`overlay`). Environment variables override the file; a missing
+  file means every default applies, and a malformed one warns once and is
+  ignored. `ukb doctor` prints the path, the owner, and who you are acting as.
 
 Reads never create a board: with no `~/.ukb/`, `ukb board` fails with
 `board_not_found` rather than reporting an empty board — "no work here" and "not

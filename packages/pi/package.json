@@ -26,6 +26,9 @@
       "./skills"
     ]
   },
+  "dependencies": {
+    "@wayblink/using-kanban-config": "workspace:*"
+  },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*",

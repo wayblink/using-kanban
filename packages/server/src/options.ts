@@ -1,18 +1,11 @@
 import { randomBytes } from "node:crypto";
-import { homedir, hostname, userInfo } from "node:os";
+import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { z } from "zod";
 import { ActorSchema, type StorageKind } from "@wayblink/using-kanban-core";
+import { machineName } from "@wayblink/using-kanban-config";
 
 export const DEFAULT_HOST = "127.0.0.1";
-
-function defaultActorName(): string {
-  try {
-    return userInfo().username || hostname() || "someone";
-  } catch {
-    return hostname() || "someone";
-  }
-}
 
 export const ServerOptionsSchema = z.object({
   /** Board directory — the store lives at `<dir>/.ukb/`. */
@@ -25,8 +18,13 @@ export const ServerOptionsSchema = z.object({
   port: z.number().int().min(0).max(65535).default(0),
   /** Bearer token for mutations. Generated when omitted. */
   token: z.string().min(1).optional(),
-  /** Default actor when a request carries no identity. */
-  actor: ActorSchema.default({ type: "human", name: defaultActorName() }),
+  /**
+   * The machine's human name (`config.owner`) — the permission escape hatch,
+   * and the default actor of the Web UI. Defaults to the machine's name.
+   */
+  owner: z.string().min(1).optional(),
+  /** Default actor when a request carries no identity. Defaults to the owner. */
+  actor: ActorSchema.optional(),
   /** Directory of static assets to serve at `/` (the default Web UI). */
   uiDir: z.string().optional(),
   /**
@@ -48,6 +46,7 @@ export interface ResolvedServerOptions {
   host: string;
   port: number;
   token: string;
+  owner: string;
   actor: z.infer<typeof ActorSchema>;
   uiDir?: string | undefined;
   corsOrigin: string;
@@ -74,8 +73,13 @@ export function resolveServerOptions(
   options: ServerOptions = {},
 ): ResolvedServerOptions {
   const parsed = ServerOptionsSchema.parse(options);
+  // One name for the person at this machine: the owner is the Web UI's default
+  // actor and the one identity the permission guard always lets through.
+  const owner = parsed.owner ?? machineName();
   return {
     ...parsed,
+    owner,
+    actor: parsed.actor ?? { type: "human", name: owner },
     token: parsed.token ?? generateToken(),
     docRoots: parsed.docRoots.map((root) => resolve(root)),
   };

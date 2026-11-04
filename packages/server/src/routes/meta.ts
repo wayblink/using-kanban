@@ -11,6 +11,7 @@ export function me(ctx: RequestContext): void {
   const board = ctx.kanban.board();
   sendJson(ctx.res, 200, {
     actor: ctx.actor,
+    owner: ctx.options.owner,
     storage: { kind: ctx.options.storage, dir: ctx.options.dir },
     counts: {
       someday: board.someday.length,

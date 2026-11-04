@@ -82,6 +82,64 @@ async function createCard(
   return body.card;
 }
 
+describe("owner permissions", () => {
+  it("lets the machine's owner modify a card an agent made its own", async () => {
+    const server = await startServer({
+      dir: tempDir(),
+      token: TOKEN,
+      owner: "jyxc",
+      actor: { type: "human", name: "jyxc" },
+    });
+    running.push(server);
+    const url = `http://127.0.0.1:${server.port}`;
+
+    const created = await fetch(`${url}/api/cards`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${TOKEN}`,
+        "X-Actor-Name": "claude-code",
+        "X-Actor-Type": "agent",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ title: "claimed by an agent", assignee: "claude-code" }),
+    });
+    expect(created.status).toBe(201);
+    const { card } = (await created.json()) as { card: { id: number } };
+
+    // Neither creator nor assignee — allowed only because this actor is the
+    // owner named in the config file.
+    const patched = await fetch(`${url}/api/cards/${card.id}`, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${TOKEN}`,
+        "X-Actor-Name": "jyxc",
+        "X-Actor-Type": "human",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ project: "using-kanban" }),
+    });
+    expect(patched.status).toBe(200);
+    const updated = (await patched.json()) as {
+      card: { project: string; assignee: string };
+    };
+    expect(updated.card.project).toBe("using-kanban");
+    expect(updated.card.assignee).toBe("claude-code");
+
+    // Someone who is neither: still refused.
+    const stranger = await fetch(`${url}/api/cards/${card.id}`, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${TOKEN}`,
+        "X-Actor-Name": "someone-else",
+        "X-Actor-Type": "human",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ title: "nope" }),
+    });
+    expect(stranger.status).toBe(403);
+  });
+});
+
 describe("meta endpoints", () => {
   it("reports health", async () => {
     const response = await request("/healthz", { auth: false });
@@ -103,6 +161,17 @@ describe("meta endpoints", () => {
     expect(body.actor.name).toBe("jyxc");
     expect(body.storage.kind).toBe("sqlite");
     expect(body.counts.todo).toBe(2);
+  });
+
+  it("reports the machine's owner alongside the actor", async () => {
+    const response = await request("/api/me");
+    const body = await json<{ actor: { name: string }; owner: string }>(
+      response,
+    );
+    // The owner is the permission escape hatch and the identity the browser
+    // would act as; a client that cannot see it cannot explain a 403.
+    expect(typeof body.owner).toBe("string");
+    expect(body.owner.length).toBeGreaterThan(0);
   });
 
   it("serves an OpenAPI document", async () => {

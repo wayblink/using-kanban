@@ -124,6 +124,8 @@ This project shares a kanban board (\`.ukb/\`) between you and the human.
 - Prefer the structured tools when they are available — the \`ukb\` tool on Pi, the \`kanban_*\` MCP tools elsewhere — and fall back to the CLI.
 
 \`ukb board\` shows everything. \`ukb web\` opens the board in a browser.
+
+One machine has one board and one \`~/.config/ukb/config.json\`: its \`owner\` is the human you are working for, and the owner may edit or delete any card. \`ukb doctor\` prints the config path, the owner and who you are acting as.
 ${DOCS_END}`;
 
 const FRAMEWORKS: Record<string, FrameworkSpec> = {

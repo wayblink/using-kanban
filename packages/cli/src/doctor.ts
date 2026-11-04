@@ -3,6 +3,11 @@ import { join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { openKanban } from "@wayblink/using-kanban-core";
+import {
+  loadConfig,
+  resolveConfigPath,
+  resolveOwnerName,
+} from "@wayblink/using-kanban-config";
 import type { Io } from "./commands.js";
 import { resolveActor } from "./identity.js";
 
@@ -14,7 +19,13 @@ export async function runDoctor(
   storage: "sqlite" | "jsonl" | "memory",
 ): Promise<number> {
   const checks: { ok: boolean; label: string; detail: string }[] = [];
-  const actor = resolveActor(flags, io.env);
+  // One config file, four front doors. Doctor is where a reader finds out which
+  // file that is and which name it resolves to, because "who am I" being wrong
+  // looks exactly like a permissions bug from the outside.
+  const config = loadConfig(io.env);
+  const configPath = resolveConfigPath(io.env);
+  const owner = resolveOwnerName({ env: io.env, config });
+  const actor = resolveActor(flags, io.env, config);
 
   // 1. node version
   const major = Number(process.versions.node.split(".")[0] ?? 0);
@@ -111,6 +122,20 @@ export async function runDoctor(
       wired.length > 0
         ? wired.join(", ")
         : "none — run: ukb init --for <framework>",
+  });
+
+  checks.push({
+    ok: true,
+    label: "config",
+    detail: `${configPath} (${
+      existsSync(configPath) ? "found" : "absent — every default applies"
+    })`,
+  });
+
+  checks.push({
+    ok: true,
+    label: "owner",
+    detail: `${owner}${config.owner ? " (from config)" : " (machine name)"}`,
   });
 
   checks.push({

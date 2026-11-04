@@ -6,14 +6,18 @@
  * to stderr, otherwise the transport corrupts.
  */
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { loadConfig } from "@wayblink/using-kanban-config";
 import { createMcpServer } from "./server.js";
 import { resolveMcpOptions } from "./options.js";
 
 async function main(): Promise<void> {
-  const options = resolveMcpOptions(process.argv.slice(2), process.env);
+  // The config file is read here, at the edge, so the resolvers stay pure and a
+  // test can hand them `{}` instead of whatever happens to be on this machine.
+  const config = loadConfig(process.env);
+  const options = resolveMcpOptions(process.argv.slice(2), process.env, config);
   if (options.usedDefaultAgent) {
     process.stderr.write(
-      '[ukb-mcp] no agent name given — acting as "agent". Pass --agent <name> (or set UKB_AGENT) so cards are attributed correctly.\n',
+      '[ukb-mcp] no agent name given — acting as "agent". Pass --agent <name> (or set agent in ~/.config/ukb/config.json) so cards are attributed correctly.\n',
     );
   }
 
@@ -21,7 +25,7 @@ async function main(): Promise<void> {
   await server.connect(new StdioServerTransport());
 
   process.stderr.write(
-    `[ukb-mcp] ready — agent=${options.actor.type}/${options.actor.name} dir=${options.dir} storage=${options.storage}\n`,
+    `[ukb-mcp] ready — agent=${options.actor.type}/${options.actor.name} owner=${options.owner} dir=${options.dir} storage=${options.storage}\n`,
   );
 
   const shutdown = (): void => {

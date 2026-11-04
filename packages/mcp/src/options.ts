@@ -1,6 +1,10 @@
 import { homedir } from "node:os";
 import { z } from "zod";
 import type { ActorSchema, StorageKind } from "@wayblink/using-kanban-core";
+import {
+  resolveOwnerName,
+  type UkbConfig,
+} from "@wayblink/using-kanban-config";
 
 export const McpOptionsSchema = z.object({
   /** Board directory — the store lives at `<dir>/.ukb/`. */
@@ -16,6 +20,8 @@ export interface ResolvedMcpOptions {
   dir: string;
   storage: StorageKind;
   actor: z.infer<typeof ActorSchema>;
+  /** The machine's human name (`config.owner`), used for the permission guard. */
+  owner: string;
   /** True when no agent name was supplied and a generic default was used. */
   usedDefaultAgent: boolean;
 }
@@ -23,19 +29,24 @@ export interface ResolvedMcpOptions {
 const DEFAULT_AGENT_NAME = "agent";
 
 /**
- * Resolution order: CLI flags → environment → defaults.
+ * Resolution order: CLI flags → environment → the shared config file → a
+ * default.
  *
  * `--agent claude-code` (or `UKB_AGENT=claude-code`) is what `ukb init --for`
  * writes into each framework's MCP config, so cards are attributed to the
- * right agent.
+ * right agent; `agent` in `~/.config/ukb/config.json` covers the frameworks
+ * nobody wired up. The owner comes from the same file, so an MCP server and a
+ * browser on this machine agree on who the human is.
  */
 export function resolveMcpOptions(
   argv: readonly string[] = [],
   env: NodeJS.ProcessEnv = process.env,
+  config: UkbConfig = {},
 ): ResolvedMcpOptions {
   const parsed = McpOptionsSchema.parse(parseArgv(argv));
 
-  const agent = parsed.agent ?? env.UKB_AGENT ?? DEFAULT_AGENT_NAME;
+  const agent =
+    parsed.agent ?? env.UKB_AGENT ?? config.agent ?? DEFAULT_AGENT_NAME;
   // Centralised store: one board per machine, projects separated by the
   // `project` field on cards rather than by directory.
   const dir = parsed.dir ?? env.UKB_DIR ?? homedir();
@@ -49,7 +60,11 @@ export function resolveMcpOptions(
     dir,
     storage,
     actor: { type: agentType, name: agent },
-    usedDefaultAgent: parsed.agent === undefined && env.UKB_AGENT === undefined,
+    owner: resolveOwnerName({ env, config }),
+    usedDefaultAgent:
+      parsed.agent === undefined &&
+      env.UKB_AGENT === undefined &&
+      config.agent === undefined,
   };
 }
 

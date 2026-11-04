@@ -208,7 +208,8 @@ export function openApiSpec(): Record<string, unknown> {
       },
       "/api/me": {
         get: {
-          summary: "Current actor, storage info, and column counts",
+          summary:
+            "Current actor, the machine's owner, storage info, and column counts",
           responses: { "200": { description: "identity and counts" } },
         },
       },

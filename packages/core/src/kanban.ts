@@ -42,6 +42,15 @@ export interface MutationResult {
 
 export interface KanbanOptions {
   readonly log: EventLog;
+  /**
+   * The human operating this machine (`config.owner`).
+   *
+   * Permissions are cooperative, but a solo board still has to be usable: an
+   * agent that claimed work under its own name must not be able to lock the
+   * person at the keyboard out of their own cards. So the owner is always
+   * allowed to modify and delete, whoever created the card.
+   */
+  readonly owner?: string | undefined;
 }
 
 /**
@@ -51,7 +60,8 @@ export interface KanbanOptions {
  * other processes.
  *
  * Permissions are cooperative, not cryptographic: actions carry an actor name
- * and `delete` is creator-only, `edit`/`block` are creator-or-assignee.
+ * and `delete` is creator-or-owner, `edit`/`block` are creator, assignee or
+ * owner.
  */
 export class Kanban {
   private readonly projection = new Projection();
@@ -180,6 +190,12 @@ export class Kanban {
     this.projection.sync(this.log);
     const project = parsed.project?.trim() || null;
     const subproject = parsed.subproject?.trim() || null;
+    // A blank string is not a name: `--reviewer "$REVIEWER"` with an unset
+    // shell variable would otherwise store `""`, which is neither "unassigned"
+    // nor a person, and quietly falls out of `mine` and every filter. `edit`
+    // already normalises this way; `add` has to agree with it.
+    const assignee = parsed.assignee?.trim() || null;
+    const reviewer = parsed.reviewer?.trim() || null;
     if (subproject !== null && project === null) {
       throw new KanbanError(
         "invalid_input",
@@ -197,8 +213,8 @@ export class Kanban {
       payload: {
         title: parsed.title,
         body: parsed.body ?? null,
-        assignee: parsed.assignee ?? null,
-        reviewer: parsed.reviewer ?? null,
+        assignee,
+        reviewer,
         project,
         subproject,
         priority: parsed.priority,
@@ -395,7 +411,7 @@ export class Kanban {
     return this.transition(id, target, "move", actor, source);
   }
 
-  /** Permanently delete a card. Creator only. */
+  /** Permanently delete a card. Creator or the machine's owner. */
   remove(
     id: number,
     actor: Actor,
@@ -403,7 +419,7 @@ export class Kanban {
   ): MutationResult {
     this.projection.sync(this.log);
     const card = this.mustCard(id);
-    if (card.createdBy !== actor.name) {
+    if (card.createdBy !== actor.name && !this.isOwner(actor)) {
       throw new KanbanError(
         "forbidden",
         `only the creator (${card.createdBy}) can delete card ${id}`,
@@ -929,8 +945,14 @@ export class Kanban {
     return card;
   }
 
+  private isOwner(actor: Actor): boolean {
+    const owner = this.options.owner?.trim();
+    return owner !== undefined && owner !== "" && actor.name === owner;
+  }
+
   private assertCanModify(card: Card, actor: Actor): void {
     if (card.createdBy === actor.name || card.assignee === actor.name) return;
+    if (this.isOwner(actor)) return;
     throw new KanbanError(
       "forbidden",
       `only the creator (${card.createdBy}) or assignee (${card.assignee ?? "unassigned"}) can modify card ${card.id}`,

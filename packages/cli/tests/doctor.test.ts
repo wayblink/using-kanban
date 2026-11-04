@@ -23,7 +23,7 @@ function makeIo(dir: string): Io & { out: string[] } {
   return {
     cwd: dir,
     // the store is centralised, so tests say where it is
-    env: { USER: "tester", UKB_DIR: dir },
+    env: { USER: "tester", UKB_MACHINE_NAME: "tester", UKB_DIR: dir },
     stdout: (text) => out.push(text),
     stderr: (text) => out.push(text),
     out,

@@ -90,6 +90,32 @@ describe("add", () => {
       "card_not_found",
     );
   });
+
+  it("stores blank optional fields as null, not as empty strings", () => {
+    // `--reviewer "$REVIEWER"` with an unset shell variable is the everyday way
+    // this happens, and an empty string is neither "unassigned" nor a name: it
+    // silently drops out of `mine` and every assignee filter. `edit` already
+    // normalises; `add` has to agree with it.
+    const kanban = makeKanban();
+    const { card } = kanban.add(
+      { title: "x", assignee: "   ", reviewer: "" },
+      human,
+    );
+
+    expect(card.assignee).toBeNull();
+    expect(card.reviewer).toBeNull();
+  });
+
+  it("trims a name it keeps", () => {
+    const kanban = makeKanban();
+    const { card } = kanban.add(
+      { title: "x", assignee: "  codex  ", reviewer: " pi " },
+      human,
+    );
+
+    expect(card.assignee).toBe("codex");
+    expect(card.reviewer).toBe("pi");
+  });
 });
 
 describe("claim", () => {
@@ -247,6 +273,40 @@ describe("permissions", () => {
     expectKanbanError(
       () => kanban.edit(card.id, { title: "" }, human),
       "invalid_input",
+    );
+  });
+
+  it("lets the machine's owner edit and delete anyone's card", () => {
+    // The solo-machine case: agents claim work under their own names, and the
+    // person at the keyboard must not be locked out of their own board by a
+    // name they never typed.
+    const kanban = new Kanban({
+      log: new MemoryEventLog(),
+      owner: "jyxc",
+    });
+    const { card } = kanban.add(
+      { title: "claimed by an agent", assignee: "codex" },
+      agent,
+    );
+
+    kanban.edit(card.id, { title: "renamed by the owner" }, human);
+    expect(kanban.card(card.id)?.title).toBe("renamed by the owner");
+
+    kanban.remove(card.id, human);
+    expect(kanban.card(card.id)).toBeNull();
+  });
+
+  it("does not let a non-owner human through", () => {
+    const kanban = new Kanban({
+      log: new MemoryEventLog(),
+      owner: "someone-else",
+    });
+    const { card } = kanban.add({ title: "task", assignee: "codex" }, agent);
+
+    expectKanbanError(
+      () => kanban.edit(card.id, { title: "nope" }, human),
+      "forbidden",
+      /only the creator/,
     );
   });
 

@@ -54,7 +54,9 @@ function makeIo(
   const out: string[] = [];
   return {
     cwd: dir,
-    env: { USER: "tester", UKB_DIR: dir, ...env },
+    // UKB_MACHINE_NAME pins the owner fallback, so no test depends on the
+    // hostname of the machine it happens to run on.
+    env: { USER: "tester", UKB_MACHINE_NAME: "tester", UKB_DIR: dir, ...env },
     stdout: (text) => out.push(text),
     stderr: (text) => out.push(text),
     out,
@@ -556,21 +558,37 @@ describe("board commands", () => {
 });
 
 describe("identity", () => {
-  it("prefers flags, then env, then the OS user", () => {
-    expect(resolveActor({ agent: "codex", "agent-type": "agent" }, {})).toEqual(
-      {
-        type: "agent",
-        name: "codex",
-      },
-    );
-    expect(resolveActor({}, { UKB_AGENT: "opencode" })).toEqual({
+  it("prefers flags, then env, then the config file, then the machine", () => {
+    expect(
+      resolveActor(
+        { agent: "codex", "agent-type": "agent" },
+        {},
+        { agent: "pi", owner: "jyxc" },
+      ),
+    ).toEqual({ type: "agent", name: "codex" });
+
+    expect(
+      resolveActor({}, { UKB_AGENT: "opencode" }, { agent: "pi", owner: "jyxc" }),
+    ).toEqual({ type: "human", name: "opencode" });
+
+    // An agent front door with no name of its own takes `agent` from the file.
+    expect(
+      resolveActor({ "agent-type": "agent" }, {}, { agent: "pi", owner: "jyxc" }),
+    ).toEqual({ type: "agent", name: "pi" });
+
+    // The human is the machine's owner — one name for CLI and browser alike.
+    expect(resolveActor({}, {}, { owner: "jyxc" })).toEqual({
       type: "human",
-      name: "opencode",
+      name: "jyxc",
     });
-    expect(resolveActor({}, { USER: "fallback" })).toEqual({
-      type: "human",
-      name: "fallback",
-    });
+
+    // UKB_OWNER beats the file; the machine's name is the last resort.
+    expect(
+      resolveActor({}, { UKB_OWNER: "env-owner" }, { owner: "jyxc" }),
+    ).toEqual({ type: "human", name: "env-owner" });
+    expect(
+      resolveActor({}, { UKB_MACHINE_NAME: "workshop" }, {}),
+    ).toEqual({ type: "human", name: "workshop" });
   });
 
   it("rejects an unknown actor type", () => {

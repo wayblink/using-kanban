@@ -1,7 +1,7 @@
 {
   "name": "@wayblink/using-kanban-server",
   "version": "0.1.0",
-  "description": "REST + SSE API server for using-kanban \u2014 the product surface for custom UIs and embedding",
+  "description": "REST + SSE API server for using-kanban — the product surface for custom UIs and embedding",
   "author": "wayblink",
   "homepage": "https://github.com/wayblink/using-kanban#readme",
   "repository": {
@@ -47,6 +47,7 @@
     "prepublishOnly": "pnpm build"
   },
   "dependencies": {
+    "@wayblink/using-kanban-config": "workspace:*",
     "@wayblink/using-kanban-core": "workspace:*",
     "zod": "^3.25.0"
   },

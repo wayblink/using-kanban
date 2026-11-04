@@ -90,7 +90,12 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
   let opened: Kanban | undefined;
   const kanbanFor = (create: boolean): Kanban => {
     if (opened) return opened;
-    opened = openKanban({ dir: options.dir, storage: options.storage, create });
+    opened = openKanban({
+      dir: options.dir,
+      storage: options.storage,
+      create,
+      owner: options.owner,
+    });
     return opened;
   };
   /** Read-only tools: never create the store. */

@@ -201,7 +201,11 @@ export function createKanbanHandler(
   options: ServerOptions = {},
 ): KanbanHandler {
   const resolved = resolveServerOptions(options);
-  const kanban = openKanban({ dir: resolved.dir, storage: resolved.storage });
+  const kanban = openKanban({
+    dir: resolved.dir,
+    storage: resolved.storage,
+    owner: resolved.owner,
+  });
   const broker = new EventBroker(kanban, resolved.ssePollMs);
 
   const handler = (req: IncomingMessage, res: ServerResponse): void => {

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { loadConfig, resolveOwnerName } from "@wayblink/using-kanban-config";
 import { startServer } from "./server.js";
 import type { ServerOptions } from "./options.js";
 
@@ -34,6 +35,9 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
         break;
       case "--token":
         options.token = next();
+        break;
+      case "--owner":
+        options.owner = next();
         break;
       case "--actor":
         options.actor = { type: "human", name: next() };
@@ -81,7 +85,9 @@ function printHelp(): void {
       "  --host <addr>       bind address (default 127.0.0.1)",
       "  --port <n>          port (default: random free port)",
       "  --token <token>     bearer token for mutations (default: generated)",
-      "  --actor <name>      default actor name (default: $USER)",
+      "  --owner <name>      the human on this machine (default: the config",
+      "                      owner, else the machine name)",
+      "  --actor <name>      default actor name (default: the owner)",
       "  --actor-type <t>    human (default) | agent",
       "  --ui <dir>          static UI bundle to serve at /",
       "  --doc-root <dir>    a directory card notes may link documents from",
@@ -95,7 +101,11 @@ function printHelp(): void {
 
 async function main(): Promise<void> {
   const { options, quiet } = parseArgs(process.argv.slice(2));
-  const running = await startServer(options);
+  // The config file is read at the edge, not inside the resolvers, so an
+  // embedder (or a test) gets a predictable server when it passes nothing.
+  const config = loadConfig(process.env);
+  const owner = options.owner ?? resolveOwnerName({ env: process.env, config });
+  const running = await startServer({ ...options, owner });
 
   if (quiet) {
     process.stdout.write(`${running.url}\n`);

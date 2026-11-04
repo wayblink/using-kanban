@@ -23,7 +23,8 @@ import {
   resolveStorage,
   UsageError,
 } from "./argv.js";
-import { resolveActor } from "./identity.js";
+import { resolveActor, resolveOwner } from "./identity.js";
+import { loadConfig } from "@wayblink/using-kanban-config";
 import {
   formatBoard,
   formatCard,
@@ -264,8 +265,13 @@ global flags:
   --dir <path>       board directory (default: home; the store is <dir>/.ukb)
   --project <dir>    where "ukb init" writes the agent config (default: cwd)
   --storage <kind>   sqlite (default) | jsonl | memory
-  --agent <name>     who you are (default: $USER) — agents should always pass this
+  --agent <name>     who you are (default: the machine's owner, see config)
   --agent-type <t>   human (default) | agent
+
+config: ~/.config/ukb/config.json — one file for the CLI, the MCP server,
+  ukb web and the Pi panel. It carries owner (override with UKB_OWNER), agent,
+  guidance and overlay. \`ukb doctor\` prints the path, the owner and who
+  you are acting as.
 
 frameworks for init: claude-code, codex, opencode (anything else gets the generic setup)
 `;
@@ -320,13 +326,15 @@ export async function runCommand(
       break;
   }
 
-  const actor = resolveActor(parsed.flags, io.env);
+  const config = loadConfig(io.env);
+  const actor = resolveActor(parsed.flags, io.env, config);
   // Reads must not conjure a board: `ukb board` in the wrong directory should
   // say so, not report an empty one.
   const kanban = openKanban({
     dir,
     storage,
     create: !READ_ONLY_COMMANDS.has(command),
+    owner: resolveOwner(io.env, config),
   });
   try {
     switch (command) {
@@ -641,6 +649,11 @@ async function runWeb(
   const { startServer } = await import("@wayblink/using-kanban-server");
   const uiDir = flagString(flags, "ui") ?? (await resolveDefaultUiDir());
 
+  // The browser acts as the machine's owner, not as whatever user account the
+  // server happens to run under: one person, one name, same as the terminal.
+  const config = loadConfig(io.env);
+  const owner = resolveOwner(io.env, config);
+
   const running = await startServer({
     dir,
     storage,
@@ -650,6 +663,8 @@ async function runWeb(
       : undefined,
     token: flagString(flags, "token"),
     uiDir,
+    owner,
+    actor: { type: "human", name: owner },
     // Where a card note's document link may point. Comma-separated because
     // the argv parser keeps the last of a repeated flag.
     docRoots: (flagString(flags, "doc-root") ?? "")
