@@ -165,7 +165,10 @@ export class BoardOverlay {
       rightCount:
         rightPane === undefined
           ? null
-          : visibleCardCount(rightPane.snapshot, rightPaneView(this.view).states),
+          : visibleCardCount(
+              rightPane.snapshot,
+              rightPaneView(this.view).states,
+            ),
     };
   }
 
@@ -304,13 +307,22 @@ export class BoardOverlay {
     const snapshot = this.snapshot;
     if (snapshot === undefined) return [];
     try {
+      const rightPane = this.rightPane();
+      const rightView =
+        rightPane === undefined ? undefined : rightPaneView(this.view);
+      // The shelf has one home. With a pane pinned to it, the left pane's
+      // quiet-board fallback would print the same parked rows in both columns;
+      // the fallback yields and the shelf stays where it was asked for. A view
+      // that names `someday` itself is untouched — see `effectiveStates`.
+      const shelfElsewhere = rightView?.states.includes("someday") === true;
       const left =
         visibleCardCount(snapshot, this.view.states) === 0
           ? []
-          : renderOverlay(snapshot, this.renderOptions(theme, width));
-      const rightPane = this.rightPane();
-      if (rightPane === undefined) return left;
-      const rightView = rightPaneView(this.view);
+          : renderOverlay(snapshot, {
+              ...this.renderOptions(theme, width),
+              shelfElsewhere,
+            });
+      if (rightPane === undefined || rightView === undefined) return left;
       const right = renderOverlay(rightPane.snapshot, {
         ...this.renderOptions(theme, width),
         scopeLabel: rightPane.label,
@@ -345,27 +357,27 @@ export class BoardOverlay {
     width: number,
   ): Parameters<typeof renderOverlay>[1] {
     return {
-        theme,
-        truncate: (line, maxWidth) => truncateToWidth(line, maxWidth, "…"),
-        visibleWidth,
-        width,
-        budget: this.view.maxLines,
-        collapsed: this.collapsed,
-        collapseKey: this.options.collapseKey,
-        scopeLabel: this.scopeLabel,
-        groupBy: this.view.groupBy,
-        // The scope is part of the card, not of the view: show it in every
-        // scope, including `mine` and a single project, so `web/auth` is where
-        // a row lives rather than something the heading implies. Grouping by
-        // project already prints it, so that case opts out rather than
-        // duplicating the label.
-        showProject: this.view.groupBy !== "project",
-        states: this.view.states,
-        // Progress is global: count children the scope filtered out too.
-        index:
-          this.rawSnapshot === undefined
-            ? undefined
-            : cardIndex(this.rawSnapshot),
+      theme,
+      truncate: (line, maxWidth) => truncateToWidth(line, maxWidth, "…"),
+      visibleWidth,
+      width,
+      budget: this.view.maxLines,
+      collapsed: this.collapsed,
+      collapseKey: this.options.collapseKey,
+      scopeLabel: this.scopeLabel,
+      groupBy: this.view.groupBy,
+      // The scope is part of the card, not of the view: show it in every
+      // scope, including `mine` and a single project, so `web/auth` is where
+      // a row lives rather than something the heading implies. Grouping by
+      // project already prints it, so that case opts out rather than
+      // duplicating the label.
+      showProject: this.view.groupBy !== "project",
+      states: this.view.states,
+      // Progress is global: count children the scope filtered out too.
+      index:
+        this.rawSnapshot === undefined
+          ? undefined
+          : cardIndex(this.rawSnapshot),
     };
   }
 

@@ -16,8 +16,11 @@
  * board that already has plenty to do. The shelf joins the panel only when the
  * flow is quiet (see `SOMEDAY_VISIBLE_BELOW`) — a parked card you cannot see is
  * a parked card you forget, so it must not be invisible on an idle board, but
- * it must not compete with live work either. Adding either state back is a
- * config change, and rows are trimmed by the budget first. That is what keeps
+ * it must not compete with live work either. That fallback belongs to a panel
+ * that is the only one on screen: when a second pane is pinned to the shelf, the
+ * left pane does not borrow it (`shelfElsewhere`), because the same parked rows
+ * in both columns are worse than either pane alone. Adding either state back is
+ * a config change, and rows are trimmed by the budget first. That is what keeps
  * the widget bounded on a board with a hundred cards in it.
  *
  * Inside a state, recency orders the rows: whatever was touched last sits on
@@ -127,6 +130,16 @@ export interface OverlayRenderOptions {
   readonly showProject?: boolean;
   /** Which states to show. Defaults to doing/todo/review/someday. */
   readonly states?: readonly CardState[];
+  /**
+   * The `someday` fallback is off because another pane already renders it.
+   *
+   * The fallback exists so a quiet board does not hide parked work; with a
+   * second pane pinned to the shelf, that work is already on screen and the
+   * fallback would print the same rows in both columns. Only the heuristic is
+   * suppressed: a view that names `someday` itself still gets it, because an
+   * explicit request outranks any heuristic in both directions.
+   */
+  readonly shelfElsewhere?: boolean;
   /**
    * Full-board index for resolving hierarchy progress. Defaults to the
    * snapshot's own cards; pass the unscoped index when rendering a scoped
@@ -481,12 +494,23 @@ export const SOMEDAY_VISIBLE_BELOW = 5;
  * is busy enough to fill the panel on its own. A view that names its own states
  * — `overlay.states` in the config, `states=` on `/ukb gui` — is taken exactly
  * as written: a deliberate request outranks a heuristic, in both directions.
+ *
+ * `shelfElsewhere` turns the fallback off for a pane that is not the only one:
+ * when a sibling pane is already pinned to the shelf, joining it would show the
+ * same rows twice. The heuristic is what is dropped; `states` is untouched, so
+ * an explicit request survives.
  */
 export function effectiveStates(
   snapshot: BoardSnapshot,
   states: readonly CardState[] = DEFAULT_OVERLAY_STATES,
+  options: { readonly shelfElsewhere?: boolean } = {},
 ): readonly CardState[] {
   if (!isDefaultView(states)) return states;
+  // A copy, not the constant: `selectOverlayRows` and `visibleCardCount`
+  // re-derive the states from whatever they are handed, and the default list
+  // is recognised by identity, so returning the constant would let the very
+  // next call put the shelf back.
+  if (options.shelfElsewhere === true) return [...states];
   let visible = 0;
   for (const state of states) visible += snapshot[state].length;
   return visible < SOMEDAY_VISIBLE_BELOW ? [...states, "someday"] : states;
@@ -958,7 +982,9 @@ export function renderSplitColumns(
 
   const pad = (line: string, width: number): string => {
     const clipped = options.truncate(line, width);
-    return clipped + " ".repeat(Math.max(0, width - options.visibleWidth(clipped)));
+    return (
+      clipped + " ".repeat(Math.max(0, width - options.visibleWidth(clipped)))
+    );
   };
 
   const height = Math.max(left.length, right.length);
@@ -992,6 +1018,7 @@ export function renderOverlay(
   const states = effectiveStates(
     snapshot,
     options.states ?? DEFAULT_OVERLAY_STATES,
+    { shelfElsewhere: options.shelfElsewhere === true },
   );
   // Nothing visible means nothing to watch — the caller unregisters the widget.
   if (visibleCardCount(snapshot, states) === 0) return [];

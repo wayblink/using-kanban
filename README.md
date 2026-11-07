@@ -207,7 +207,10 @@ session. The default is `doing`, `todo`, `review` — history is not on the pane
 and `someday` joins those three only while they hold fewer than five cards. On a
 busy board the shelf is noise; on a quiet one it is the only thing left worth
 showing. Naming `someday` in `overlay.states` keeps it on regardless, and
-`done` adds history.
+`done` adds history. The fallback belongs to a panel that is the only one on
+screen: while a second pane is showing the shelf, the left pane never borrows it,
+so parked rows appear in one column instead of two (a `someday` you named in
+`states` still renders — a request outranks the heuristic, not the split).
 
 The panel can hold a second pane: `/ukb gui split` puts the shelf beside the
 flow — the flow on the left, `someday` on the right — and `/ukb gui split=off`

@@ -91,6 +91,13 @@ Design decisions worth keeping:
   show, and a parked card that is invisible is a forgotten one. Naming `someday`
   in `overlay.states` keeps it unconditionally — an explicit request outranks a
   heuristic — and the gate only ever applies to the untouched default view.
+- **The shelf has one home.** The fallback exists because a quiet board must not
+  hide parked work, not because the left pane is fond of it: with a second pane
+  pinned to `someday`, the fallback yields (`shelfElsewhere`), because otherwise
+  a project with 1 doing / 3 todo / 15 someday printed those same fifteen rows in
+  both columns. Suppressing it is done by returning a _copy_ of the default list —
+  the heuristic keys on identity, so handing the constant back would let the next
+  `selectOverlayRows`/`visibleCardCount` call put the shelf right back.
 - **Overflow drops the todo tail first and never silently drops a `doing` row.**
   A card someone is working on is the last thing to disappear, and one row is
   reserved for `└─ +N more (2 todo, 1 review)` so the trimming is always visible.

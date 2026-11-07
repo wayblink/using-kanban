@@ -7,6 +7,7 @@
  * which already reads the packages/pi tree (see init.test.ts).
  */
 import { describe, expect, it } from "vitest";
+import { DEFAULT_OVERLAY_STATES } from "../../pi/extensions/using-kanban/config.js";
 import {
   type BoardSnapshot,
   type CardLite,
@@ -226,7 +227,10 @@ describe("scopeBoard", () => {
   });
 
   it("defaults the project view to one project's counts and rows", () => {
-    const scoped = scopeBoard(board, view({ scope: "current-project", project: "web" }));
+    const scoped = scopeBoard(
+      board,
+      view({ scope: "current-project", project: "web" }),
+    );
     expect(scoped.label).toBe("web");
     expect(countCards(scoped.snapshot)).toEqual({
       someday: 0,
@@ -244,7 +248,10 @@ describe("scopeBoard", () => {
   });
 
   it("falls back visibly to all when no current project can be inferred", () => {
-    const scoped = scopeBoard(board, view({ scope: "current-project", project: null }));
+    const scoped = scopeBoard(
+      board,
+      view({ scope: "current-project", project: null }),
+    );
     expect(scoped.label).toBe("all");
     expect(scoped.snapshot.todo).toHaveLength(3);
   });
@@ -668,6 +675,37 @@ describe("someday is the fallback shelf", () => {
     expect(lines[0]).toBe("○ ukb · 9 todo · 2 someday");
     expect(lines.join("\n")).toContain("#90 parked");
   });
+
+  it("stays off a pane when a sibling pane already shows the shelf", () => {
+    // The fallback exists so a quiet board does not hide parked work. With a
+    // second pane pinned to the shelf that work is already on screen, so the
+    // fallback would print the same rows twice, once per column.
+    const lines = renderOverlay(
+      crowded(4),
+      renderOptions({ shelfElsewhere: true }),
+    );
+    expect(lines[0]).toBe("○ ukb · 4 todo");
+    expect(lines.join("\n")).not.toContain("someday");
+  });
+
+  it("renders nothing at all when the only cards are the shelf a sibling owns", () => {
+    // The caller then shows that sibling at full width instead of half of a
+    // panel whose other half is blank.
+    expect(
+      renderOverlay(crowded(0), renderOptions({ shelfElsewhere: true })),
+    ).toEqual([]);
+  });
+
+  it("keeps a shelf that was asked for, even beside a sibling showing it", () => {
+    // `states=` with `someday` in it is a deliberate request, and a request
+    // outranks a heuristic in both directions — the split does not overrule it.
+    const lines = renderOverlay(
+      crowded(9),
+      renderOptions({ states: ["todo", "someday"], shelfElsewhere: true }),
+    );
+    expect(lines[0]).toBe("○ ukb · 9 todo · 2 someday");
+    expect(lines.join("\n")).toContain("#90 parked");
+  });
 });
 
 /* -------------------------------- rendering -------------------------------- */
@@ -1035,10 +1073,20 @@ describe("a split panel, composed the way the widget does it", () => {
   const flow: BoardSnapshot = {
     projects: ["using-kanban"],
     doing: [
-      card({ id: 1, state: "doing", project: "using-kanban", title: "ship the split" }),
+      card({
+        id: 1,
+        state: "doing",
+        project: "using-kanban",
+        title: "ship the split",
+      }),
     ],
     todo: [
-      card({ id: 2, state: "todo", project: "using-kanban", title: "write the docs" }),
+      card({
+        id: 2,
+        state: "todo",
+        project: "using-kanban",
+        title: "write the docs",
+      }),
     ],
     review: [
       card({
@@ -1050,20 +1098,40 @@ describe("a split panel, composed the way the widget does it", () => {
       }),
     ],
     someday: [
-      card({ id: 4, state: "someday", project: "using-kanban", title: "someday: read old design" }),
-      card({ id: 5, state: "someday", project: "using-kanban", title: "someday: tidy the ledger" }),
+      card({
+        id: 4,
+        state: "someday",
+        project: "using-kanban",
+        title: "someday: read old design",
+      }),
+      card({
+        id: 5,
+        state: "someday",
+        project: "using-kanban",
+        title: "someday: tidy the ledger",
+      }),
     ],
     done: [],
   };
 
   const compose = (width: number): string[] => {
-    const left = renderOverlay(scopeBoard(flow, view({ project: "using-kanban" })).snapshot, {
-      ...renderOptions({ width }),
-      states: ["doing", "todo", "review"],
-      scopeLabel: "using-kanban",
-    });
-    const rightView = rightPaneView(view({ split: true, project: "using-kanban" }));
+    // Composed the way `overlay.ts` composes it: the left pane renders with the
+    // view's own states (the default flow list, where the shelf is a fallback)
+    // and is told the sibling pane owns the shelf, so the same parked rows
+    // cannot appear in both columns.
+    const base = view({ project: "using-kanban", split: true });
+    const leftScoped = scopeBoard(flow, base);
+    const rightView = rightPaneView(base);
     const rightScoped = scopeBoard(flow, rightView);
+    const left = renderOverlay(leftScoped.snapshot, {
+      ...renderOptions({ width }),
+      // The shared default list, by identity: that is what makes the shelf a
+      // fallback rather than a request. A spelled-out copy would be read as an
+      // explicit `states=` and would keep the shelf regardless of the pane.
+      states: DEFAULT_OVERLAY_STATES,
+      scopeLabel: leftScoped.label,
+      shelfElsewhere: rightView.states.includes("someday"),
+    });
     const right = renderOverlay(rightScoped.snapshot, {
       ...renderOptions({ width }),
       states: rightView.states,
@@ -1092,6 +1160,18 @@ describe("a split panel, composed the way the widget does it", () => {
     // Every shelf row starts after the bar — the panes never interleave.
     for (const line of shelf) {
       expect(line.indexOf("someday:")).toBeGreaterThan(line.indexOf("|"));
+    }
+  });
+
+  it("does not print the shelf twice when the flow is quiet", () => {
+    // Three flow cards is below the fallback threshold, which is exactly when
+    // the left pane used to borrow the shelf and repeat the right column.
+    const lines = compose(120);
+    const bar = (lines[0] ?? "").indexOf("|");
+    expect(bar).toBeGreaterThan(0);
+    expect(lines.join("\n").match(/\[someday\]/g) ?? []).toHaveLength(2);
+    for (const line of lines) {
+      expect(line.slice(0, bar)).not.toContain("[someday]");
     }
   });
 
