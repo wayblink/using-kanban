@@ -212,10 +212,26 @@ const FRAMEWORKS: Record<string, FrameworkSpec> = {
       upsertDocs(join(projectDir, "AGENTS.md"), dryRun);
     },
   },
+  dsh: {
+    agent: "dsh",
+    label: "DeepSeek Harness",
+    // DSH installs bundles through its own profile manager, so there is no
+    // config file to merge here; the checkout snippet is what a project needs.
+    files: ["AGENTS.md"],
+    entry: () => ({}),
+    notes: [
+      "Add the bundle in DSH: Plugins > Add plugin > packages/dsh in this checkout.",
+      "The bundle ships the ukb tool, the /ukb command and the board guidance — no MCP config needed.",
+    ],
+    write: ({ docsPath, dryRun }) => {
+      upsertDocs(docsPath, dryRun);
+    },
+  },
 };
 
 const ALIASES: Record<string, string> = {
   pi: "pi",
+  dsh: "dsh",
   claude: "claude-code",
   "claude-code": "claude-code",
   codex: "codex",
