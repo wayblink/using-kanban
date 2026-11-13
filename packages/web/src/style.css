@@ -295,6 +295,7 @@ button.icon-only:hover:not(:disabled) {
   min-width: 0;
   background: var(--surface-2);
   border: 1px solid var(--border);
+  border-top: 3px solid var(--col-color, var(--border));
   border-radius: var(--radius);
   min-height: 180px;
   display: flex;
@@ -316,7 +317,10 @@ button.icon-only:hover:not(:disabled) {
   font-size: 13px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--text-dim);
+  /* Each state carries its own hue, so the area is recognizable before the
+     label is read. color-mix keeps it readable in both schemes. */
+  color: var(--col-color, var(--text-dim));
+  background: color-mix(in srgb, var(--col-color, var(--text-dim)) 9%, transparent);
   border-bottom: 1px solid var(--border);
 }
 
@@ -1489,13 +1493,34 @@ button.icon-only:hover:not(:disabled) {
     min-width: 0;
   }
 
+  /* Five columns cannot share this width, and a horizontal scroll hides the
+     rightmost states. Stack the sections instead: each stays a column inside,
+     and its cards wrap into a grid. */
   .board {
-    grid-auto-columns: 82vw;
-    scroll-snap-type: x mandatory;
+    grid-auto-flow: row;
+    grid-auto-columns: auto;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+    padding: 12px;
+    overflow-x: visible;
   }
 
   .column {
-    scroll-snap-align: start;
+    min-height: 0;
+  }
+
+  .column-header {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    backdrop-filter: blur(6px);
+    border-radius: var(--radius) var(--radius) 0 0;
+  }
+
+  .card-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 8px;
   }
 }
 

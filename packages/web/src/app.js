@@ -37,12 +37,15 @@ export function previewCards(cards, columnId, expanded = false) {
   };
 }
 
+// Flow order: the work first, history third-from-last, the shelf last. `someday`
+// used to lead the board; parking a card is a rare action, so it belongs at the
+// edge instead of in the reading path.
 export const COLUMNS = [
-  { id: "someday", label: "Someday" },
   { id: "todo", label: "Todo" },
   { id: "doing", label: "Doing" },
   { id: "review", label: "Review" },
   { id: "done", label: "Done" },
+  { id: "someday", label: "Someday" },
 ];
 
 /**
@@ -146,6 +149,8 @@ export function bodyExcerpt(body, maxChars = 140) {
  * ------------------------------------------------------------------ */
 
 /** The columns in the order the charts stack them (the workflow order). */
+// Chart bands stay in flow order oldest→newest; the board's display order is
+// COLUMNS, which puts `someday` last.
 export const CHART_STATES = ["someday", "todo", "doing", "review", "done"];
 
 /**
