@@ -9,31 +9,41 @@ const here = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(join(here, "..", "client.js"), "utf8");
 
 /** One card as `ukb board --json --brief` emits it. */
-function card(id, title, project) {
+function card(id, title, project, extra = {}) {
   return {
     id,
     title,
     state: "todo",
     project,
+    subproject: null,
     assignee: null,
     reviewer: null,
     priority: "normal",
     blockedBy: [],
+    parent: null,
+    children: [],
     notes: [],
+    updatedAt: new Date().toISOString(),
+    ...extra,
+  };
+}
+
+/** A ready board over the five state lists. */
+function boardOf({ todo = [], doing = [], review = [], done = [], someday = [] }) {
+  return {
+    todo,
+    doing,
+    review,
+    done,
+    someday,
+    identity: { owner: "jyxc", agent: "dsh" },
+    generatedAt: new Date().toISOString(),
   };
 }
 
 /** A ready board with one card in each of two projects. */
 function board() {
-  return {
-    todo: [card(1, "Ukanban card", "using-kanban"), card(2, "Iceberg card", "iceberg")],
-    doing: [],
-    review: [],
-    done: [],
-    someday: [],
-    identity: { owner: "jyxc", agent: "dsh" },
-    generatedAt: new Date().toISOString(),
-  };
+  return boardOf({ todo: [card(1, "Ukanban card", "using-kanban"), card(2, "Iceberg card", "iceberg")] });
 }
 
 /**
@@ -169,4 +179,56 @@ test("a host without the session hook still renders", () => {
   const text = JSON.stringify(renderPanel({ props: {} }));
   assert.ok(text.includes("Ukanban card"));
   assert.ok(text.includes("Iceberg card"));
+});
+
+test("cards render as one row each, not as a two-column grid", () => {
+  const text = JSON.stringify(renderPanel());
+  assert.ok(!text.includes("auto-fill"), "the card grid is gone");
+  assert.ok(text.includes('"data-depth":0'), "a card is a row that knows its depth");
+});
+
+test("a card's children nest under it, one row each", () => {
+  const state = boardOf({
+    todo: [
+      card(10, "Umbrella card", "using-kanban", { children: [11, 12] }),
+      card(11, "First part", "using-kanban", { parent: 10 }),
+      card(12, "Second part", "using-kanban", { parent: 10 }),
+    ],
+  });
+  const text = JSON.stringify(renderPanel({ state, props: workspaceProps("/Users/x/yard/using-kanban") }));
+  for (const id of [10, 11, 12]) {
+    assert.equal(text.split(`"data-card":${id}`).length - 1, 1, `#${id} is drawn once`);
+  }
+  assert.ok(text.indexOf('"data-card":10') < text.indexOf('"data-card":11'));
+  assert.ok(text.indexOf('"data-card":11') < text.indexOf('"data-card":12'));
+  assert.ok(text.includes('"data-depth":1'), "parts are indented");
+});
+
+test("an umbrella row carries its children's progress", () => {
+  const state = boardOf({
+    todo: [
+      card(40, "Progress umbrella", "using-kanban", { children: [41, 42] }),
+      card(41, "A part", "using-kanban", { parent: 40 }),
+    ],
+    done: [card(42, "B part", "using-kanban", { state: "done", parent: 40 })],
+  });
+  const text = JSON.stringify(renderPanel({ state, props: workspaceProps("/Users/x/yard/using-kanban") }));
+  assert.ok(text.includes("▸1/2"), "done/total comes from the whole board");
+});
+
+test("a part in another state stays under its umbrella and is drawn once", () => {
+  const state = boardOf({
+    todo: [card(20, "Cross umbrella", "using-kanban", { children: [21] })],
+    done: [card(21, "Done part", "using-kanban", { state: "done", parent: 20 })],
+  });
+  const text = JSON.stringify(renderPanel({ state, props: workspaceProps("/Users/x/yard/using-kanban") }));
+  assert.equal(text.split('"data-card":21').length - 1, 1, "one card, one row");
+  assert.ok(text.indexOf('"data-card":21') > text.indexOf('"data-card":20'));
+  assert.ok(text.indexOf('"data-card":21') < text.indexOf("Doing"), "it sits under the umbrella, not in its own section");
+});
+
+test("a card whose umbrella is filtered out keeps the parent marker", () => {
+  const state = boardOf({ todo: [card(30, "Orphan part", "using-kanban", { parent: 99 })] });
+  const text = JSON.stringify(renderPanel({ state, props: workspaceProps("/Users/x/yard/using-kanban") }));
+  assert.ok(text.includes("⤷#99"));
 });

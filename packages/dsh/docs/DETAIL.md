@@ -38,9 +38,14 @@ The bundle also ships a browser half (`client.js`, declared through `dsh.client`
   sections, one per state in flow order (**Todo, Doing, Review, Done, Someday**),
   so all five fit a narrow panel without a horizontal scroll. Each section has a
   colored header (dot, name, count, collapse chevron), a tinted background and a
-  left accent bar; its cards flow in an `auto-fill` grid. Clicking a card expands
-  it in place with the `ukb show` body and history, fetched from
-  `GET /api/ukb/card?id=`.
+  left accent bar; its cards are one dense row each — scope, `#id`, title, then
+  the right-hand marks (`⛔n` blockers, `✎n` notes, `▸done/total` for an umbrella,
+  `@assignee` / `→ reviewer`) — never a grid and never a wrapped title. Parts
+  nest under their umbrella at any depth, across states too, so a card is drawn
+  once and never escapes the card that explains it; a nested row keeps its own
+  state as a colored dot, and a card whose umbrella is filtered out keeps `⤷#parent`.
+  Clicking a row expands it in place with the `ukb show` body and history, fetched
+  from `GET /api/ukb/card?id=`.
   The header carries a filtered/total counter, "updated Ns ago", Refresh and a
   persisted Comfortable/Compact switch; the filter bar carries free-text search
   (id/title/project/assignee), a project selector and All / Mine / Agent / Review

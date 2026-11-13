@@ -272,31 +272,6 @@ window.__ModuleLoader__.load({
       });
     }
 
-    function avatar(name) {
-      if (typeof name !== "string" || name === "") return null;
-      return h(
-        "span",
-        {
-          title: `@${name}`,
-          style: {
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            width: 16,
-            height: 16,
-            borderRadius: 999,
-            background: T.layer2,
-            border: `1px solid ${T.border1}`,
-            color: T.text2,
-            font: "600 9px/1 inherit",
-            textTransform: "uppercase",
-            flex: "0 0 auto",
-          },
-        },
-        name.slice(0, 1),
-      );
-    }
-
     function detailBlock(detail, accent) {
       if (detail === undefined || detail === null) {
         return h("div", { style: { font: "400 11.5px/1.4 inherit", color: T.text3 } }, "Loading card…");
@@ -358,23 +333,117 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function cardRow(card, options) {
+    /** `project/subproject`, or just `project`; null when the card names none. */
+    function cardScope(card) {
+      if (typeof card.project !== "string" || card.project === "") return null;
+      return typeof card.subproject === "string" && card.subproject !== ""
+        ? `${card.project}/${card.subproject}`
+        : card.project;
+    }
+
+    /**
+     * One row per card, children under their umbrella.
+     *
+     * A part follows its umbrella at any depth, including across states: the
+     * umbrella's section owns the subtree, so a part is drawn once and never
+     * escapes the card that explains it — the rule the Pi panel already applies.
+     * A card whose umbrella is filtered out stays a root and wears `⤷#parent`.
+     */
+    function rowsByState(board) {
+      const sectionOf = new Map();
+      for (const state of STATES) for (const card of board[state]) sectionOf.set(card.id, state);
+      const childrenOf = new Map();
+      const roots = [];
+      for (const state of STATES) {
+        for (const card of board[state]) {
+          const parent = typeof card.parent === "number" ? card.parent : null;
+          if (parent !== null && parent !== card.id && sectionOf.has(parent)) {
+            const list = childrenOf.get(parent) ?? [];
+            list.push(card);
+            childrenOf.set(parent, list);
+          } else {
+            roots.push(card);
+          }
+        }
+      }
+      const rows = new Map(STATES.map((state) => [state, []]));
+      const seen = new Set();
+      const append = (card, depth, sectionKey) => {
+        if (seen.has(card.id)) return;
+        seen.add(card.id);
+        const own = sectionOf.get(card.id) ?? card.state;
+        const bucket = rows.get(sectionKey) ?? rows.get(own);
+        bucket?.push({ card, depth, state: own });
+        for (const child of childrenOf.get(card.id) ?? []) append(child, depth + 1, sectionKey);
+      };
+      for (const root of roots) append(root, 0, sectionOf.get(root.id) ?? root.state);
+      // A parent cycle leaves cards that are nobody's root; keep them visible.
+      for (const state of STATES) {
+        for (const card of board[state]) if (!seen.has(card.id)) append(card, 0, state);
+      }
+      return rows;
+    }
+
+    /**
+     * `⤷#38` for an orphan's umbrella, `▸4/6` for an umbrella's progress.
+     * A nested row sits under its umbrella already, so it drops the first.
+     */
+    function hierarchySuffix(card, byId, nested) {
+      const parts = [];
+      if (!nested && typeof card.parent === "number") parts.push(`⤷#${card.parent}`);
+      const children = Array.isArray(card.children) ? card.children : [];
+      if (children.length > 0) {
+        const resolved =
+          byId === undefined
+            ? []
+            : children.map((id) => byId.get(id)).filter((child) => child !== undefined);
+        parts.push(
+          resolved.length === children.length
+            ? `▸${resolved.filter((child) => child.state === "done").length}/${children.length}`
+            : `▸${children.length}`,
+        );
+      }
+      return parts.length > 0 ? parts.join(" ") : null;
+    }
+
+    /**
+     * One card on one line: scope, id, title, then the right-hand marks.
+     *
+     * The row replaced a two-column grid of block cards; density is the point, so
+     * the title never wraps (it ellipses) and everything else is a fixed-width
+     * mark. Clicking still expands the card's `ukb show` body beneath the line.
+     */
+    function cardLine(row, options) {
+      const card = row.card;
+      const depth = row.depth;
       const compact = options?.compact === true;
       const expanded = options?.expanded === true;
       const accent = options?.accent ?? T.text3;
+      const sectionState = options?.state ?? row.state;
       const noteCount = Array.isArray(card.notes) ? card.notes.length : 0;
       const blocked = Array.isArray(card.blockedBy) ? card.blockedBy.length : 0;
-      const meta = [];
-      if (card.project) meta.push(chip(card.project, { mono: true }));
-      if (blocked > 0) meta.push(chip(`⛔ ${blocked}`, { color: T.warn }));
-      if (noteCount > 0) meta.push(chip(`✎ ${noteCount}`));
+      const scope = cardScope(card);
+      const hierarchy = hierarchySuffix(card, options?.byId, depth > 0);
+      const owner =
+        row.state === "doing"
+          ? `@${card.assignee ?? "unassigned"}`
+          : row.state === "review"
+            ? card.reviewer
+              ? `→ ${card.reviewer}`
+              : null
+            : card.assignee
+              ? `@${card.assignee}`
+              : null;
 
-      return h(
+      const line = h(
         "div",
         {
           key: String(card.id),
+          "data-card": card.id,
+          "data-depth": depth,
           role: "button",
           tabIndex: 0,
+          title: typeof card.title === "string" ? card.title : "",
           onClick: () => options?.onToggleCard?.(card.id),
           onKeyDown: (event) => {
             if (event.key === "Enter" || event.key === " ") {
@@ -384,64 +453,100 @@ window.__ModuleLoader__.load({
           },
           style: {
             display: "flex",
-            flexDirection: "column",
-            /* An expanded card takes the whole section row, so its body reads at
-               full panel width instead of in one grid cell. */
-            gridColumn: expanded ? "1 / -1" : "auto",
-            gap: compact && !expanded ? 2 : 4,
-            padding: compact && !expanded ? "5px 7px" : "7px 9px",
-            borderRadius: 9,
-            background: expanded ? `color-mix(in srgb, ${accent} 7%, ${T.card})` : T.card,
-            border: `1px solid ${expanded ? accent : T.border1}`,
-            transition: "border-color 120ms ease, background 120ms ease, transform 120ms ease",
+            alignItems: "center",
+            gap: 6,
+            minWidth: 0,
+            marginLeft: depth === 0 ? 0 : 12,
+            borderLeft: depth === 0 ? "none" : `1px solid ${T.border2}`,
+            padding: compact ? "2px 6px" : "3px 7px",
+            paddingLeft: depth === 0 ? 7 : 8,
+            borderRadius: 7,
+            background: expanded ? `color-mix(in srgb, ${accent} 9%, transparent)` : "transparent",
             cursor: "pointer",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
           },
           onMouseEnter: (event) => {
-            event.currentTarget.style.borderColor = accent;
-            event.currentTarget.style.transform = "translateY(-1px)";
+            if (!expanded) event.currentTarget.style.background = T.hover;
           },
           onMouseLeave: (event) => {
-            event.currentTarget.style.borderColor = expanded ? accent : T.border1;
-            event.currentTarget.style.transform = "none";
+            if (!expanded) event.currentTarget.style.background = "transparent";
           },
-          title: typeof card.title === "string" ? card.title : "",
         },
+        priorityDot(card),
+        row.state !== sectionState
+          ? h("span", {
+              title: STATE_LABEL[row.state] ?? row.state,
+              style: {
+                width: 6,
+                height: 6,
+                borderRadius: 999,
+                flex: "0 0 auto",
+                background: STATE_COLOR[row.state] ?? T.text3,
+              },
+            })
+          : null,
+        scope !== null
+          ? h(
+              "span",
+              { style: { flex: "0 0 auto", font: "500 10px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace", color: T.text3 } },
+              scope,
+            )
+          : null,
         h(
-          "div",
-          { style: { display: "flex", alignItems: "center", gap: 5, minWidth: 0 } },
-          h("span", { style: { font: "500 10px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace", color: T.text3 } }, `#${card.id}`),
-          priorityDot(card),
-          h("span", { style: { flex: "1 1 auto" } }),
-          !compact && card.state === "review" && card.reviewer
-            ? h("span", { style: { font: "500 9.5px/1 inherit", color: T.warn } }, "→ " + card.reviewer)
-            : null,
-          !compact ? avatar(card.assignee) : null,
+          "span",
+          { style: { flex: "0 0 auto", font: "500 10px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace", color: T.text3 } },
+          `#${card.id}`,
         ),
         h(
-          "div",
+          "span",
           {
             style: {
-              font: `${compact && !expanded ? 400 : 500} 12px/1.35 inherit`,
-              color: T.text,
-              display: "-webkit-box",
-              WebkitLineClamp: expanded ? 6 : compact ? 1 : 2,
-              WebkitBoxOrient: "vertical",
+              flex: "1 1 auto",
+              minWidth: 0,
               overflow: "hidden",
-              overflowWrap: "anywhere",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              color: T.text,
+              font: `${row.state === "doing" ? 500 : 400} ${compact ? 11.5 : 12}px/1.4 inherit`,
             },
           },
           typeof card.title === "string" ? card.title : "",
         ),
-        compact && !expanded || meta.length === 0
-          ? null
-          : h("div", { style: { display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" } }, ...meta),
-        expanded ? detailBlock(options?.detail, accent) : null,
+        hierarchy !== null
+          ? h(
+              "span",
+              { style: { flex: "0 0 auto", font: "500 10px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace", color: T.text3 } },
+              hierarchy,
+            )
+          : null,
+        blocked > 0
+          ? h("span", { style: { flex: "0 0 auto", font: "500 10px/1.3 inherit", color: T.warn } }, `⛔${blocked}`)
+          : null,
+        noteCount > 0
+          ? h("span", { style: { flex: "0 0 auto", font: "500 10px/1.3 inherit", color: T.text3 } }, `✎${noteCount}`)
+          : null,
+        owner !== null
+          ? h("span", { style: { flex: "0 0 auto", font: "500 10px/1.3 inherit", color: T.text2 } }, owner)
+          : null,
+      );
+
+      if (!expanded) return line;
+      return h(
+        "div",
+        { key: String(card.id), style: { display: "flex", flexDirection: "column" } },
+        line,
+        h(
+          "div",
+          { style: { marginLeft: depth === 0 ? 7 : 20, marginRight: 6, marginBottom: 4 } },
+          detailBlock(options?.detail, accent),
+        ),
       );
     }
 
-    function section(state, cards, options) {
+    function section(state, rows, options) {
       const limit = options?.limit ?? 200;
-      const shown = cards.slice(0, limit);
+      const shown = rows.slice(0, limit);
       const compact = options?.compact === true;
       const color = STATE_COLOR[state] ?? T.text3;
       const collapsed = options?.collapsed === true;
@@ -499,7 +604,7 @@ window.__ModuleLoader__.load({
                 padding: "1px 6px",
               },
             },
-            String(cards.length),
+            String(rows.length),
           ),
           h("span", { style: { flex: "1 1 auto" } }),
           h("span", { style: { font: "600 10px/1 inherit", color: T.text3 } }, collapsed ? "▸" : "▾"),
@@ -510,10 +615,10 @@ window.__ModuleLoader__.load({
               "div",
               {
                 style: {
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))",
-                  gap: compact ? 5 : 7,
-                  padding: 8,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: compact ? 0 : 1,
+                  padding: "4px 5px",
                   alignContent: "start",
                 },
               },
@@ -522,9 +627,8 @@ window.__ModuleLoader__.load({
                     "div",
                     {
                       style: {
-                        gridColumn: "1 / -1",
-                        padding: "9px 8px",
-                        borderRadius: 9,
+                        padding: "8px 8px",
+                        borderRadius: 7,
                         border: `1px dashed ${T.border1}`,
                         color: T.caption,
                         font: "400 11.5px/1.3 inherit",
@@ -534,20 +638,21 @@ window.__ModuleLoader__.load({
                     "Empty",
                   )
                 : null,
-              ...shown.map((card) =>
-                cardRow(card, {
+              ...shown.map((row) =>
+                cardLine(row, {
                   ...options,
                   accent: color,
-                  expanded: options?.expandedId === card.id,
+                  state,
+                  expanded: options?.expandedId === row.card.id,
                   detail: options?.detail,
                   onToggleCard: options?.onToggleCard,
                 }),
               ),
-              cards.length > shown.length
+              rows.length > shown.length
                 ? h(
                     "div",
-                    { style: { gridColumn: "1 / -1", font: "400 11px/1.4 inherit", color: T.text3, paddingLeft: 4 } },
-                    `+${cards.length - shown.length} more`,
+                    { style: { font: "400 11px/1.4 inherit", color: T.text3, paddingLeft: 4 } },
+                    `+${rows.length - shown.length} more`,
                   )
                 : null,
             ),
@@ -555,12 +660,16 @@ window.__ModuleLoader__.load({
     }
 
     function boardView(board, options) {
+      const rows = rowsByState(board);
+      const byId = new Map();
+      for (const state of STATES) for (const card of board[state]) byId.set(card.id, card);
       return h(
         "div",
         { style: { display: "flex", flexDirection: "column", gap: 12 } },
         ...STATES.map((state) =>
-          section(state, board[state], {
+          section(state, rows.get(state) ?? [], {
             ...options,
+            byId,
             limit: options?.limit ?? STATE_LIMIT[state] ?? 200,
             collapsed: options?.collapsedStates?.has(state) === true,
           }),

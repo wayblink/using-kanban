@@ -27,8 +27,9 @@ Then install the bundle directory in DSH: **Plugins** → **Add plugin** →
 
 ## Visualization
 
-`client.js` ships three surfaces: a Tool view for `ukb` calls (board JSON as
-columns, other verbs as a card), a right-Sidebar `Kanban` panel tab, and a
+`client.js` ships three surfaces: a Tool view for `ukb` calls (board JSON as the
+same tree-row list, other verbs as a card), a right-Sidebar `Kanban` panel tab
+with one dense row per card and parts nested under their umbrella, and a
 composer chip with doing/todo/review counts that opens it. The panel and chip read
 the bundle's own `GET /api/ukb/board` route. The panel's project filter starts on
 the Session workspace's project (the deepest `cwd` segment that names a board
