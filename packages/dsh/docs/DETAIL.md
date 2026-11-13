@@ -44,7 +44,12 @@ The bundle also ships a browser half (`client.js`, declared through `dsh.client`
   The header carries a filtered/total counter, "updated Ns ago", Refresh and a
   persisted Comfortable/Compact switch; the filter bar carries free-text search
   (id/title/project/assignee), a project selector and All / Mine / Agent / Review
-  scope. Surfaces use the host tokens (`--dsw-alias-*`) with neutral fallbacks;
+  scope. The project selector starts on the Session workspace's project — the
+  deepest segment of the session's `cwd` that names a board project — so a
+  session opened in this checkout opens on `using-kanban`; a manual pick,
+  All projects included, holds through the 20-second refresh, Clear returns to
+  following the workspace, and a workspace that names no project keeps the whole
+  board. Surfaces use the host tokens (`--dsw-alias-*`) with neutral fallbacks;
   the five state hues match the `ukb web` board (`#64748b`, `#2563eb`, `#d97706`,
   `#16a34a`, `#8b8fa3`). It is listed in the Sidebar guide too.
 - **Composer chip** — `kanban doing N · todo N · review N`, hidden when all three

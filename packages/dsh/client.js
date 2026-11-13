@@ -165,13 +165,15 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function projectSelect(projects, value, onChange) {
+    function projectSelect(projects, value, onChange, following = false) {
       return h(
         "select",
         {
           value: value ?? "",
           onChange: (event) => onChange(event.target.value === "" ? null : event.target.value),
-          title: "Filter by project",
+          title: following
+            ? `Filter by project — following this session's workspace (${value})`
+            : "Filter by project",
           style: {
             height: 28,
             padding: "0 8px",
@@ -771,6 +773,52 @@ window.__ModuleLoader__.load({
       return { ...state, refresh };
     }
 
+    /* -------------------------------- workspace ------------------------------- */
+
+    /**
+     * The Session's working directory, read from the slot props.
+     *
+     * Slot props are the only place a client plugin may read session data; the
+     * sidebar tab is session-scoped, so the hook is present in the real page.
+     * A host that hands over no seats still renders the panel unscoped rather
+     * than blanking the slot.
+     */
+    function useSessionCwd(props = {}) {
+      const useSessions = typeof props.useSessions === "function" ? props.useSessions : () => undefined;
+      return useSessions((state) => (props.sessionId ? state.byId[props.sessionId]?.cwd : undefined));
+    }
+
+    /**
+     * The board project a working directory belongs to: the deepest path segment
+     * that names one of the board's projects.
+     *
+     * Deepest, so a Session opened in `…/using-kanban/packages/dsh` still lands on
+     * `using-kanban`; whole-segment equality only, so `using-kanban-tools` is not
+     * mistaken for `using-kanban`. No match means "no workspace project" and the
+     * panel keeps the whole board.
+     *
+     * @param {string | undefined} cwd
+     * @param {readonly string[]} projects
+     * @returns {string | null}
+     */
+    function projectFromWorkspace(cwd, projects) {
+      if (typeof cwd !== "string" || cwd === "" || !Array.isArray(projects)) return null;
+      /** @type {Map<string, string>} */
+      const known = new Map();
+      for (const name of projects) {
+        if (typeof name === "string" && name !== "") known.set(name.toLowerCase(), name);
+      }
+      if (known.size === 0) return null;
+      const segments = cwd.split(/[\\/]+/);
+      for (let index = segments.length - 1; index >= 0; index -= 1) {
+        const segment = segments[index];
+        if (segment === "" || segment === "." || segment === "..") continue;
+        const hit = known.get(segment.toLowerCase());
+        if (hit !== undefined) return hit;
+      }
+      return null;
+    }
+
     /* --------------------------------- filters -------------------------------- */
 
     const SCOPES = [
@@ -836,10 +884,13 @@ window.__ModuleLoader__.load({
 
     /* ---------------------------------- panel --------------------------------- */
 
-    function BoardPanel() {
+    function BoardPanel(props = {}) {
       const { status, board, identity, error, at, refresh } = useBoard();
+      const cwd = useSessionCwd(props);
       const [query, setQuery] = useState("");
-      const [project, setProject] = useState(null);
+      // `undefined` follows this Session's workspace; `null` is the explicit All
+      // projects choice, so a manual pick survives the 20s refresh.
+      const [projectChoice, setProjectChoice] = useState(undefined);
       const [scope, setScope] = useState("all");
       const [compact, setCompact] = useState(readDensity);
       const [expandedId, setExpandedId] = useState(null);
@@ -873,15 +924,20 @@ window.__ModuleLoader__.load({
       }, []);
 
       const projects = useMemo(() => (board === null ? [] : projectsOf(board)), [board]);
+      const workspaceProject = useMemo(() => projectFromWorkspace(cwd, projects), [cwd, projects]);
+      const project = projectChoice === undefined ? workspaceProject : projectChoice;
       const filters = useMemo(() => ({ query, project, scope }), [query, project, scope]);
       const filtered = useMemo(() => (board === null ? null : applyFilters(board, filters, identity)), [board, filters, identity]);
       const total = filtered === null ? 0 : countOf(filtered);
       const grandTotal = board === null ? 0 : countOf(board);
-      const active = query !== "" || project !== null || scope !== "all";
+      /** The visible board is narrowed — by a choice or by the workspace default. */
+      const scoped = query !== "" || project !== null || scope !== "all";
+      /** The reader has overridden a default, so Clear has something to restore. */
+      const adjusted = query !== "" || projectChoice !== undefined || scope !== "all";
 
       const clearFilters = useCallback(() => {
         setQuery("");
-        setProject(null);
+        setProjectChoice(undefined);
         setScope("all");
       }, []);
 
@@ -900,7 +956,7 @@ window.__ModuleLoader__.load({
             },
           },
           h("span", { style: { font: "650 14px/1.2 inherit", letterSpacing: "-0.01em" } }, "Kanban"),
-          h("span", { style: { font: "500 11px/1 inherit", color: T.text3 } }, active ? `${total} of ${grandTotal}` : `${grandTotal} cards`),
+          h("span", { style: { font: "500 11px/1 inherit", color: T.text3 } }, scoped ? `${total} of ${grandTotal}` : `${grandTotal} cards`),
           at !== null ? h("span", { style: { font: "400 10.5px/1 inherit", color: T.caption } }, timeAgo(at)) : null,
           h("span", { style: { flex: "1 1 auto" } }),
           iconButton(compact ? "Comfortable" : "Compact", () => {
@@ -923,9 +979,9 @@ window.__ModuleLoader__.load({
             },
           },
           searchInput(query, setQuery),
-          projectSelect(projects, project, setProject),
+          projectSelect(projects, project, setProjectChoice, projectChoice === undefined && workspaceProject !== null),
           segmented(SCOPES, scope, setScope),
-          active ? iconButton("Clear", clearFilters) : null,
+          adjusted ? iconButton("Clear", clearFilters) : null,
         ),
         status === "loading"
           ? h("div", { style: { padding: "18px 14px", font: "400 12px/1.5 inherit", color: T.text3 } }, "Reading the board…")
@@ -949,12 +1005,22 @@ window.__ModuleLoader__.load({
                   scrollbarWidth: "thin",
                 },
               },
-              total === 0 && active
+              total === 0 && scoped
                 ? h(
                     "div",
                     { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: "28px 0", color: T.text3 } },
-                    h("div", { style: { font: "500 12.5px/1.4 inherit" } }, "No cards match these filters."),
-                    iconButton("Clear filters", clearFilters),
+                    h(
+                      "div",
+                      { style: { font: "500 12.5px/1.4 inherit" } },
+                      workspaceProject !== null && projectChoice === undefined
+                        ? `No cards in ${workspaceProject}.`
+                        : "No cards match these filters.",
+                    ),
+                    // The workspace default is the only filter here: clearing it
+                    // would land on the same empty view, so offer the whole board.
+                    workspaceProject !== null && projectChoice === undefined
+                      ? iconButton("Show all projects", () => setProjectChoice(null))
+                      : iconButton("Clear filters", clearFilters),
                   )
                 : boardView(filtered, {
                     compact,
@@ -1128,6 +1194,12 @@ window.__ModuleLoader__.load({
 
     return {
       inject: ["slots", "sidebarRight", "sidebarRightTabs"],
+      /**
+       * Test seam. The Client loader reads only `inject` and `apply`; the unit
+       * test reaches the pure workspace → project mapping through the factory
+       * because a browser bundle cannot import its Node-testable siblings.
+       */
+      internals: { projectFromWorkspace },
       apply(ctx) {
         ctxRef.current = ctx;
         ctx.effect(() =>

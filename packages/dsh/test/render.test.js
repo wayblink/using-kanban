@@ -6,16 +6,49 @@ import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 
 const here = dirname(fileURLToPath(import.meta.url));
+const source = readFileSync(join(here, "..", "client.js"), "utf8");
+
+/** One card as `ukb board --json --brief` emits it. */
+function card(id, title, project) {
+  return {
+    id,
+    title,
+    state: "todo",
+    project,
+    assignee: null,
+    reviewer: null,
+    priority: "normal",
+    blockedBy: [],
+    notes: [],
+  };
+}
+
+/** A ready board with one card in each of two projects. */
+function board() {
+  return {
+    todo: [card(1, "Ukanban card", "using-kanban"), card(2, "Iceberg card", "iceberg")],
+    doing: [],
+    review: [],
+    done: [],
+    someday: [],
+    identity: { owner: "jyxc", agent: "dsh" },
+    generatedAt: new Date().toISOString(),
+  };
+}
 
 /**
- * Render the panel once with a ready board.
+ * Render the panel body once against a ready board.
  *
  * Registering the module is not enough: a component that references an
  * undefined value throws on its first render, and the host blanks the slot
  * instead of showing the error. This executes the component body so that class
  * of bug fails here.
+ *
+ * `hooks` preloads the `useState` slots in call order: the board state, its
+ * refresh nonce, the query, the project choice, the scope, density, the expanded
+ * card id, the card details and the collapsed sections.
  */
-test("the board panel renders a ready board", () => {
+function renderPanel({ state = board(), props = {}, query = "", projectChoice = undefined, scope = "all" } = {}) {
   const registered = new Map();
   const context = {
     effect: (fn) => {
@@ -33,22 +66,12 @@ test("the board panel renders a ready board", () => {
     sidebarRight: { openTab: () => {} },
   };
 
-  const board = {
-    todo: [{ id: 199, title: "C2 RAG KnowledgeIndex", state: "todo", project: "civil-core", assignee: null, reviewer: null, priority: "high", blockedBy: [], notes: [] }],
-    doing: [],
-    review: [{ id: 244, title: "C4 civil run CLI", state: "review", project: "civil-core", assignee: "dsh", reviewer: "jyxc", priority: "normal", blockedBy: [198], notes: [{}] }],
-    done: [],
-    someday: [],
-    identity: { owner: "jyxc", agent: "dsh" },
-    generatedAt: new Date().toISOString(),
-  };
-
   const hookValues = [
-    { status: "ready", board, identity: board.identity, error: null, at: Date.now() },
+    { status: "ready", board: state, identity: state.identity, error: null, at: Date.now() },
     0,
-    "",
-    null,
-    "all",
+    query,
+    projectChoice,
+    scope,
     false,
     null,
     {},
@@ -80,7 +103,7 @@ test("the board panel renders a ready board", () => {
       },
     },
     document: { baseURI: "http://example/" },
-    fetch: async () => ({ ok: true, text: async () => JSON.stringify(board) }),
+    fetch: async () => ({ ok: true, text: async () => JSON.stringify(state) }),
     setInterval: () => 0,
     clearInterval: () => {},
     location: { origin: "http://example", href: "http://example/" },
@@ -90,16 +113,60 @@ test("the board panel renders a ready board", () => {
   };
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
-  vm.runInContext(readFileSync(join(here, "..", "client.js"), "utf8"), sandbox, { filename: "client.js" });
+  vm.runInContext(source, sandbox, { filename: "client.js" });
 
   const panel = registered.get("sidebar.right.pane.tab:@wayblink/using-kanban-dsh/board");
   assert.equal(typeof panel, "function", "panel body must be registered");
+  return panel(props);
+}
 
-  const tree = panel({});
+/** Slot props as the real tab hands them over: one session rooted at `cwd`. */
+function workspaceProps(cwd) {
+  const sessions = { byId: { "session-1": { cwd } } };
+  return { sessionId: "session-1", useSessions: (selector) => selector(sessions) };
+}
+
+test("the board panel renders a ready board", () => {
+  const tree = renderPanel();
   assert.ok(tree && typeof tree === "object", "panel must return an element tree");
   assert.equal(tree.type, "div");
   const text = JSON.stringify(tree);
-  for (const expected of ["Kanban", "Refresh", "Filter cards", "Todo", "Doing", "Review", "Done", "Someday", "civil-core"]) {
+  for (const expected of ["Kanban", "Refresh", "Filter cards", "Todo", "Doing", "Review", "Done", "Someday", "using-kanban", "iceberg"]) {
     assert.ok(text.includes(expected), `missing ${expected}`);
   }
+});
+
+test("the panel opens on the Session workspace's project", () => {
+  const text = JSON.stringify(renderPanel({ props: workspaceProps("/Users/x/yard/using-kanban") }));
+  assert.ok(text.includes("Ukanban card"), "the workspace project's card is shown");
+  assert.ok(!text.includes("Iceberg card"), "another project's card is filtered out by default");
+  assert.ok(text.includes("1 of 2"), "the header keeps the whole-board count alongside the filtered one");
+});
+
+test("a subdirectory of the project's repository counts as the project", () => {
+  const text = JSON.stringify(renderPanel({ props: workspaceProps("/Users/x/yard/using-kanban/packages/dsh") }));
+  assert.ok(text.includes("Ukanban card"));
+  assert.ok(!text.includes("Iceberg card"));
+});
+
+test("choosing All projects overrides the workspace default", () => {
+  const text = JSON.stringify(
+    renderPanel({ props: workspaceProps("/Users/x/yard/using-kanban"), projectChoice: null }),
+  );
+  assert.ok(text.includes("Ukanban card"));
+  assert.ok(text.includes("Iceberg card"));
+  assert.ok(text.includes("2 cards"), "an explicit All projects choice reads as the whole board");
+});
+
+test("a workspace outside every project keeps the whole board", () => {
+  const text = JSON.stringify(renderPanel({ props: workspaceProps("/Users/x/yard/scratch") }));
+  assert.ok(text.includes("Ukanban card"));
+  assert.ok(text.includes("Iceberg card"));
+  assert.ok(text.includes("2 cards"));
+});
+
+test("a host without the session hook still renders", () => {
+  const text = JSON.stringify(renderPanel({ props: {} }));
+  assert.ok(text.includes("Ukanban card"));
+  assert.ok(text.includes("Iceberg card"));
 });
