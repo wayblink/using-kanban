@@ -1,0 +1,67 @@
+{
+  "name": "@wayblink/using-kanban-dsh",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness bundle for using-kanban — the ukb tool, /ukb command, and the board guidance the agent needs before it decides to keep a todo list",
+  "license": "MIT",
+  "type": "module",
+  "private": true,
+  "keywords": [
+    "dsh-plugin",
+    "dsh-bundle",
+    "agent-skill",
+    "kanban",
+    "ukb"
+  ],
+  "author": "wayblink",
+  "homepage": "https://github.com/wayblink/using-kanban#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wayblink/using-kanban.git"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./client": "./client.js"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "src",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "docs"
+  ],
+  "engines": {
+    "dsh": ">=0.2.2-rc.1"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/dsh-agent": "*",
+    "@deepseek-ai/dsh-tools": "*"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-agent": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-tools": {
+      "optional": true
+    }
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-tool"
+      ]
+    }
+  }
+}

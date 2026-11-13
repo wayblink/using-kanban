@@ -1,0 +1,7 @@
+# using-kanban for DeepSeek Harness: the ukb tool, the /ukb command, and the
+# board guidance that has to be in the system prompt before the model decides
+# whether to keep a todo list.
+- insert:
+    - id: ukb
+      name: '@wayblink/using-kanban-dsh'
+      config: {}

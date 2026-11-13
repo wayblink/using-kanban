@@ -3,7 +3,7 @@
 > A kanban for agents and the operator who steers them.
 > One board per machine, four doors: a CLI, an MCP server, an HTTP API and a Web UI.
 
-An operator and several agents (Claude Code, Codex, opencode, Pi, …) share one
+An operator and several agents (Claude Code, Codex, opencode, Pi, DeepSeek Harness, …) share one
 board. The operator sets the work and reviews it; the agents claim cards, do
 them, and hand them back. Underneath is a small event-sourced engine — the CLI,
 MCP server, HTTP API and Web UI are all thin clients of the same core — so you
@@ -34,7 +34,7 @@ Then point your agent at it — this writes the MCP config and a workflow snippe
 the harness will actually read:
 
 ```bash
-ukb init --for claude-code     # or: codex | opencode | pi
+ukb init --for claude-code     # or: codex | opencode | pi | dsh
 ```
 
 ## The board
@@ -180,6 +180,13 @@ act), so an agent that never sees your docs still claims before it starts.
 Plus the `kanban://board` resource. `ukb init --for <framework>` writes the
 config for you; `--local` points it at this checkout instead of npm.
 
+### DeepSeek Harness
+
+`ukb init --for dsh` writes the workflow snippet; the tool itself comes from the
+DSH bundle at `packages/dsh`, which contributes one native `ukb` tool (21 verbs),
+the `/ukb` slash command, and the board guidance in the system prompt. Install
+the bundle directory through DSH's plugin manager (**Plugins** → **Add plugin**).
+
 ### Pi panel
 
 `ukb init --for pi` registers the Pi package, which contributes a native `ukb`
@@ -306,6 +313,7 @@ Mutations carry an actor (`X-Actor-Name` / `X-Actor-Type`) and an optional
 | `@wayblink/using-kanban-server` | REST + SSE API, token auth, OpenAPI, static UI hosting   |
 | `@wayblink/using-kanban-web`    | The default Web UI — one self-contained file             |
 | `@wayblink/using-kanban-mcp`    | MCP stdio server — the multi-framework front door        |
+| `@wayblink/using-kanban-dsh`    | DeepSeek Harness bundle: `ukb` tool, `/ukb`, guidance    |
 
 Storage is swappable and the log is append-only; the board is a projection you
 can rebuild by replaying it, which is what gives you history, live updates and

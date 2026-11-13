@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "看板（ukb）",
+    "description": "把共享看板变成 Agent 工具：列出并读取卡片、开始前认领、走完审查、记录备注，并把看板规则放进系统提示。",
+    "detail": "docs/DETAIL.md"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "Kanban (ukb)",
+    "description": "A shared kanban board as an agent tool: list and read cards, claim work before starting it, move it through review, and record notes — with the board guidance in the system prompt.",
+    "detail": "docs/DETAIL.md"
+  }
+}
