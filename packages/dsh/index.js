@@ -18,7 +18,7 @@ import { userInfo } from "node:os";
 
 import { defineTool } from "@deepseek-ai/dsh-tools";
 
-import { ACTIONS, COLUMNS, DIRECTIONS, PRIORITIES, buildArgs, splitTokens, summarizeCall } from "./src/args.js";
+import { ACTIONS, COLUMNS, DIRECTIONS, PRIORITIES, buildArgs, splitTokens } from "./src/args.js";
 import { renderGuidance, resolveGuidance } from "./src/guidance.js";
 import { resolveUkb } from "./src/resolve.js";
 

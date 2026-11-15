@@ -36,4 +36,15 @@ export default [
       globals: { ...globals.browser },
     },
   },
+  {
+    // The DSH bundle's browser half is plain JS too: the page, not Node, owns
+    // window/document/fetch/location. Everything else in that package runs on
+    // the host and keeps the Node globals above.
+    files: ["packages/dsh/client.js"],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "script",
+      globals: { ...globals.browser },
+    },
+  },
 ];
