@@ -1154,8 +1154,16 @@ window.__ModuleLoader__.load({
 
     /* ---------------------------------- chip ---------------------------------- */
 
-    function BoardChip() {
+    function BoardChip(props = {}) {
       const { status, board } = useBoard();
+      const cwd = useSessionCwd(props);
+      // The chip and the panel answer the same question — what is left here? —
+      // so both read the Session workspace's project through the same rule. No
+      // match means the whole board, which is what this chip always showed.
+      const project = useMemo(
+        () => (board === null ? null : projectFromWorkspace(cwd, projectsOf(board))),
+        [board, cwd],
+      );
       const open = useCallback(() => {
         try {
           ctxRef.current.sidebarRight.openTab(TAB_KIND);
@@ -1164,14 +1172,17 @@ window.__ModuleLoader__.load({
         }
       }, []);
       if (status !== "ready") return null;
-      const counts = ["doing", "todo", "review"].map((state) => [state, board[state].length]);
+      const counts = ["doing", "todo", "review"].map((state) => [
+        state,
+        board[state].filter((card) => project === null || card.project === project).length,
+      ]);
       if (counts.every(([, count]) => count === 0)) return null;
       return h(
         "button",
         {
           type: "button",
           onClick: open,
-          title: "Open the kanban board",
+          title: project === null ? "Open the kanban board" : `Open the kanban board — ${project} (this workspace)`,
           style: {
             display: "inline-flex",
             alignItems: "center",
@@ -1187,6 +1198,22 @@ window.__ModuleLoader__.load({
           },
         },
         h("span", { style: { color: T.text3, fontWeight: 500 } }, "kanban"),
+        project !== null
+          ? h(
+              "span",
+              {
+                style: {
+                  font: "500 10px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace",
+                  color: T.text3,
+                  maxWidth: 110,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                },
+              },
+              project,
+            )
+          : null,
         ...counts.map(([state, count]) =>
           h(
             "span",

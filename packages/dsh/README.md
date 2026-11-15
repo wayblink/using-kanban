@@ -31,10 +31,10 @@ Then install the bundle directory in DSH: **Plugins** → **Add plugin** →
 same tree-row list, other verbs as a card), a right-Sidebar `Kanban` panel tab
 with one dense row per card and parts nested under their umbrella, and a
 composer chip with doing/todo/review counts that opens it. The panel and chip read
-the bundle's own `GET /api/ukb/board` route. The panel's project filter starts on
-the Session workspace's project (the deepest `cwd` segment that names a board
-project), so it opens on the work in front of you; the chip stays whole-board.
-Plain JS, no build step.
+the bundle's own `GET /api/ukb/board` route. Both start on the Session
+workspace's project (the deepest `cwd` segment that names a board project), so
+they show the work in front of you; a workspace naming no project falls back to
+the whole board. Plain JS, no build step.
 
 ## Tests
 

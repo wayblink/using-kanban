@@ -46,19 +46,8 @@ function board() {
   return boardOf({ todo: [card(1, "Ukanban card", "using-kanban"), card(2, "Iceberg card", "iceberg")] });
 }
 
-/**
- * Render the panel body once against a ready board.
- *
- * Registering the module is not enough: a component that references an
- * undefined value throws on its first render, and the host blanks the slot
- * instead of showing the error. This executes the component body so that class
- * of bug fails here.
- *
- * `hooks` preloads the `useState` slots in call order: the board state, its
- * refresh nonce, the query, the project choice, the scope, density, the expanded
- * card id, the card details and the collapsed sections.
- */
-function renderPanel({ state = board(), props = {}, query = "", projectChoice = undefined, scope = "all" } = {}) {
+/** Load the browser module once and return the components it registered. */
+function loadClient(hookValues, state) {
   const registered = new Map();
   const context = {
     effect: (fn) => {
@@ -76,17 +65,6 @@ function renderPanel({ state = board(), props = {}, query = "", projectChoice = 
     sidebarRight: { openTab: () => {} },
   };
 
-  const hookValues = [
-    { status: "ready", board: state, identity: state.identity, error: null, at: Date.now() },
-    0,
-    query,
-    projectChoice,
-    scope,
-    false,
-    null,
-    {},
-    new Set(),
-  ];
   let hookIndex = 0;
   const React = {
     createElement: (type, props, ...children) => ({ type, props, children }),
@@ -124,10 +102,47 @@ function renderPanel({ state = board(), props = {}, query = "", projectChoice = 
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
   vm.runInContext(source, sandbox, { filename: "client.js" });
+  return registered;
+}
 
-  const panel = registered.get("sidebar.right.pane.tab:@wayblink/using-kanban-dsh/board");
+/**
+ * Render the panel body once against a ready board.
+ *
+ * Registering the module is not enough: a component that references an
+ * undefined value throws on its first render, and the host blanks the slot
+ * instead of showing the error. This executes the component body so that class
+ * of bug fails here.
+ *
+ * The state slots come in call order: the board state, its refresh nonce, the
+ * query, the project choice, the scope, density, the expanded card id, the card
+ * details and the collapsed sections.
+ */
+function renderPanel({ state = board(), props = {}, query = "", projectChoice = undefined, scope = "all" } = {}) {
+  const hookValues = [
+    { status: "ready", board: state, identity: state.identity, error: null, at: Date.now() },
+    0,
+    query,
+    projectChoice,
+    scope,
+    false,
+    null,
+    {},
+    new Set(),
+  ];
+  const panel = loadClient(hookValues, state).get("sidebar.right.pane.tab:@wayblink/using-kanban-dsh/board");
   assert.equal(typeof panel, "function", "panel body must be registered");
   return panel(props);
+}
+
+/** Render the composer chip once against a ready board (board state, then nonce). */
+function renderChip({ state = board(), props = {} } = {}) {
+  const hookValues = [
+    { status: "ready", board: state, identity: state.identity, error: null, at: Date.now() },
+    0,
+  ];
+  const chip = loadClient(hookValues, state).get("conversation.composer.dock:ukb-chip");
+  assert.equal(typeof chip, "function", "composer chip must be registered");
+  return chip(props);
 }
 
 /** Slot props as the real tab hands them over: one session rooted at `cwd`. */
@@ -231,4 +246,38 @@ test("a card whose umbrella is filtered out keeps the parent marker", () => {
   const state = boardOf({ todo: [card(30, "Orphan part", "using-kanban", { parent: 99 })] });
   const text = JSON.stringify(renderPanel({ state, props: workspaceProps("/Users/x/yard/using-kanban") }));
   assert.ok(text.includes("⤷#99"));
+});
+
+test("the composer chip counts only the workspace's project", () => {
+  const state = boardOf({
+    todo: [card(1, "Ukanban todo", "using-kanban"), card(2, "Iceberg todo", "iceberg"), card(3, "Another iceberg", "iceberg")],
+    doing: [card(4, "Ukanban doing", "using-kanban")],
+    review: [card(5, "Iceberg review", "iceberg")],
+  });
+  const text = JSON.stringify(renderChip({ state, props: workspaceProps("/Users/x/yard/using-kanban") }));
+  assert.ok(text.includes("using-kanban"), "the chip names the scope it counted");
+  assert.ok(text.includes("todo 1"), "only the workspace project's todo");
+  assert.ok(text.includes("doing 1"));
+  assert.ok(text.includes("review 0"));
+  assert.ok(!text.includes("todo 3"), "the other projects' cards stay out of the count");
+});
+
+test("the chip falls back to the whole board outside any project", () => {
+  const state = boardOf({ todo: [card(1, "A", "using-kanban"), card(2, "B", "iceberg"), card(3, "C", "iceberg")] });
+  const text = JSON.stringify(renderChip({ state, props: workspaceProps("/Users/x/yard/scratch") }));
+  assert.ok(text.includes("todo 3"));
+});
+
+test("a workspace with no flow cards hides the chip", () => {
+  const state = boardOf({
+    todo: [card(1, "Elsewhere", "iceberg")],
+    done: [card(2, "Shipped here", "using-kanban", { state: "done" })],
+  });
+  assert.equal(renderChip({ state, props: workspaceProps("/Users/x/yard/using-kanban") }), null);
+});
+
+test("a chip without the session hook still counts the whole board", () => {
+  const state = boardOf({ todo: [card(1, "A", "using-kanban"), card(2, "B", "iceberg")] });
+  const text = JSON.stringify(renderChip({ state, props: {} }));
+  assert.ok(text.includes("todo 2"));
 });

@@ -57,8 +57,10 @@ The bundle also ships a browser half (`client.js`, declared through `dsh.client`
   board. Surfaces use the host tokens (`--dsw-alias-*`) with neutral fallbacks;
   the five state hues match the `ukb web` board (`#64748b`, `#2563eb`, `#d97706`,
   `#16a34a`, `#8b8fa3`). It is listed in the Sidebar guide too.
-- **Composer chip** — `kanban doing N · todo N · review N`, hidden when all three
-  are zero; clicking it opens the panel.
+- **Composer chip** — `kanban <project> · doing N · todo N · review N`, hidden when
+  all three are zero; clicking it opens the panel. Its counts follow the Session
+  workspace's project through the same rule the panel uses, and name that project
+  on the chip; a workspace naming no project falls back to the whole board.
 
 The panel and chip read one Host route, `GET /api/ukb/board` (optional
 `?project=`), which runs `ukb board --json --brief` and caches the result for four
