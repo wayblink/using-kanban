@@ -1014,7 +1014,7 @@ async function main() {
       [
         "The workflow",
         "Connecting an agent",
-        "Build your own UI",
+        "Local and shared boards",
         "Troubleshooting",
       ].every((title) => docs.headings.includes(title)),
       docs.headings.join(" / "),
@@ -1025,7 +1025,7 @@ async function main() {
       `Math.round(document.querySelector('#docs').scrollTop)`,
     );
     const tocBox = await cdp.evaluate(`(() => {
-      const link = [...document.querySelectorAll('.docs-toc a')].find((a) => a.dataset.section === 'api');
+      const link = [...document.querySelectorAll('.docs-toc a')].find((a) => a.dataset.section === 'mcp');
       const r = link.getBoundingClientRect();
       return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
     })()`);
@@ -1036,14 +1036,14 @@ async function main() {
         scrollTop: Math.round(document.querySelector('#docs').scrollTop),
         hash: window.location.hash,
         active: document.querySelector('.docs-toc a.active')?.dataset.section ?? null,
-        sectionTop: Math.round(document.querySelector('#docs-api').getBoundingClientRect().top),
+        sectionTop: Math.round(document.querySelector('#docs-mcp').getBoundingClientRect().top),
         stillOnDocs: getComputedStyle(document.querySelector('#docs')).display !== 'none',
       })`),
     );
     report.push([
       "table of contents scrolls to the section",
       tocAfter.scrollTop > tocBefore + 200 &&
-        tocAfter.active === "api" &&
+        tocAfter.active === "mcp" &&
         tocAfter.stillOnDocs,
       `scroll ${tocBefore}→${tocAfter.scrollTop} · active=${tocAfter.active} · section top ${tocAfter.sectionTop}px`,
     ]);

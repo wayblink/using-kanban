@@ -1160,174 +1160,98 @@ const DOCS_EN = [
   {
     id: "overview",
     title: "What is using-kanban?",
-    lead: "A kanban for agents and the operator who steers them.",
+    lead: "A shared board for people and coding agents.",
     blocks: [
       {
         t: "p",
-        text:
-          "One board for the whole machine, stored centrally at `~/.ukb/`. The operator and the agents share " +
-          "it: an agent picks up work through MCP tools or the CLI, the operator sets the work and steers it " +
-          "through this UI. Projects are separated by the `project` field on cards (by convention the repository " +
-          "name), with `subproject` naming a direction inside one — not by directory.",
+        text: "Create and assign work in the browser, let agents claim it from their harness, and review the results on the same board. Run a local board on your machine or host a shared board over HTTPS.",
+      },
+      {
+        t: "h",
+        text: "Start a local board",
       },
       {
         t: "p",
-        text:
-          "The engine underneath is small and event-sourced. The CLI, the MCP server, and this Web UI are all " +
-          "thin clients of the same core — so you can build your own front end, or embed the board in another " +
-          "product.",
+        text: "Build from a checkout with Node.js 20+ and pnpm 10.",
       },
-      { t: "h", text: "Why it is built this way" },
       {
-        t: "ul",
-        items: [
-          [
-            "Event-sourced",
-            "every change is an appended event; the board is a projection you can rebuild by replaying it. History, undo, and live updates all fall out of that.",
-          ],
-          [
-            "No daemon",
-            "the CLI and MCP server open the store directly. The HTTP server only runs when you want this UI.",
-          ],
-          [
-            "No message bus",
-            "state lives in one place. Agents poll their cards at the start of a turn; the browser gets pushed updates over SSE.",
-          ],
-          [
-            "Swappable storage",
-            "SQLite (WAL) by default, or a single JSONL file — or memory for tests.",
-          ],
-        ],
+        t: "code",
+        text: "git clone https://github.com/wayblink/using-kanban.git\ncd using-kanban\npnpm install --frozen-lockfile\npnpm build\n(cd packages/cli && npm link)",
+      },
+      {
+        t: "code",
+        text: 'ukb add "Fix login validation" --project web --subproject auth --assignee codex\nukb board --project web\nukb web',
+      },
+      {
+        t: "p",
+        text: "The first card creates the local board in `~/.ukb/`. To choose another location, set `UKB_DIR` or pass `--dir <dir>`. The data goes in `<dir>/.ukb/`.",
       },
     ],
   },
   {
     id: "workflow",
     title: "The workflow",
-    lead: "Five columns. The first is a shelf for later; the other four are the flow, and the rule there is claim before you work.",
+    lead: "Read the card, claim it, do the work, and hand it back for review.",
     blocks: [
       {
         t: "table",
-        head: ["State", "Meaning", "How you get there"],
+        head: ["State", "What happens"],
         rows: [
-          [
-            "someday",
-            "parked for later — nobody assigned",
-            "move a card there",
-          ],
-          ["todo", "ready to be picked up", "created here"],
-          ["doing", "someone is actively working it", "claim"],
-          ["review", "work is ready for its reviewer", "review"],
-          ["done", "approved and finished", "done"],
+          ["todo", "New work starts here. Reopen sends work back to Todo."],
+          ["doing", "Claim moves a card to Doing and assigns it to you."],
+          ["review", "Hand the card off to its reviewer."],
+          ["done", "Accept the work and mark the card complete."],
+          ["someday", "Park a card and clear its assignee and reviewer."],
         ],
       },
-      { t: "h", text: "The one rule" },
       {
         t: "p",
-        text:
-          "Always claim a card before starting work on it. Claiming moves it to doing and marks you as the owner, " +
-          "so nobody else duplicates the effort — and if someone got there first you get a claim_conflict instead of " +
-          "silently overwriting their work.",
+        text: "Always claim before starting work. If another assignee is already working the card, the competing claim returns `claim_conflict`. Use `ukb mine` or `kanban_my_cards` for your assignments. Use `kanban_review_queue` for cards awaiting your review.",
       },
-      { t: "h", text: "Write cards an agent can act on" },
       {
         t: "p",
-        text:
-          "Notifications only carry the title. Put the target files and the acceptance criteria in the body — " +
-          "that is what the assignee reads before starting.",
+        text: "Put the target files and acceptance criteria in the body. Priorities are `high`, `normal`, and `low` and order cards within a state.",
       },
       {
         t: "code",
-        text: 'ukb add "implement /api/cards" \\\n  --body "target: packages/server/src/routes/cards.ts\\nAC: vitest green" \\\n  --assignee claude-code --reviewer jyxc',
+        text: 'ukb add "Fix login validation" --project web --subproject auth \\\n  --assignee codex --reviewer alice --body "Update the login handler and test invalid input."',
       },
     ],
   },
   {
     id: "web-ui",
     title: "Using this UI",
-    lead: "Drag cards between columns; the drop runs the matching verb.",
+    lead: "Use Board for current work, a card page for details, and Events for the audit trail.",
     blocks: [
       {
         t: "table",
-        head: ["Drop a card on…", "…and it runs"],
+        head: ["Drop on", "Action"],
         rows: [
-          ["Doing", "claim — moves to doing and assigns the card to you"],
-          ["Review", "review — hands it to the reviewer named on the card"],
-          ["Done", "done — marks it finished (idempotent)"],
-          ["Todo", "reopen — sends it back for rework"],
-          [
-            "Someday",
-            "move — parks it for later and clears its assignee and reviewer",
-          ],
+          ["Doing", "claim"],
+          ["Review", "review"],
+          ["Done", "done"],
+          ["Todo", "reopen"],
+          ["Someday", "move"],
         ],
       },
-      {
-        t: "p",
-        text:
-          "A card is fixed-size and says four things in the same order every time: the title, the scope " +
-          "(project, and the direction inside it), a few lines of the body's gist (markdown stripped, so it " +
-          "reads as prose), and the labels — who has it, its priority, what it waits on. The scope sits outside " +
-          "the label cap on purpose, so a crowded card cannot lose the repository it belongs to; only the three " +
-          "labels a reader acts on are printed, and the rest collapse into `+N`, whose tooltip names them.",
-      },
-      {
-        t: "p",
-        text:
-          "If a claim fails — someone else is already working the card — you get the server's reason as a toast and " +
-          "the board snaps back to server state. Nothing is ever silently overwritten.",
-      },
-      { t: "h", text: "Events — the audit trail" },
-      {
-        t: "p",
-        text:
-          "The Events page lists every operation on the board, newest first: who did it, through which door " +
-          "(cli, mcp, api, web), what changed, and which project and card it touched. Filter by project, or by " +
-          "card, project, actor or action within a page. The pager says how many events there are in all — " +
-          "Page 1 · 25 of 340 — and " +
-          "takes 25, 50, 100, 200 or Auto (a screenful) to a page; step older and newer with it, and click a " +
-          "row's card to open it. It is the same event log the board is built from, read straight.",
-      },
-      { t: "h", text: "Identity" },
-      {
-        t: "p",
-        text:
-          "The browser acts as whoever the server's default actor is — the same " +
-          "name the CLI would use on this machine. Humans and agents share one " +
-          "namespace, so a human reviewing a card an agent implemented still reads " +
-          "as two different people in the history. Every event in a card's history " +
-          "records who did it.",
-      },
-      { t: "h", text: "Everything else" },
       {
         t: "ul",
         items: [
           [
-            "Card page",
-            "click any card to open its own page and link (`#/card/<id>`) — share, bookmark or reload it. The page edits title/body/assignee/reviewer, runs transitions, manages upstream and downstream relations, attaches notes, reads the event history, or deletes the card (creator only). Opening it fetches that one card, not the whole board.",
+            "Board",
+            "Search by card ID, title, or body preview. Filter by project, subproject, assignee, and reviewer. Card summaries load first and changes arrive live over SSE.",
           ],
           [
-            "Relations",
-            "a card shows both ends of its relations: what it waits on, and what waits on it. Add from either side — the edge is one edge.",
+            "Card page",
+            "Click a card to edit its fields, dependencies, hierarchy, and notes, or browse its history. `#/card/<id>` fetches that card directly. Use Copy link on a shared board to give another user with board access the same view.",
+          ],
+          [
+            "Events",
+            "Browse changes newest first with card, actor, action, and source. The project filter searches the whole log. The search field filters the current page, and the pager shows the matching total for the server-side scope.",
           ],
           [
             "Notes",
-            "remarks with a document link. A local markdown or HTML file opens right here in the document viewer; an https link opens in a new tab.",
-          ],
-          [
-            "Filters",
-            "search by id (#983), title or body, then narrow by project, subproject, assignee and reviewer.",
-          ],
-          [
-            "Live",
-            "the board updates over SSE — cards moved by an agent, the CLI, or another browser tab appear without a refresh.",
-          ],
-          [
-            "Loading",
-            "the board shows a spinner until its first read, a thin top bar while a slow request runs, and a card link shows a skeleton until its card arrives.",
-          ],
-          [
-            "Keyboard",
-            "Enter opens a focused card, Escape closes the page or panel.",
+            "Local Markdown, HTML, and text can open in the document viewer. HTTPS links open in a separate tab.",
           ],
         ],
       },
@@ -1336,390 +1260,264 @@ const DOCS_EN = [
   {
     id: "insights",
     title: "Insights — the board over time",
-    lead: "What the work is doing, not who did what.",
+    lead: "Track work over 7, 30, or 90 days in your browser's time zone.",
     blocks: [
       {
-        t: "p",
-        text:
-          "The board shows the present; Insights (`#/insights`) shows the recent past. It is computed from the " +
-          "same event log the board is a projection of — one replay, aggregated server-side — so the two cannot " +
-          "disagree. The Events page stays the per-operation record; Insights is the aggregate.",
-      },
-      {
         t: "table",
-        head: ["Panel", "The question it answers"],
+        head: ["Panel", "What it shows"],
         rows: [
           [
             "Board right now",
-            "how many cards sit in each column, with the unfinished and in-play totals and a comparison against the window before",
+            "Current state totals and a comparison with the previous window.",
           ],
           [
             "Throughput",
-            "cards finished per day against cards created — is the pile growing or shrinking?",
+            "Cards created and completed per day. A card finished twice on the same day counts once.",
           ],
           [
             "Projects",
-            "where the open work is, by project and state; click a row to open that project on the board",
+            "Open work by project and state. Select a row to open the project on the board.",
           ],
           [
             "Cumulative flow",
-            "the board's shape at the end of each day — WIP that keeps growing, or a review queue that never drains, shows up here",
+            "The number of cards in each state at the end of each day.",
           ],
           [
             "Flow health and stuck cards",
-            "cycle time for the window and blocked work, then the doing/review cards past the threshold (doing 3+ days, review 2+). Click a row to open the card; the ranking is a snapshot of now, not of the window.",
-          ],
-        ],
-      },
-      { t: "h", text: "How the numbers are made" },
-      {
-        t: "ul",
-        items: [
-          [
-            "Window",
-            "7, 30 or 90 days ending today, cut in the browser's time zone. Events are stored in UTC; an evening's work east of Greenwich must not be filed under yesterday.",
-          ],
-          [
-            "Completions",
-            "one per card per day. A card finished, reopened and finished again the same day counts once. The done tile is the current column count — a different number from the window's throughput.",
-          ],
-          [
-            "Deleted cards",
-            "their history still counts — they really were created and finished — but they are not in the current counts.",
-          ],
-          [
-            "Cycle time",
-            "created to finished, for the cards that finished inside the window; the median and the 85th percentile, in days.",
-          ],
-          [
-            "Stuck ranking",
-            "a snapshot of now: `doing` for 3+ days, `review` for 2+; sorted by days and capped at ten, so the page never re-sorts its own slice.",
-          ],
-          [
-            "Cost",
-            "one replay of the log per request, server-side. The browser never pages through `/api/log` to draw a chart.",
+            "Blocked work, median and P85 cycle time from creation to completion, and cards in Doing for 3+ days or Review for 2+ days.",
           ],
         ],
       },
       {
         t: "p",
-        text:
-          "Clicking a project row opens `#/board?project=<slug>`, so a filtered board is a link you can share. " +
-          "The page follows the live log over SSE and recomputes in the background when something changes.",
-      },
-      {
-        t: "p",
-        text:
-          "Not here yet: a per-person or per-agent breakdown, a 90-day contribution heatmap, arbitrary ranges, " +
-          "and saved dashboard layouts. The event log holds the data for the first two; the endpoint would have " +
-          "to aggregate them before the page could draw them.",
+        text: "The server computes Insights from the event log. Throughput includes historical activity on deleted cards. The stuck ranking and current state totals describe the live board.",
       },
     ],
   },
   {
     id: "cli",
     title: "The ukb CLI",
-    lead: "Same board, no server, no daemon.",
+    lead: "Use the same board from a terminal or from an agent's tools.",
     blocks: [
       {
         t: "code",
-        text:
-          "ukb                              # your open cards — a call to act, not a list\\n" +
-          "ukb board                        # the whole board\\n" +
-          "ukb show 3                       # detail + event history\\n" +
-          'ukb add "fix the flaky test" --body "AC: green on CI" --assignee codex --reviewer jyxc\\n' +
-          "ukb claim 3                      # todo → doing, assigned to you\\n" +
-          "ukb review 3                     # → review\\n" +
-          "ukb done 3                       # → done\\n" +
-          "ukb reopen 3                     # → todo\\n" +
-          "ukb move 3 doing\\n" +
-          'ukb edit 3 --body "…"            # empty string clears a field\\n' +
-          "ukb block 4 --by 3               # dependencies\\n" +
-          "ukb relate 4 --with 3 --as upstream    # name the direction\\n" +
-          "ukb unrelate 4 --with 3          # drop it, either way round\\n" +
-          'ukb note 4 "design doc" --url docs/design.md\\n' +
-          "ukb web                          # start the API + this UI\\n" +
-          "ukb doctor                       # is this project wired up?",
+        text: 'ukb mine\nukb show 2\nukb board --project web --subproject auth\nukb block 2 --by 1\nukb parent 2 --of 1\nukb note 2 "Design doc" --url docs/design.md\nukb help\nukb doctor',
       },
       {
         t: "p",
-        text:
-          "Agents pass --agent <name> --agent-type agent so cards are attributable; UKB_AGENT and UKB_DIR work as " +
-          "environment equivalents. Failures exit non-zero with the stable code, e.g. " +
-          "claim_conflict: card 3 is already being worked by codex.",
-      },
-    ],
-  },
-  {
-    id: "mcp",
-    title: "Connecting an agent",
-    lead: "One command per framework.",
-    blocks: [
-      {
-        t: "code",
-        text:
-          "ukb init --for claude-code           # writes .mcp.json + CLAUDE.md\\n" +
-          "ukb init --for codex                 # marker block in ~/.codex/config.toml + AGENTS.md\\n" +
-          "ukb init --for opencode              # merges opencode.json + AGENTS.md\\n" +
-          "ukb init --for pi                    # registers the Pi package (extension + skill)\n" +
-          "ukb init --for claude-code --browser # …plus the Playwright MCP server\n" +
-          "ukb init --for claude-code --local  # point at this checkout, not the npm package",
+        text: "`ukb show` includes the full body, relations, and history. `ukb list` lists project counts. `review`, `done`, `reopen`, and `delete` accept multiple IDs and stop at the first failure. `claim` takes a single ID.",
       },
       {
         t: "p",
-        text:
-          "Before the packages are on npm, add --local. The default config runs " +
-          "npx -y @wayblink/using-kanban-mcp, which only resolves once published; " +
-          "--local instead writes an absolute path to packages/mcp/dist/bin.js in " +
-          "this repo, run by the same node binary. Everything else is identical.",
-      },
-      {
-        t: "p",
-        text:
-          "The AGENTS.md / CLAUDE.md snippet is what teaches the workflow — claim before working, review when ready — " +
-          "so even an agent that never reads these docs behaves correctly.",
-      },
-      {
-        t: "h",
-        text: "Projects",
-      },
-      {
-        t: "p",
-        text:
-          "Cards carry an optional project slug, so one board can hold several projects " +
-          "and every front door can filter to just one. A card with no project is in no " +
-          "project — a project filter is a partition, not an overlay.",
-      },
-      {
-        t: "code",
-        text:
-          'ukb add "Fix the login bug" --project web   # set it at creation\n' +
-          "ukb edit 7 --project api                     # move it later\n" +
-          "ukb board --project web                      # just that project\n" +
-          "ukb mine --project web                       # my work in one project",
-      },
-      {
-        t: "p",
-        text:
-          "Over MCP the same three verbs take a project argument — kanban_board, " +
-          "kanban_my_cards and kanban_review_queue — and kanban_projects lists the " +
-          "slugs in use, so an agent never has to guess one. The REST API takes " +
-          "?project= on /api/board and /api/cards, and the Web UI has a project " +
-          "dropdown beside the assignee and reviewer filters.",
-      },
-      {
-        t: "p",
-        text:
-          "Slugs are normalised to lowercase and restricted to letters, digits, dot, " +
-          'dash and underscore, because they end up in URLs and CLI flags: "Web" and ' +
-          '"web" cannot become two different projects by accident.',
-      },
-      { t: "h", text: "The tools an agent gets" },
-      {
-        t: "table",
-        head: ["Tool", "Purpose"],
-        rows: [
-          ["kanban_my_cards", "your open cards — the call to act"],
-          ["kanban_review_queue", "cards waiting for your review"],
-          [
-            "kanban_board / kanban_show",
-            "the whole board / one card with history",
-          ],
-          [
-            "kanban_add / kanban_edit / kanban_delete",
-            "create, edit (creator or assignee), delete (creator only)",
-          ],
-          [
-            "kanban_claim / kanban_review / kanban_done / kanban_reopen / kanban_move",
-            "the transitions",
-          ],
-          [
-            "kanban_block / kanban_unblock",
-            "dependencies — a card with an unfinished blocker cannot be claimed or moved to doing",
-          ],
-          [
-            "kanban_relate / kanban_unrelate",
-            "the same relation with a named direction (upstream/downstream), managed from either card",
-          ],
-          [
-            "kanban_note_add / kanban_note_update / kanban_note_remove",
-            "notes — remarks and document links, e.g. the design doc for the requirement",
-          ],
-          [
-            "kanban_projects",
-            "the project slugs in use — call before filtering",
-          ],
-        ],
-      },
-    ],
-  },
-  {
-    id: "api",
-    title: "Build your own UI",
-    lead: "The HTTP API is the contract — this page is just one consumer of it.",
-    blocks: [
-      {
-        t: "table",
-        head: ["Method", "Path", "Purpose"],
-        rows: [
-          ["GET", "/api/board?project=&subproject=", "columns + cards, scoped"],
-          ["GET", "/api/insights?days=&tz=", "throughput, flow, aging"],
-          [
-            "GET",
-            "/api/cards?state=open&project=&subproject=&assignee=me&q=text",
-            "filtered cards",
-          ],
-          ["GET", "/api/cards/:id", "card + event history"],
-          ["POST", "/api/cards", "create a card (todo)"],
-          ["PATCH", "/api/cards/:id", "edit fields"],
-          [
-            "POST",
-            "/api/cards/:id/{claim,review,done,reopen,move}",
-            "transitions",
-          ],
-          ["POST", "/api/cards/:id/{block,unblock}", "dependencies"],
-          ["POST", "/api/cards/:id/{parent,unparent}", "umbrella ↔ parts"],
-          [
-            "POST",
-            "/api/cards/:id/{relate,unrelate}",
-            "relations — { other, direction: upstream|downstream }",
-          ],
-          [
-            "POST",
-            "/api/cards/:id/notes",
-            "add a note — { text, url } (url may be a local file)",
-          ],
-          [
-            "PATCH/DELETE",
-            "/api/cards/:id/notes/:noteId",
-            "edit or remove a note",
-          ],
-          ["DELETE", "/api/cards/:id", "delete (creator only)"],
-          ["GET", "/api/doc?path=…", "the document behind a note's link"],
-          ["GET", "/api/events", "SSE stream of the shared log"],
-          ["GET", "/openapi.json", "the full spec"],
-        ],
-      },
-      { t: "h", text: "Auth" },
-      {
-        t: "p",
-        text:
-          "Bound to 127.0.0.1 with a generated token. Mutations always need it — Authorization: Bearer <token>, or " +
-          "?token=<token> which is how a browser EventSource passes it. Reads are free on loopback and need the token " +
-          "once you bind elsewhere. Start it with ukb-server --host 0.0.0.0 --token <yours> to embed it.",
-      },
-      { t: "h", text: "Identity and concurrency" },
-      {
-        t: "ul",
-        items: [
-          [
-            "Who acted",
-            "send X-Actor-Name and X-Actor-Type: human|agent; X-Source tags where the event came from.",
-          ],
-          [
-            "Optimistic concurrency",
-            "send If-Match: <revision> (or expectedRevision in the body). A stale revision gets 409 revision_conflict instead of clobbering a concurrent edit.",
-          ],
-          [
-            "Live updates",
-            "subscribe to /api/events with ?since=<id> to backfill, then stream. Mutations from the CLI and MCP servers show up there too.",
-          ],
-        ],
+        text: "The CLI can open a local store directly or connect to a shared board over HTTP. The Local and shared boards section covers client credentials.",
       },
     ],
   },
   {
     id: "concepts",
     title: "Concepts",
-    lead: "The concepts worth knowing.",
+    lead: "Organize cards by project and workstream, and link the work that belongs together.",
     blocks: [
       {
         t: "ul",
         items: [
           [
-            "Actors",
-            "{ type: human | agent, name }. One namespace, so a human can review an agent's card and vice versa.",
+            "Projects and subprojects",
+            "Use the repository name for `project` and the workstream for `subproject`, for example `web/auth`. A subproject requires a project. Clearing or changing the project clears the workstream unless you set a new one.",
           ],
           [
-            "Project and subproject",
-            "project names the code repository; subproject names a direction inside it (both lowercase slugs). A subproject needs a project; clearing or changing the project drops the direction. `ukb board --project web --subproject auth` slices the board that way, and a card's badge reads `web/auth`.",
+            "Dependencies",
+            "`ukb block 2 --by 1` makes #2 wait for #1. `ukb relate 2 --with 1 --as upstream` adds the same edge. An unfinished dependency blocks entry into Doing.",
           ],
           [
-            "Relations",
-            "a card can wait on others (block 4 --by 3), and others can wait on it. The edge is stored once and read from both ends — upstream (blockedBy) and downstream (blocks) — so a card is many cards' predecessor and many cards' successor at once. Cycles and self-relations are rejected, and a card with unfinished upstream work cannot be claimed.",
+            "Umbrellas",
+            "`ukb parent 2 --of 1` makes #2 part of #1. Hierarchies can nest across projects at any depth. A child can enter Doing or Review while its parent is in Doing. An umbrella can enter Review or Done once its children are done. Dependencies are configured independently.",
           ],
           [
             "Notes",
-            "remarks attached to a card, each with an optional document link. The link may be https://… or a path to a file on this machine; the server reads local markdown, HTML and text for the Web UI from the directories it is allowed to see (--doc-root, the store dir, its cwd).",
+            "Add remarks and document links to a card. The Web UI can read supported local documents from the server's working directory, store directory, or a configured `--doc-root`.",
           ],
           [
-            "Revisions",
-            "every mutation bumps the card's revision. That is what makes concurrent edits safe across the CLI, MCP, and browser.",
-          ],
-          [
-            "Permissions are cooperative",
-            "delete is creator-only, edit is creator-or-assignee — based on the actor name you send, not cryptography. Fine for a local board.",
-          ],
-          [
-            "Storage",
-            "sqlite (WAL, multi-process safe) by default; jsonl for a zero-dependency, git-friendly board; memory for tests. Switch with --storage or UKB_STORAGE.",
+            "IDs",
+            "Card IDs and event IDs use separate sequences. A card keeps the same ID through edits, moves, and migration.",
           ],
         ],
       },
     ],
   },
   {
-    id: "troubleshooting",
-    title: "Troubleshooting",
-    lead: "What the errors mean and what to do.",
+    id: "mcp",
+    title: "Connecting an agent",
+    lead: "Choose the installer for your harness, then restart it.",
     blocks: [
       {
-        t: "table",
-        head: ["Error", "Meaning", "Fix"],
-        rows: [
+        t: "p",
+        text: "Run the matching command from your project directory after building and linking the checkout. `--local` directs an MCP installer to this build. `--dry-run` previews the files an installer would write.",
+      },
+      {
+        t: "code",
+        text: "ukb init --for codex --local\nukb init --for pi\nukb init --for dsh\nukb init --for claude-code --local\nukb init --for opencode --local",
+      },
+      {
+        t: "h",
+        text: "Codex",
+      },
+      {
+        t: "p",
+        text: "`ukb init --for codex --local` registers the stdio `using-kanban` MCP server in `~/.codex/config.toml` and adds workflow guidance to `AGENTS.md`. Check the entry with `codex mcp list`. Start a new session and ask Codex to list its open cards. Its board identity is `codex`.",
+      },
+      {
+        t: "p",
+        text: "In the Codex Desktop plugin preview, open Show board from the conversation app menu or ask Codex to show the board for the current project. The panel groups cards by state, nests children, filters by project, assignee, and text, and opens details and history. Refresh updates the panel. Use Codex tools for actions and the Web UI for interactive editing.",
+      },
+      {
+        t: "p",
+        text: "To install that preview from source, use the preview checkout containing `packages/codex` and `.agents/plugins/marketplace.json`. Install dependencies and build there with the same Node version the desktop plugin will use. The desktop app must be able to find `node` on its `PATH`. From the preview checkout, stage the server, add the local marketplace and install Using Kanban. Use one connection per session, through the desktop plugin or through the standalone MCP entry.",
+      },
+      {
+        t: "code",
+        text: 'pnpm --filter @wayblink/using-kanban-mcp deploy --legacy --prod packages/codex/dist/server\ncodex plugin marketplace add "$PWD"\ncodex plugin add using-kanban@using-kanban',
+      },
+      {
+        t: "h",
+        text: "Pi",
+      },
+      {
+        t: "p",
+        text: "`ukb init --for pi` adds the local extension and skill to `~/.pi/agent/settings.json` and writes project guidance to `AGENTS.md`. The extension registers an `ukb` tool and `/ukb` command. Its default agent identity is `pi`. `/ukb gui show` opens the panel for the current Git project, `/ukb gui split` adds a second pane, and `/ukb gui help` lists options. `/ukb web` and `/ukb web stop` manage the local Web UI in the background.",
+      },
+      {
+        t: "h",
+        text: "DeepSeek Harness",
+      },
+      {
+        t: "p",
+        text: "`ukb init --for dsh` writes `AGENTS.md`. In DeepSeek Harness, open Plugins → Add plugin and select `packages/dsh` from the checkout to register the native `ukb` tool, `/ukb` command, and system prompt guidance. The bundle runs the CLI as `dsh`. If it cannot find the executable, set `ukb_path` in the bundle config or the `UKB_BIN` environment variable.",
+      },
+      {
+        t: "p",
+        text: "The DSH web client adds a Kanban sidebar, a composer chip with state counts, and a card or board view for tool calls. The sidebar and chip start with the project matched from the session workspace path and fall back to the whole board.",
+      },
+      {
+        t: "h",
+        text: "Claude Code, opencode, and other MCP clients",
+      },
+      {
+        t: "p",
+        text: "The Claude Code installer writes `.mcp.json` and `CLAUDE.md`. The opencode installer writes `opencode.json` and `AGENTS.md`. Other MCP clients can run `node /path/to/using-kanban/packages/mcp/dist/bin.js --agent <name>` over stdio. The server provides `kanban_*` tools for work and review queues, cards, transitions, dependencies, hierarchy and notes, plus the `kanban://board` resource.",
+      },
+    ],
+  },
+  {
+    id: "shared-board",
+    title: "Local and shared boards",
+    lead: "Use one event log locally or give several machines access to a shared server.",
+    blocks: [
+      {
+        t: "h",
+        text: "Storage, identity, and access",
+      },
+      {
+        t: "ul",
+        items: [
           [
-            "claim_conflict",
-            "someone else is already working that card",
-            "pick another card, or ask them to reopen it",
+            "Storage",
+            "SQLite is the local default. Use `--storage` or `UKB_STORAGE` to choose JSONL, memory, or Postgres. Postgres reads the connection URL from `--pg-url`, `UKB_PG_URL`, or `DATABASE_URL`.",
           ],
           [
-            "forbidden",
-            "you are neither the creator nor the assignee",
-            "have the creator or assignee make the change",
+            "Identity",
+            "The local CLI and browser default to the board owner. Set `owner` in `~/.config/ukb/config.json` (or `$XDG_CONFIG_HOME/ukb/config.json`) or override it with `UKB_OWNER`. Use `--agent <name> --agent-type agent` for CLI agent actions. Pi also reads `guidance` and `overlay` from this config.",
           ],
           [
-            "card_not_found",
-            "the id does not exist on this board",
-            "ukb board to see the real ids",
-          ],
-          [
-            "revision_conflict",
-            "the card changed since you read it",
-            "re-read it (ukb show / GET /api/cards/:id) and retry",
-          ],
-          [
-            "invalid_state",
-            "the transition does not make sense (e.g. claiming a done card)",
-            "check the card's current state first",
-          ],
-          [
-            "unauthorized",
-            "mutation without a token",
-            "pass the token from the ukb web URL",
-          ],
-          [
-            "Insights says the page is newer than the server",
-            "a long-running ukb web is still serving its old API after an upgrade",
-            "restart ukb web (or ukb-server), then press Retry",
+            "Card permissions",
+            "The creator, assignee, or board owner can edit a card. The creator or board owner can delete it. On a personal board, `--open-access` or `UKB_OPEN_ACCESS=1` lets any caller with write access edit or delete any card. Server authentication still applies.",
           ],
         ],
       },
       {
+        t: "h",
+        text: "Run a shared server",
+      },
+      {
         t: "p",
-        text:
-          "Agents: run ukb (or kanban_my_cards) from anywhere — there is one board at ~/.ukb/, so the directory " +
-          "you run from does not matter. Filter with --project <slug> to see one project's work. If identity " +
-          "cannot be resolved, pass --agent <name>.",
+        text: "The server defaults to loopback. With no accounts, reads are open on loopback and writes require the server token. A non-loopback bind requires an account or `--allow-anonymous`, which opens reads on a trusted LAN and keeps the write-token requirement.",
+      },
+      {
+        t: "p",
+        text: "With accounts configured, the browser uses HTTP Basic and automation can use machine tokens. Create accounts and tokens on the store's host. Serve shared boards over HTTPS. The Docker Compose deployment in `docs/deployment.md` includes Caddy, Postgres, backups, and first-account setup. `/healthz` stays open for probes.",
+      },
+      {
+        t: "code",
+        text: "ukb user add alice\nukb user token add alice --label laptop",
+      },
+      {
+        t: "h",
+        text: "Connect a client",
+      },
+      {
+        t: "p",
+        text: "Choose the URL with `--server`, `UKB_SERVER`, or `server` in the config. Supply a token with `--token`, `UKB_TOKEN`, or `ukb login`. Login writes a per-server token to `credentials.json` beside the config.",
+      },
+      {
+        t: "code",
+        text: "ukb login --server https://board.example.com --token 'ukb_…'\nukb --server https://board.example.com board --project web",
+      },
+      {
+        t: "p",
+        text: "The MCP process uses the same settings. Pi and DeepSeek Harness send board operations through the CLI. Run `ukb init` before setting the remote default and give the harness process access to the config and credentials. `web`, `init`, `doctor`, `user`, and `migrate` require local mode.",
+      },
+      {
+        t: "h",
+        text: "Migrate an existing board",
+      },
+      {
+        t: "p",
+        text: "`ukb migrate --to postgres` copies a local SQLite log into Postgres. To upload it to a running board, enable `UKB_ALLOW_IMPORT=1` on the target and run `ukb migrate --to https://board.example.com --token 'ukb_…'` from the source with an admin machine token. Both paths preserve card and event IDs and require an empty destination by default.",
+      },
+    ],
+  },
+  {
+    id: "troubleshooting",
+    title: "Troubleshooting",
+    lead: "Check the board, actor, and card state before retrying.",
+    blocks: [
+      {
+        t: "table",
+        head: ["Error", "What to check"],
+        rows: [
+          [
+            "board_not_found",
+            "Check UKB_DIR and the board URL. Create a first card to initialize a local board.",
+          ],
+          [
+            "claim_conflict",
+            "Open the card to see who is working it or whether it is in review.",
+          ],
+          [
+            "invalid_state",
+            "Check the current state, unfinished dependencies, and the parent or children.",
+          ],
+          [
+            "forbidden",
+            "Check the current actor and the card's creator or assignee. The board owner can edit and delete any card.",
+          ],
+          [
+            "card_not_found",
+            "Confirm the card ID and that you are accessing the right board.",
+          ],
+          [
+            "revision_conflict",
+            "Reload the card and apply your changes against the current revision.",
+          ],
+          [
+            "unauthorized",
+            "Sign into the shared board or check the machine token and server URL. For a local session, use the URL printed by ukb web.",
+          ],
+          [
+            "UI newer than the API",
+            "Restart ukb web or ukb-server after updating, then press Retry.",
+          ],
+        ],
       },
     ],
   },
@@ -1729,504 +1527,348 @@ const DOCS_ZH = [
   {
     id: "overview",
     title: "什么是 using-kanban？",
-    lead: "给 agent 和操作者的看板。",
+    lead: "供人和编程智能体协作的看板。",
     blocks: [
       {
         t: "p",
-        text:
-          "全机共用一块看板，集中存放在 `~/.ukb/`。操作者与智能体共用它：智能体通过 MCP 工具或命令行认领工作，" +
-          "操作者在这里设定工作、观察并调度。项目之间靠卡片上的 `project` 字段区分（约定写仓库名），" +
-          "`subproject` 表示仓库里的方向——而不是靠目录。",
+        text: "在浏览器里创建和分配任务，智能体在自己的工具环境里认领，完成后在同一张看板上交付审查。你可以在本机使用，也可以通过 HTTPS 托管共享看板。",
+      },
+      {
+        t: "h",
+        text: "启动本地看板",
       },
       {
         t: "p",
-        text: "底下的内核很小，且是事件溯源的：命令行、MCP 服务器和这个 Web 界面都只是同一套内核的薄客户端——因此你可以自己写前端，或把看板嵌进别的产品。",
+        text: "使用 Node.js 20 或以上版本和 pnpm 10，从源码构建。",
       },
-      { t: "h", text: "为什么这样设计" },
       {
-        t: "ul",
-        items: [
-          [
-            "事件溯源",
-            "每次变更都是一条追加的事件；看板是通过重放事件得到的投影，随时可以重建。历史、撤销与实时更新都由此自然获得。",
-          ],
-          [
-            "无守护进程",
-            "命令行与 MCP 服务器直接打开存储。只有当你需要这个界面时，HTTP 服务器才会运行。",
-          ],
-          [
-            "无消息总线",
-            "状态只存在一处。智能体在每轮开始时拉取自己的卡片；浏览器则通过 SSE 接收推送更新。",
-          ],
-          [
-            "可替换存储",
-            "默认使用 SQLite（WAL），也可以是单个 JSONL 文件——或用于测试的内存存储。",
-          ],
-        ],
+        t: "code",
+        text: "git clone https://github.com/wayblink/using-kanban.git\ncd using-kanban\npnpm install --frozen-lockfile\npnpm build\n(cd packages/cli && npm link)",
+      },
+      {
+        t: "code",
+        text: 'ukb add "Fix login validation" --project web --subproject auth --assignee codex\nukb board --project web\nukb web',
+      },
+      {
+        t: "p",
+        text: "创建第一张卡片时，看板会初始化在 `~/.ukb/`。也可以设置 `UKB_DIR` 或传入 `--dir <目录>`，数据会存到 `<目录>/.ukb/`。",
       },
     ],
   },
   {
     id: "workflow",
-    title: "工作流",
-    lead: "五列看板。第一列是搁置区，其余四列是工作流，规则是：先认领，再动手。",
+    title: "工作流程",
+    lead: "阅读卡片，认领任务，完成后交给审查者。",
     blocks: [
       {
         t: "table",
-        head: ["状态", "含义", "如何进入"],
+        head: ["状态", "含义"],
         rows: [
-          ["someday", "搁置待议——无人负责", "把卡片移过去"],
-          ["todo", "等待被认领", "创建时即在此列"],
-          ["doing", "有人正在处理", "认领"],
-          ["review", "工作已就绪，等待审查", "提交审查"],
-          ["done", "已批准并完成", "完成"],
+          ["todo", "新任务从这里开始。重新打开会将任务送回待办。"],
+          ["doing", "认领将卡片移到进行中，并将你设为负责人。"],
+          ["review", "将卡片交给审查者。"],
+          ["done", "验收通过，标记完成。"],
+          ["someday", "暂缓任务，同时清空负责人和审查者。"],
         ],
       },
-      { t: "h", text: "唯一的一条规则" },
       {
         t: "p",
-        text: "开始工作前务必先认领卡片。认领会把它移到「进行中」并将你标记为负责人，这样没人会重复劳动——如果别人抢先一步，你会收到 claim_conflict 错误，而不是悄悄覆盖他们的工作。",
+        text: "开始工作前先认领卡片。如果卡片已由其他人处理，认领会返回 `claim_conflict`。用 `ukb mine` 或 `kanban_my_cards` 查看分配给你的任务，用 `kanban_review_queue` 查看等你审查的卡片。",
       },
-      { t: "h", text: "写下智能体能执行的卡片" },
       {
         t: "p",
-        text: "通知只携带标题。请把目标文件和验收标准写进描述里——那才是负责人在开始前阅读的内容。",
+        text: "在卡片正文中写明目标文件和验收标准。优先级分为 `high`、`normal` 和 `low`，影响同一状态里的排列顺序。",
       },
       {
         t: "code",
-        text: 'ukb add "实现 /api/cards" \\\n  --body "目标：packages/server/src/routes/cards.ts\n验收：vitest 全部通过" \\\n  --assignee claude-code --reviewer jyxc',
+        text: 'ukb add "Fix login validation" --project web --subproject auth \\\n  --assignee codex --reviewer alice --body "Update the login handler and test invalid input."',
       },
     ],
   },
   {
     id: "web-ui",
-    title: "使用这个界面",
-    lead: "把卡片拖到某一列，就会执行对应的语义动作。",
+    title: "使用 Web 界面",
+    lead: "在看板上处理当前任务，在卡片页查看详情，在事件页查看操作记录。",
     blocks: [
       {
         t: "table",
-        head: ["拖到…", "…就会执行"],
+        head: ["拖到", "执行"],
         rows: [
-          ["进行中", "认领——移到进行中，并把卡片分配给你"],
-          ["审查中", "提交审查——交给卡片上指定的审查者"],
-          ["已完成", "完成——标记为已完成（幂等）"],
-          ["待办", "重新打开——打回重做"],
-          ["搁置", "移动——搁置待议，并清空负责人和审查者"],
+          ["进行中", "claim"],
+          ["审查", "review"],
+          ["完成", "done"],
+          ["待办", "reopen"],
+          ["暂缓", "move"],
         ],
       },
-      {
-        t: "p",
-        text: "每张卡片高度固定，且总是按同一顺序说四件事：标题、归属（项目，以及项目里的方向）、正文梗概（去掉 markdown，按散文读），以及标签——谁在处理、优先级、在等什么。归属刻意不占标签名额，再拥挤的卡片也不会丢掉仓库信息；标签只印读者会真正动手的那三个，其余收进 `+N`，悬停可看全。",
-      },
-      {
-        t: "p",
-        text: "如果认领失败——已经有别人在处理这张卡片——你会看到服务端返回的原因提示，看板也会回退到服务端状态。任何操作都不会被悄悄覆盖。",
-      },
-      { t: "h", text: "事件 —— 审计流水" },
-      {
-        t: "p",
-        text: "事件页按时间倒序列出看板上的每一个操作：谁做的、通过哪个入口（cli / mcp / api / web）、改了什么、动了哪个项目和哪张卡。可按项目过滤（服务端过滤，翻页时搜的是整份日志而不是当前页），也能在页内按卡片 / 项目 / 操作者 / 动作筛选。分页器会告诉你日志总共有多少 —— 第 1 页 · 本页 25 / 共 340 —— 每页可选 25 / 50 / 100 / 200 或「自适应」（一屏）；前后翻页，点行里的卡片即可打开它。它就是看板据以构建的那份事件日志，直接读出来。",
-      },
-      { t: "h", text: "身份" },
-      {
-        t: "p",
-        text: "浏览器以服务端默认身份操作看板——也就是命令行在这台机器上会用的那个名字。人类与智能体共用同一套命名空间，因此人类审查智能体实现的卡片时，历史里仍是两个不同的人。每张卡片的历史记录都会标注是谁做的。",
-      },
-      { t: "h", text: "其他功能" },
       {
         t: "ul",
         items: [
           [
-            "卡片独立页面",
-            "点击任意卡片进入它自己的页面并拿到独立链接（`#/card/<id>`）——可分享、收藏、刷新。页面里可编辑标题/描述/负责人/审查者、执行状态流转、管理上下游关系、添加备注、查看事件历史，或删除卡片（仅创建者）。打开时只拉这一张卡，不拉整块看板。",
+            "看板",
+            "按卡片编号、标题或正文摘要搜索，也可按项目、子项目、负责人和审查者筛选。看板先取卡片摘要，后续通过 SSE 接收更新。",
           ],
           [
-            "上下游关系",
-            "卡片会同时显示关系的两端：它等待谁，以及谁在等待它。从任意一端添加都是同一条边。",
+            "卡片页",
+            "点击卡片可编辑字段、依赖、父子关系和备注，也可查看历史。`#/card/<id>` 直接加载该卡片。在共享看板中，可用「复制链接」把卡片地址发给有权访问看板的人。",
+          ],
+          [
+            "事件",
+            "按时间倒序查看卡片、操作者、动作和来源。项目筛选查询完整日志，页内搜索只筛选当前页。分页器显示服务器筛选范围内的总条数。",
           ],
           [
             "备注",
-            "带文档链接的说明。本机的 markdown 或 HTML 文件会直接在文档查看器中打开；https 链接则在新标签页打开。",
+            "本地 Markdown、HTML 和文本可以在文档查看器里打开。HTTPS 链接在新标签页打开。",
           ],
-          [
-            "筛选",
-            "按编号（#983）、标题、内容搜索，再按项目、子项目、负责人、审查者收窄。",
-          ],
-          [
-            "实时",
-            "看板通过 SSE 更新——智能体、命令行或其他浏览器标签页移动的卡片都会自动出现，无需刷新。",
-          ],
-          [
-            "加载提示",
-            "看板首次读取时显示 spinner，慢请求时顶栏出现细进度条；卡片链接在数据到达前显示骨架屏。",
-          ],
-          ["键盘", "聚焦卡片后按回车打开，按 Esc 关闭页面或面板。"],
         ],
       },
     ],
   },
   {
     id: "insights",
-    title: "洞察 —— 看板的时间维度",
-    lead: "工作本身在怎么走，而不是谁做了什么。",
+    title: "洞察：看板随时间的变化",
+    lead: "按浏览器时区查看最近 7、30 或 90 天的工作进展。",
     blocks: [
       {
-        t: "p",
-        text:
-          "看板显示现在，洞察（`#/insights`）显示最近的过去。它和看板来自同一份事件日志——一次回放、在服务端聚合——" +
-          "所以两者不可能对不上。事件页仍然是逐条流水，洞察是汇总。",
-      },
-      {
         t: "table",
-        head: ["面板", "它回答的问题"],
+        head: ["面板", "显示内容"],
         rows: [
+          ["当前看板", "各状态的当前卡片数，以及与上一周期的对比。"],
           [
-            "当前看板",
-            "每列各有多少卡片，连同未完成、在办的总数，以及与前一个同长窗口的对比",
+            "吞吐量",
+            "每天创建和完成的卡片数。同一张卡片在同一天完成两次，只计一次。",
           ],
-          ["吞吐", "每天完成的卡片数对照当天新建数——积压在变大还是变小？"],
           [
             "项目",
-            "未完成的工作分布在哪些项目、哪些状态；点一行就在看板里只看该项目",
+            "按项目和状态查看未完成任务。点击某一行可打开对应项目的看板。",
           ],
+          ["累积流", "每天结束时各状态的卡片数。"],
           [
-            "累积流",
-            "每天结束时整块看板的形状——WIP 一直涨，或者审查队列只进不出，在这里都看得见",
-          ],
-          [
-            "流动健康度与卡住的卡片",
-            "本期的周期时间与被阻塞的工作，然后是超过阈值的卡片（进行中 ≥3 天、审查中 ≥2 天）。点一行直接打开卡片；排行是当前快照，不随时间窗口变化。",
-          ],
-        ],
-      },
-      { t: "h", text: "数字是怎么算出来的" },
-      {
-        t: "ul",
-        items: [
-          [
-            "窗口",
-            "截止今天的 7 / 30 / 90 天，按浏览器的时区切日。事件存的是 UTC；在东八区晚上干的活，不能被算到前一天。",
-          ],
-          [
-            "完成数",
-            "同一张卡同一天只算一次。完成、打回、当天又完成，仍然只算一张。状态块里的「已完成」是当前这一列的张数，和窗口内的完成量是两个数。",
-          ],
-          [
-            "已删除的卡片",
-            "历史仍然算数——它们确实被创建、被完成过——但不进入当前统计。",
-          ],
-          [
-            "周期时间",
-            "从创建到完成，只统计窗口内完成的卡片；给出中位数和第 85 百分位，单位是天。",
-          ],
-          [
-            "卡住排行",
-            "当前快照：进行中 ≥3 天、审查中 ≥2 天；按天数倒序、最多 10 张，页面不自己再排序。",
-          ],
-          [
-            "开销",
-            "每个请求在服务端做一次日志回放。浏览器不会为了画一张图去翻 `/api/log` 的分页。",
+            "流动健康与滞留卡片",
+            "阻塞情况、从创建到完成的周期中位数和 P85，以及在进行中满 3 天或在审查中满 2 天的卡片。",
           ],
         ],
       },
       {
         t: "p",
-        text: "点项目行会打开 `#/board?project=<slug>`，所以筛选后的看板本身就是一条可以分享的链接。页面通过 SSE 跟随实时日志，有变化时在后台重新计算。",
-      },
-      {
-        t: "p",
-        text: "暂时没有：按人 / 按智能体拆分、90 天热力图、任意时间范围、可保存的仪表盘布局。前两项的数据在事件日志里，接口需要先聚合，页面才能画。",
+        text: "服务端根据事件日志计算洞察。已删除卡片的历史活动仍计入吞吐量。滞留排行与当前状态计数反映实时看板。",
       },
     ],
   },
   {
     id: "cli",
     title: "ukb 命令行",
-    lead: "同一块看板，无需服务器，无需守护进程。",
+    lead: "在终端里操作同一张看板，智能体也可以通过工具操作。",
     blocks: [
       {
         t: "code",
-        text:
-          "ukb                              # 我的待办卡片——这是行动的号召，不只是列表\n" +
-          "ukb board                        # 整块看板\n" +
-          "ukb show 3                       # 详情与事件历史\n" +
-          'ukb add "修复不稳定的测试" --body "验收：CI 连续 10 次通过" --assignee codex --reviewer jyxc\n' +
-          "ukb claim 3                      # 待办 → 进行中，分配给你\n" +
-          "ukb review 3                     # → 审查中\n" +
-          "ukb done 3                       # → 已完成\n" +
-          "ukb reopen 3                     # → 待办\n" +
-          "ukb move 3 doing\n" +
-          'ukb edit 3 --body "…"            # 传空字符串可清空字段\n' +
-          "ukb block 4 --by 3               # 依赖关系\n" +
-          "ukb relate 4 --with 3 --as upstream    # 指明方向\n" +
-          "ukb unrelate 4 --with 3          # 任意一端删除\n" +
-          'ukb note 4 "设计文档" --url docs/design.md\n' +
-          "ukb web                          # 启动 API 与这个界面\n" +
-          "ukb doctor                       # 检查项目是否已配置好",
+        text: 'ukb mine\nukb show 2\nukb board --project web --subproject auth\nukb block 2 --by 1\nukb parent 2 --of 1\nukb note 2 "Design doc" --url docs/design.md\nukb help\nukb doctor',
       },
       {
         t: "p",
-        text: "智能体请传入 --agent <名称> --agent-type agent 以便归属卡片；也支持 UKB_AGENT 与 UKB_DIR 等环境变量。失败时会以稳定的错误码非零退出，例如 claim_conflict: card 3 is already being worked by codex。",
+        text: "`ukb show` 显示完整正文、关系和历史。`ukb list` 显示项目计数。`review`、`done`、`reopen` 和 `delete` 支持多个编号，遇到第一个错误就停止。`claim` 每次接收一个编号。",
+      },
+      {
+        t: "p",
+        text: "CLI 可以直接打开本地存储，也能通过 HTTP 连接共享看板。客户端凭据的配置见「本地与共享看板」。",
+      },
+    ],
+  },
+  {
+    id: "concepts",
+    title: "基本概念",
+    lead: "用项目和子项目组织任务，并建立卡片之间的关系。",
+    blocks: [
+      {
+        t: "ul",
+        items: [
+          [
+            "项目和子项目",
+            "推荐用代码仓库名作 `project`，用工作方向作 `subproject`，例如 `web/auth`。子项目必须属于一个项目。清除或修改项目时，原子项目会被清除，除非同时设置新的子项目。",
+          ],
+          [
+            "依赖",
+            "`ukb block 2 --by 1` 让 #2 等待 #1。`ukb relate 2 --with 1 --as upstream` 表示同一条依赖。依赖未完成的卡片不能进入进行中。",
+          ],
+          [
+            "父子卡片",
+            "`ukb parent 2 --of 1` 将 #2 设为 #1 的子卡片。父子层级可以跨项目并多层嵌套。父卡处于进行中时，子卡才可进入进行中或审查。全部子卡完成后，父卡才可进入审查或完成。依赖关系单独设置。",
+          ],
+          [
+            "备注",
+            "在卡片上附加说明和文档链接。Web 界面可以读取位于服务端工作目录、存储目录或 `--doc-root` 指定目录中的受支持本地文档。",
+          ],
+          [
+            "编号",
+            "卡片和事件使用独立的编号序列。编辑、移动和迁移都会保留卡片编号。",
+          ],
+        ],
       },
     ],
   },
   {
     id: "mcp",
     title: "接入智能体",
-    lead: "每种框架一条命令。",
+    lead: "选择对应的安装命令，配置后重启宿主。",
     blocks: [
       {
+        t: "p",
+        text: "从源码构建并链接 CLI 后，在智能体要工作的项目目录执行对应命令。`--local` 让 MCP 安装器使用当前构建。`--dry-run` 可预览安装器会写入的文件。",
+      },
+      {
         t: "code",
-        text:
-          "ukb init --for claude-code           # 写入 .mcp.json 与 CLAUDE.md\n" +
-          "ukb init --for codex                 # 在 ~/.codex/config.toml 中写入标记块，并生成 AGENTS.md\n" +
-          "ukb init --for opencode              # 合并 opencode.json，并生成 AGENTS.md\n" +
-          "ukb init --for pi                    # 注册 Pi 包（扩展 + 技能）\n" +
-          "ukb init --for claude-code --browser # …并额外加入 Playwright MCP 服务器\n" +
-          "ukb init --for claude-code --local  # 指向当前代码库，而不是 npm 上的包",
-      },
-      {
-        t: "p",
-        text:
-          "在包发布到 npm 之前，请加上 --local。默认配置运行的是 " +
-          "npx -y @wayblink/using-kanban-mcp，只有发布后才能解析；加上 --local 则会写入本仓库中 " +
-          "packages/mcp/dist/bin.js 的绝对路径，并由同一个 node 可执行文件启动。其余部分完全一致。",
-      },
-      {
-        t: "p",
-        text: "AGENTS.md / CLAUDE.md 中的片段负责传授工作流——先认领再动手、就绪后提交审查——因此即使是从不阅读这些文档的智能体也能正确行事。",
+        text: "ukb init --for codex --local\nukb init --for pi\nukb init --for dsh\nukb init --for claude-code --local\nukb init --for opencode --local",
       },
       {
         t: "h",
-        text: "项目",
+        text: "Codex",
       },
       {
         t: "p",
-        text:
-          "卡片可以带一个可选的 项目 标识，于是一块看板就能容纳多个项目，并且每个入口都能只过滤其中一个。 " +
-          "没有项目的卡片不属于任何项目——项目过滤是一种划分，而不是叠加显示。",
+        text: "`ukb init --for codex --local` 在 `~/.codex/config.toml` 中注册 stdio `using-kanban` MCP 服务，并将工作流程写入 `AGENTS.md`。用 `codex mcp list` 查看配置，再开启新会话并让 Codex 列出自己的卡片。看板里的智能体身份是 `codex`。",
+      },
+      {
+        t: "p",
+        text: "Codex Desktop 插件预览版可通过会话应用菜单的 Show board 打开，也可以让 Codex 展示当前项目的看板。面板按状态分组，嵌套显示子卡片，支持按项目、负责人和文本筛选，并可查看详情与历史。用 Refresh 更新面板，用 Codex 工具操作卡片，或到 Web 界面直接编辑。",
+      },
+      {
+        t: "p",
+        text: "从源码安装插件时，需要包含 `packages/codex` 和 `.agents/plugins/marketplace.json` 的预览工作树。安装依赖和构建时使用与桌面插件运行时相同的 Node 版本，确保桌面应用能在 `PATH` 中找到 `node`。在预览工作树根目录准备服务、添加本地插件市场并安装 Using Kanban。每个会话选择桌面插件或独立 MCP 配置中的一种连接方式。",
       },
       {
         t: "code",
-        text:
-          'ukb add "修登录 bug" --project web   # 创建时设置\n' +
-          "ukb edit 7 --project api                     # 之后转移\n" +
-          "ukb board --project web                      # 只看该项目\n" +
-          "ukb mine --project web                       # 我在该项目的工作",
+        text: 'pnpm --filter @wayblink/using-kanban-mcp deploy --legacy --prod packages/codex/dist/server\ncodex plugin marketplace add "$PWD"\ncodex plugin add using-kanban@using-kanban',
+      },
+      {
+        t: "h",
+        text: "Pi 扩展",
       },
       {
         t: "p",
-        text:
-          "在 MCP 中，同样的三个动作接受 project 参数——kanban_board、kanban_my_cards 和 " +
-          "kanban_review_queue——另外 kanban_projects 会列出正在使用的标识，智能体无需猜测。 " +
-          "REST API 在 /api/board 和 /api/cards 上接受 ?project=，Web 界面在负责人与审查者筛选器旁 " +
-          "也有一个项目下拉框。",
+        text: "`ukb init --for pi` 把本地扩展和 skill 注册到 `~/.pi/agent/settings.json`，并把项目工作流程写进 `AGENTS.md`。扩展提供 `ukb` 工具和 `/ukb` 命令，默认的智能体身份是 `pi`。通过 `/ukb gui show` 打开当前 Git 项目的面板，`/ukb gui split` 启用第二栏，`/ukb gui help` 查看选项。`/ukb web` 和 `/ukb web stop` 在后台启动和停止本地 Web 界面。",
+      },
+      {
+        t: "h",
+        text: "DeepSeek Harness 插件",
       },
       {
         t: "p",
-        text:
-          "标识会归一化为小写，并限制为字母、数字、点、连字符和下划线，因为它们会出现在 URL 和命令行参数里： " +
-          '"Web" 与 "web" 不会意外变成两个不同的项目。',
+        text: "`ukb init --for dsh` 写入 `AGENTS.md`。在 DeepSeek Harness 中打开 Plugins → Add plugin，选择源码目录下的 `packages/dsh`，即可注册原生 `ukb` 工具、`/ukb` 命令和系统提示中的工作流程。插件以 `dsh` 身份调用 CLI。如果找不到可执行文件，可设置插件配置项 `ukb_path` 或环境变量 `UKB_BIN`。",
       },
-      { t: "h", text: "智能体获得的工具" },
       {
-        t: "table",
-        head: ["工具", "用途"],
-        rows: [
-          ["kanban_my_cards", "我的待办卡片——行动的号召"],
-          ["kanban_review_queue", "等待我审查的卡片"],
-          ["kanban_board / kanban_show", "整块看板 / 单张卡片及其历史"],
-          [
-            "kanban_add / kanban_edit / kanban_delete",
-            "创建、编辑（创建者或负责人）、删除（仅创建者）",
-          ],
-          [
-            "kanban_claim / kanban_review / kanban_done / kanban_reopen / kanban_move",
-            "状态流转",
-          ],
-          [
-            "kanban_block / kanban_unblock",
-            "依赖关系——有未完成阻塞项的卡片无法被认领或移入进行中",
-          ],
-          [
-            "kanban_relate / kanban_unrelate",
-            "同一条关系，但方向显式命名（上游/下游），可从任意一张卡片操作",
-          ],
-          [
-            "kanban_note_add / kanban_note_update / kanban_note_remove",
-            "备注——说明与文档链接，例如需求的设计文档",
-          ],
-          ["kanban_projects", "正在使用的项目标识——过滤前先调用"],
-        ],
+        t: "p",
+        text: "DSH 网页端提供 Kanban 侧栏、显示各状态计数的输入区按钮，以及工具调用的卡片或看板视图。侧栏和按钮默认显示会话工作区路径匹配的项目，找不到匹配时显示全板。",
+      },
+      {
+        t: "h",
+        text: "Claude Code、opencode 与其他 MCP 客户端",
+      },
+      {
+        t: "p",
+        text: "Claude Code 的安装器写入 `.mcp.json` 与 `CLAUDE.md`，opencode 的安装器写入 `opencode.json` 与 `AGENTS.md`。其他 MCP 客户端可通过 stdio 运行 `node /path/to/using-kanban/packages/mcp/dist/bin.js --agent <name>`。服务提供读取任务和审查队列、操作卡片、变更状态、管理依赖、父子关系和备注的 `kanban_*` 工具，以及 `kanban://board` 资源。",
       },
     ],
   },
   {
-    id: "api",
-    title: "构建你自己的界面",
-    lead: "HTTP API 才是契约——这个页面只是它的一个消费者。",
+    id: "shared-board",
+    title: "本地与共享看板",
+    lead: "在本机使用一份事件日志，或让多台机器连接同一个看板服务。",
     blocks: [
       {
-        t: "table",
-        head: ["方法", "路径", "用途"],
-        rows: [
-          [
-            "GET",
-            "/api/board?project=&subproject=",
-            "各列与卡片，可按项目/方向",
-          ],
-          ["GET", "/api/insights?days=&tz=", "吞吐、流动、积压"],
-          [
-            "GET",
-            "/api/cards?state=open&project=&subproject=&assignee=me&q=文本",
-            "筛选卡片",
-          ],
-          ["GET", "/api/cards/:id", "卡片与事件历史"],
-          ["POST", "/api/cards", "创建卡片（待办）"],
-          ["PATCH", "/api/cards/:id", "编辑字段"],
-          [
-            "POST",
-            "/api/cards/:id/{claim,review,done,reopen,move}",
-            "状态流转",
-          ],
-          ["POST", "/api/cards/:id/{block,unblock}", "依赖关系"],
-          ["POST", "/api/cards/:id/{parent,unparent}", "伞卡 ↔ 子卡"],
-          [
-            "POST",
-            "/api/cards/:id/{relate,unrelate}",
-            "上下游关系——{ other, direction: upstream|downstream }",
-          ],
-          [
-            "POST",
-            "/api/cards/:id/notes",
-            "添加备注——{ text, url }（url 可以是本机文件）",
-          ],
-          ["PATCH/DELETE", "/api/cards/:id/notes/:noteId", "编辑或删除备注"],
-          ["DELETE", "/api/cards/:id", "删除（仅创建者）"],
-          ["GET", "/api/doc?path=…", "备注链接指向的文档"],
-          ["GET", "/api/events", "共享日志的 SSE 流"],
-          ["GET", "/openapi.json", "完整规范"],
-        ],
+        t: "h",
+        text: "存储、身份与权限",
       },
-      { t: "h", text: "认证" },
-      {
-        t: "p",
-        text: "默认只绑定 127.0.0.1 并使用随机生成的令牌。变更操作始终需要它——Authorization: Bearer <token>，或 ?token=<token>（浏览器的 EventSource 就是这样传递的）。回环接口上的读取是开放的，绑定到其他地址后则需要令牌。用 ukb-server --host 0.0.0.0 --token <yours> 启动即可嵌入使用。",
-      },
-      { t: "h", text: "身份与并发" },
       {
         t: "ul",
         items: [
-          [
-            "操作者",
-            "发送 X-Actor-Name 与 X-Actor-Type: human|agent；X-Source 用于标注事件来源。",
-          ],
-          [
-            "乐观并发",
-            "发送 If-Match: <revision>（或请求体中的 expectedRevision）。版本过期会得到 409 revision_conflict，而不是覆盖并发的修改。",
-          ],
-          [
-            "实时更新",
-            "用 ?since=<id> 订阅 /api/events 可先补拉再持续推送。命令行与 MCP 服务器产生的变更也会出现在这里。",
-          ],
-        ],
-      },
-    ],
-  },
-  {
-    id: "concepts",
-    title: "概念",
-    lead: "值得了解的概念。",
-    blocks: [
-      {
-        t: "ul",
-        items: [
-          [
-            "操作者",
-            "{ type: human | agent, name }。同一套命名空间，因此人类可以审查智能体的卡片，反之亦然。",
-          ],
-          [
-            "项目与子项目",
-            "project 用代码仓库名，subproject 用仓库里的方向（两者都是小写 slug）。子项目必须挂在项目下；清空或更换项目会丢掉方向。`ukb board --project web --subproject auth` 就是按这个切片，卡片徽章显示 `web/auth`。",
-          ],
-          [
-            "上下游关系",
-            "一张卡片可以等待其他卡片（block 4 --by 3），也可以被其他卡片等待。这条边只存一份，但从两端都能读到——上游（blockedBy）与下游（blocks）——于是一张卡片可以同时是许多卡片的前置，也是许多卡片的后置。环路与自关联会被拒绝，上游未完成的卡片无法被认领。",
-          ],
-          [
-            "备注",
-            "挂在卡片上的说明，每条可带一个文档链接。链接可以是 https://…，也可以是本机上的文件路径；服务器会为 Web 界面读取本机的 markdown、HTML 与文本，范围仅限于它被允许访问的目录（--doc-root、存储目录及其工作目录）。",
-          ],
-          [
-            "版本号",
-            "每次变更都会递增卡片的 revision。这正是命令行、MCP 与浏览器之间并发编辑安全的保证。",
-          ],
-          [
-            "权限是协作式的",
-            "删除仅限创建者，编辑限创建者或负责人——基于你发送的操作者名称，而非加密机制。对本地看板而言这已经足够。",
-          ],
           [
             "存储",
-            "默认 sqlite（WAL，多进程安全）；jsonl 提供零依赖、便于纳入 git 的看板；memory 用于测试。用 --storage 或 UKB_STORAGE 切换。",
+            "本地默认使用 SQLite。用 `--storage` 或 `UKB_STORAGE` 可以选择 JSONL、内存或 Postgres。Postgres 连接地址来自 `--pg-url`、`UKB_PG_URL` 或 `DATABASE_URL`。",
+          ],
+          [
+            "身份",
+            "本地 CLI 和浏览器默认使用看板所有者身份。在 `~/.config/ukb/config.json`（或 `$XDG_CONFIG_HOME/ukb/config.json`）里设置 `owner`，也可用 `UKB_OWNER` 覆盖。智能体调用 CLI 时可传 `--agent <名称> --agent-type agent`。Pi 也从这个文件读取 `guidance` 和 `overlay`。",
+          ],
+          [
+            "卡片权限",
+            "创建者、负责人和看板所有者可以编辑卡片。创建者和看板所有者可以删除卡片。个人看板可用 `--open-access` 或 `UKB_OPEN_ACCESS=1` 允许所有具有写权限的调用者编辑和删除任意卡片，服务端仍会校验身份凭据。",
           ],
         ],
+      },
+      {
+        t: "h",
+        text: "运行共享服务",
+      },
+      {
+        t: "p",
+        text: "服务默认绑定回环地址。没有账户时，本机可直接读取，写入需要服务端令牌。绑定非回环地址需要先创建账户，或在受信任的局域网显式使用 `--allow-anonymous` 开放读取。后者仍要求写入令牌。",
+      },
+      {
+        t: "p",
+        text: "配置账户后，浏览器使用 HTTP Basic 登录，自动化客户端可用机器令牌。在运行存储的主机上管理账户和令牌。共享看板使用 HTTPS。`docs/deployment.md` 介绍了包含 Caddy、Postgres 和备份的 Docker Compose 方案，以及首个账户的创建步骤。`/healthz` 可匿名探测。",
+      },
+      {
+        t: "code",
+        text: "ukb user add alice\nukb user token add alice --label laptop",
+      },
+      {
+        t: "h",
+        text: "连接客户端",
+      },
+      {
+        t: "p",
+        text: "使用 `--server`、`UKB_SERVER` 或配置文件中的 `server` 选择服务地址。通过 `--token`、`UKB_TOKEN` 或 `ukb login` 提供令牌。登录命令会按服务地址将令牌存入配置文件旁的 `credentials.json`。",
+      },
+      {
+        t: "code",
+        text: "ukb login --server https://board.example.com --token 'ukb_…'\nukb --server https://board.example.com board --project web",
+      },
+      {
+        t: "p",
+        text: "MCP 进程读取同一套配置。Pi 和 DeepSeek Harness 通过 CLI 操作看板。在设置远程默认地址前运行 `ukb init`，并让宿主进程能读取配置与凭据。`web`、`init`、`doctor`、`user` 和 `migrate` 需要在本地模式下运行。",
+      },
+      {
+        t: "h",
+        text: "迁移已有看板",
+      },
+      {
+        t: "p",
+        text: "`ukb migrate --to postgres` 将本地 SQLite 事件日志复制到 Postgres。通过 HTTP 迁移时，先在目标服务启用 `UKB_ALLOW_IMPORT=1`，再从源端用管理员的机器令牌运行 `ukb migrate --to https://board.example.com --token 'ukb_…'`。两种方式都保留卡片和事件编号，并默认要求目标为空。",
       },
     ],
   },
   {
     id: "troubleshooting",
     title: "故障排查",
-    lead: "错误的含义以及如何处理。",
+    lead: "重试前先检查当前看板、操作身份和卡片状态。",
     blocks: [
       {
         t: "table",
-        head: ["错误", "含义", "处理方式"],
+        head: ["错误", "检查项"],
         rows: [
           [
-            "claim_conflict",
-            "已有别人在处理该卡片",
-            "换一张卡片，或请对方重新打开",
+            "board_not_found",
+            "检查 UKB_DIR 和服务地址。创建第一张卡片可初始化本地看板。",
           ],
-          ["forbidden", "你既不是创建者也不是负责人", "由创建者或负责人来修改"],
+          ["claim_conflict", "打开卡片，检查当前负责人和卡片是否已进入审查。"],
+          ["invalid_state", "检查当前状态、未完成的依赖、父卡片或子卡片。"],
           [
-            "card_not_found",
-            "该编号在看板上不存在",
-            "用 ukb board 查看真实的编号",
+            "forbidden",
+            "确认当前操作者是否是创建者或负责人。看板所有者可编辑和删除任意卡片。",
           ],
-          [
-            "revision_conflict",
-            "卡片自你读取后已发生变化",
-            "重新读取（ukb show 或 GET /api/cards/:id）后重试",
-          ],
-          [
-            "invalid_state",
-            "该流转不合理（例如认领已完成的卡片）",
-            "先确认卡片当前状态",
-          ],
+          ["card_not_found", "核对卡片编号和当前连接的看板。"],
+          ["revision_conflict", "重新加载卡片，再基于最新版本应用修改。"],
           [
             "unauthorized",
-            "未携带令牌的变更操作",
-            "传入 ukb web 输出的 URL 中的令牌",
+            "登录共享看板，或检查客户端的机器令牌和服务地址。本地会话使用 ukb web 打印的地址。",
           ],
-          [
-            "洞察提示页面比服务端新",
-            "升级后仍有一个旧 ukb web 进程在跑",
-            "重启 ukb web（或 ukb-server）后点重试",
-          ],
+          ["界面比 API 新", "更新后重启 ukb web 或 ukb-server，再点击重试。"],
         ],
-      },
-      {
-        t: "p",
-        text:
-          "智能体：在任意目录下运行 ukb（或 kanban_my_cards）即可——全机只有一块看板，位于 ~/.ukb/，" +
-          "所以从哪个目录运行并不重要。用 --project <标识> 过滤以只看某个项目的工作。如果无法解析身份，请传入 --agent <名称>。",
       },
     ],
   },
 ];
 
-/** The documentation content, exported for tests. */
-/** Documentation content, per language. */
 export const DOCS = { en: DOCS_EN, zh: DOCS_ZH };
 
 export const DOCS_SECTIONS = DOCS_EN;

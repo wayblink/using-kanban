@@ -515,7 +515,7 @@ describe("documentation content", () => {
       "Using this UI",
       "The ukb CLI",
       "Connecting an agent",
-      "Build your own UI",
+      "Local and shared boards",
       "Concepts",
       "Troubleshooting",
     ]) {
