@@ -101,7 +101,10 @@ describe("owner permissions", () => {
         "X-Actor-Type": "agent",
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ title: "claimed by an agent", assignee: "claude-code" }),
+      body: JSON.stringify({
+        title: "claimed by an agent",
+        assignee: "claude-code",
+      }),
     });
     expect(created.status).toBe(201);
     const { card } = (await created.json()) as { card: { id: number } };
@@ -995,5 +998,32 @@ describe("project and subproject", () => {
     );
     expect(body.card.project).toBeNull();
     expect(body.card.subproject).toBeNull();
+  });
+});
+
+describe("board summary", () => {
+  it("trims card bodies and drops notes with ?summary=1", async () => {
+    const card = await createCard("summary card", {
+      body: "x".repeat(1000),
+    });
+    await request(`/api/cards/${card.id}/notes`, {
+      method: "POST",
+      body: JSON.stringify({ text: "a note" }),
+    });
+
+    const full = (await (await request("/api/board")).json()) as {
+      todo: { id: number; body: string; notes: unknown[] }[];
+    };
+    const fullCard = full.todo.find((entry) => entry.id === card.id);
+    expect(fullCard?.body).toHaveLength(1000);
+    expect(fullCard?.notes).toHaveLength(1);
+
+    const summary = (await (await request("/api/board?summary=1")).json()) as {
+      todo: { id: number; body: string; notes: unknown[] }[];
+    };
+    const summaryCard = summary.todo.find((entry) => entry.id === card.id);
+    expect(summaryCard?.body).toHaveLength(281);
+    expect(summaryCard?.body.endsWith("…")).toBe(true);
+    expect(summaryCard?.notes).toEqual([]);
   });
 });

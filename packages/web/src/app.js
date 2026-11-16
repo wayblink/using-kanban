@@ -2556,7 +2556,7 @@ function startApp() {
 
   async function refresh() {
     try {
-      const board = await api("/api/board");
+      const board = await api("/api/board?summary=1");
       state.cards = [
         ...board.someday,
         ...board.todo,
@@ -3104,12 +3104,15 @@ function startApp() {
   async function renderCardDialog() {
     const id = state.openCardId;
     if (id === null) return;
-    let card = state.cards.find((entry) => entry.id === id);
-    if (!card) {
-      try {
-        const payload = await api(`/api/cards/${id}`);
-        card = payload.card;
-      } catch {
+    const cached = state.cards.find((entry) => entry.id === id);
+    let card = cached;
+    try {
+      // The board list is a summary (body preview, no notes); the dialog needs
+      // the full card, so fetch it even when the summary is in hand.
+      const payload = await api(`/api/cards/${id}`);
+      card = payload.card;
+    } catch {
+      if (!card) {
         closeCardDialog();
         return;
       }

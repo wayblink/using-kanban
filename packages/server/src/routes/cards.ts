@@ -1,4 +1,4 @@
-import type { CardState } from "@wayblink/using-kanban-core";
+import type { Card, CardState } from "@wayblink/using-kanban-core";
 import { CARD_STATES, isOpen } from "@wayblink/using-kanban-core";
 import {
   HttpError,
@@ -16,10 +16,37 @@ export async function getBoard(ctx: RequestContext): Promise<void> {
   // always comes back so a client can build its filter without a second call.
   const project = ctx.query.get("project");
   const subproject = ctx.query.get("subproject");
+  const board = await ctx.kanban.board(project, subproject);
+  // The board payload is dominated by card bodies and notes (3+ MB on a busy
+  // board), which is painful over a slow link. `?summary=1` keeps every field
+  // the board view needs (ids, state, relations, a body preview) while the
+  // card dialog fetches the full card on open.
+  const summary = ctx.query.get("summary") === "1";
   sendJson(ctx.res, 200, {
-    ...(await ctx.kanban.board(project, subproject)),
+    ...(summary
+      ? {
+          someday: board.someday.map(summarizeCard),
+          todo: board.todo.map(summarizeCard),
+          doing: board.doing.map(summarizeCard),
+          review: board.review.map(summarizeCard),
+          done: board.done.map(summarizeCard),
+        }
+      : board),
     projects: await ctx.kanban.projects(),
   });
+}
+
+const BODY_PREVIEW = 280;
+
+function summarizeCard(card: Card): Card {
+  return {
+    ...card,
+    body:
+      card.body === null || card.body.length <= BODY_PREVIEW
+        ? card.body
+        : `${card.body.slice(0, BODY_PREVIEW)}…`,
+    notes: [],
+  };
 }
 
 export async function listCards(ctx: RequestContext): Promise<void> {
