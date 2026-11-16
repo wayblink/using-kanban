@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { gzipSync } from "node:zlib";
 import { KanbanError, type KanbanErrorCode } from "@wayblink/using-kanban-core";
 
 /** An HTTP-level failure (bad JSON, bad actor header, …). */
@@ -27,18 +28,38 @@ const STATUS_BY_CODE: Record<KanbanErrorCode, number> = {
   internal_error: 500,
 };
 
+/**
+ * Compress anything above this size. Below it the gzip envelope costs more
+ * bytes than it saves, and most API responses (health, one card) are tiny.
+ */
+export const GZIP_MIN_BYTES = 1024;
+
+/** True when the client's `Accept-Encoding` admits gzip. */
+export function acceptsGzip(res: ServerResponse): boolean {
+  const header = res.req?.headers["accept-encoding"];
+  const value = Array.isArray(header) ? header.join(",") : (header ?? "");
+  return /\bgzip\b/i.test(value);
+}
+
 export function sendJson(
   res: ServerResponse,
   status: number,
   body: unknown,
 ): void {
   if (res.writableEnded) return;
-  const payload = JSON.stringify(body);
+  const payload = Buffer.from(JSON.stringify(body), "utf8");
+  // The board is the payload that matters: 500 KB+ of JSON over a slow link is
+  // seconds of blank columns. Browsers send gzip in `Accept-Encoding` already;
+  // answering in kind is nearly free on the server.
+  const compress = payload.length >= GZIP_MIN_BYTES && acceptsGzip(res);
+  const bytes = compress ? gzipSync(payload) : payload;
   res.writeHead(status, {
     "Content-Type": "application/json; charset=utf-8",
-    "Content-Length": Buffer.byteLength(payload),
+    "Content-Length": bytes.length,
+    Vary: "Accept-Encoding",
+    ...(compress ? { "Content-Encoding": "gzip" } : {}),
   });
-  res.end(payload);
+  res.end(bytes);
 }
 
 export function sendNoContent(res: ServerResponse): void {

@@ -125,14 +125,22 @@ first card the board refuses, so what you saw is what was applied.
 runs **Board · Insights · Events · Docs**; the board is home, and the manual
 stays one click away instead of greeting every newcomer first.
 
-| Page                        | The question it answers                                                                                                                                                 |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Board** (`#/board`)       | what needs doing now. Drag a card and the drop runs the verb; the card dialog edits fields, relations, hierarchy and notes, and shows the event history. Live over SSE. |
-| **Insights** (`#/insights`) | is the work moving? Daily throughput, the board by project, cumulative flow, and the cards that have been stuck.                                                        |
-| **Events** (`#/events`)     | who did what, through which door, in order. The audit trail.                                                                                                            |
-| **Docs** (`#/docs`)         | the manual, in English and Chinese.                                                                                                                                     |
+| Page                        | The question it answers                                                                                                                                                                                         |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Board** (`#/board`)       | what needs doing now. Drag a card and the drop runs the verb; a card opens its own page and link (`#/card/<id>`) that edits fields, relations, hierarchy and notes, and shows the event history. Live over SSE. |
+| **Insights** (`#/insights`) | is the work moving? Daily throughput, the board by project, cumulative flow, and the cards that have been stuck.                                                                                                |
+| **Events** (`#/events`)     | who did what, through which door, in order. The audit trail.                                                                                                                                                    |
+| **Docs** (`#/docs`)         | the manual, in English and Chinese.                                                                                                                                                                             |
 
 ![Insights: throughput against creations, what is stuck, per-project shape, cumulative flow below](docs/web-ui-insights.png)
+
+Every card has a permanent link — the **Copy link** button on the card page gives
+you the same `#/card/<id>` the address bar already shows. It survives a reload,
+can be pasted to someone else, and the back button returns to the board you came
+from. The board itself loads a summary (bodies previewed, notes omitted) and the
+card page fetches only that card, so a shared link does not wait for the whole
+board. Responses are gzip-compressed, the inlined UI is revalidated with an ETag,
+and slow reads show a spinner or a thin progress bar instead of an empty panel.
 
 An **Events** page (`#/events`) is the audit view: every operation on the board
 — created, moved, edited, blocked, attached to an umbrella, noted, deleted —

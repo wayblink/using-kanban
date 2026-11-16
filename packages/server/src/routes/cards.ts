@@ -113,7 +113,38 @@ export async function getCard(ctx: RequestContext): Promise<void> {
   if (!card) {
     throw notFound(id);
   }
-  sendJson(ctx.res, 200, { card, history: await ctx.kanban.history(id) });
+  // `related` lets a card page opened by URL (with no board in hand) name the
+  // parent, children and relation chips instead of showing bare `#123`s.
+  const history = await ctx.kanban.history(id);
+  sendJson(ctx.res, 200, {
+    card,
+    history,
+    related: await relatedCards(ctx, card),
+    // A cold card page (opened from a shared link) has no board in hand; the
+    // project picker and the filter vocabulary still need the slugs in use.
+    projects: await ctx.kanban.projects(),
+  });
+}
+
+/** The cards this one points at, reduced to what a link chip needs. */
+async function relatedCards(
+  ctx: RequestContext,
+  card: Card,
+): Promise<{ id: number; title: string; state: CardState }[]> {
+  const ids = new Set<number>();
+  if (card.parent !== null) ids.add(card.parent);
+  for (const id of [...card.children, ...card.blockedBy, ...card.blocks]) {
+    ids.add(id);
+  }
+  const found = await Promise.all([...ids].map((id) => ctx.kanban.card(id)));
+  return found
+    .filter((entry): entry is Card => entry !== null)
+    .map((entry) => ({
+      id: entry.id,
+      title: entry.title,
+      state: entry.state,
+    }))
+    .sort((left, right) => left.id - right.id);
 }
 
 export async function getCardHistory(ctx: RequestContext): Promise<void> {

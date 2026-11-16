@@ -12,6 +12,8 @@ import {
   actionForColumn,
   actorOptions,
   axisTicks,
+  cardIdFromHash,
+  cardPath,
   blockedCardIds,
   bodyExcerpt,
   cardScope,
@@ -1072,5 +1074,25 @@ describe("insight charts", () => {
   it("shortens a date to month and day", () => {
     expect(shortDate("2026-10-19")).toBe("10-19");
     expect(shortDate("")).toBe("");
+  });
+});
+
+describe("card links", () => {
+  it("parses #/card/<id>, with or without a query", () => {
+    expect(cardIdFromHash("#/card/42")).toBe(42);
+    expect(cardIdFromHash("#/card/42?from=board")).toBe(42);
+    expect(cardIdFromHash("card/7")).toBe(7);
+  });
+
+  it("returns null for anything that is not a card", () => {
+    expect(cardIdFromHash("#/board")).toBeNull();
+    expect(cardIdFromHash("#/card/")).toBeNull();
+    expect(cardIdFromHash("#/card/abc")).toBeNull();
+    expect(cardIdFromHash("")).toBeNull();
+    expect(cardIdFromHash(undefined)).toBeNull();
+  });
+
+  it("builds the shareable path", () => {
+    expect(cardPath(42)).toBe("#/card/42");
   });
 });

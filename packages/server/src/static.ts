@@ -1,7 +1,8 @@
-import { createReadStream, existsSync, statSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import { extname, join, normalize, resolve, sep } from "node:path";
 import type { ServerResponse } from "node:http";
-import { sendJson } from "./http.js";
+import { gzipSync } from "node:zlib";
+import { acceptsGzip, GZIP_MIN_BYTES, sendJson } from "./http.js";
 
 const CONTENT_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -21,6 +22,18 @@ const CONTENT_TYPES: Record<string, string> = {
   ".woff2": "font/woff2",
   ".txt": "text/plain; charset=utf-8",
 };
+
+/** Types whose bytes shrink under gzip; images and fonts do not. */
+const COMPRESSIBLE = new Set([
+  ".html",
+  ".js",
+  ".mjs",
+  ".css",
+  ".json",
+  ".map",
+  ".svg",
+  ".txt",
+]);
 
 /**
  * Serves a static UI bundle from `uiDir` at `/`.
@@ -55,10 +68,53 @@ export function serveStaticUi(
     return true;
   }
 
+  const stats = statSync(target);
+  const contentType =
+    CONTENT_TYPES[extname(target)] ?? "application/octet-stream";
+  // The built UI is one inlined HTML file of a few hundred KB. A weak ETag
+  // makes a reload a 304 instead of downloading it again.
+  const etag = `W/"${stats.size}-${Math.floor(stats.mtimeMs)}"`;
+  const ifNoneMatch = res.req?.headers["if-none-match"];
+  const matches =
+    typeof ifNoneMatch === "string" &&
+    ifNoneMatch
+      .split(",")
+      .map((value) => value.trim())
+      .includes(etag);
+  if (matches) {
+    res.writeHead(304, {
+      ETag: etag,
+      "Cache-Control": "no-cache",
+      Vary: "Accept-Encoding",
+    });
+    res.end();
+    return true;
+  }
+
+  if (
+    stats.size >= GZIP_MIN_BYTES &&
+    COMPRESSIBLE.has(extname(target)) &&
+    acceptsGzip(res)
+  ) {
+    const compressed = gzipSync(readFileSync(target));
+    res.writeHead(200, {
+      "Content-Type": contentType,
+      "Content-Length": compressed.length,
+      "Content-Encoding": "gzip",
+      "Cache-Control": "no-cache",
+      ETag: etag,
+      Vary: "Accept-Encoding",
+    });
+    res.end(compressed);
+    return true;
+  }
+
   res.writeHead(200, {
-    "Content-Type":
-      CONTENT_TYPES[extname(target)] ?? "application/octet-stream",
+    "Content-Type": contentType,
+    "Content-Length": stats.size,
     "Cache-Control": "no-cache",
+    ETag: etag,
+    Vary: "Accept-Encoding",
   });
   createReadStream(target).pipe(res);
   return true;

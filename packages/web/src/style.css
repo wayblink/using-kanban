@@ -653,6 +653,38 @@ button.icon-only:hover:not(:disabled) {
   }
 }
 
+/* A 2px line under the top bar while a request is in flight. It waits 120ms
+   before appearing, so a local read that returns instantly does not flash. */
+.top-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  z-index: 60;
+  background: linear-gradient(
+    90deg,
+    var(--accent),
+    color-mix(in srgb, var(--accent) 45%, transparent),
+    var(--accent)
+  );
+  background-size: 200% 100%;
+  animation: progress-slide 1.1s linear infinite;
+}
+
+.top-progress[hidden] {
+  display: none;
+}
+
+@keyframes progress-slide {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
 .retry-button {
   border: 1px solid var(--border);
   background: var(--surface);
@@ -679,31 +711,47 @@ button.icon-only:hover:not(:disabled) {
 .board[hidden],
 .insights[hidden],
 .docs[hidden],
-.card-dialog[hidden],
+.card-page[hidden],
 .modal[hidden] {
   display: none;
 }
 
-/* The card detail: a big centred dialog, not a side panel. Roughly three
-   fifths of the window wide and most of its height — the room the card's fields
-   and history were always asking for. */
-.card-dialog {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: clamp(720px, 59vw, 2000px);
-  height: clamp(560px, 86vh, 1200px);
-  max-width: calc(100vw - 32px);
-  max-height: calc(100dvh - 32px);
+/* The card detail as a page rather than an overlay.
+   A `#/card/<id>` link can be opened directly; a page uses the document scroll,
+   needs no fixed-height shell, and survives a reload. It keeps the same inner
+   dialog-head / dialog-body / dialog-foot vocabulary. */
+.card-page {
+  width: min(1240px, calc(100vw - 32px));
+  margin: 22px auto 72px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 14px;
   box-shadow: var(--shadow-lg);
-  z-index: 21;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.card-page .dialog-body {
+  /* The document scrolls, not a padded box inside it. */
+  overflow: visible;
+}
+
+.card-page .dialog-head {
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.card-page .dialog-head h2 {
+  min-width: 0;
+}
+
+.card-page .dialog-head .mini-button {
+  margin-top: 1px;
+}
+
+.card-page-status {
+  min-height: 56vh;
 }
 
 .dialog-head {
@@ -785,10 +833,10 @@ button.icon-only:hover:not(:disabled) {
   line-height: 1.55;
 }
 
-/* The card dialog is a tall panel with room to spare, and the body is what the
+/* The card page is a tall panel with room to spare, and the body is what the
    reader came to read — the new-card modal keeps the shared 120px because its
    form has to fit the window. */
-.card-dialog .dialog-body textarea {
+.card-page .dialog-body textarea {
   min-height: 200px;
   font-size: 13.5px;
 }
@@ -2067,10 +2115,10 @@ button.icon-only:hover:not(:disabled) {
 }
 
 @media (max-width: 760px) {
-  /* The card dialog takes the window, and its two columns become one. */
-  .card-dialog {
-    width: calc(100vw - 20px);
-    height: calc(100dvh - 20px);
+  /* The card page takes the window, and its two columns become one. */
+  .card-page {
+    width: calc(100vw - 12px);
+    margin: 10px auto 40px;
   }
 
   .dialog-columns {

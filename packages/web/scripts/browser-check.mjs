@@ -400,7 +400,7 @@ async function main() {
 
     const phantom = await cdp.evaluate(`(() => {
       const hidden = [];
-      for (const selector of ['#card-dialog', '#modal', '#card-dialog-backdrop', '#modal-backdrop']) {
+      for (const selector of ['#card-page', '#modal', '#modal-backdrop']) {
         const el = document.querySelector(selector);
         hidden.push([selector, getComputedStyle(el).display]);
       }
@@ -443,44 +443,51 @@ async function main() {
       `tops=${JSON.stringify(layout.columnTops)}`,
     ]);
 
-    // open a card dialog with a real mouse click
+    // open a card page with a real mouse click
     await cdp.clickCenter(".card");
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    const dialog = await cdp.evaluate(`(() => {
-      const el = document.querySelector('#card-dialog');
+    let pageReady = false;
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      pageReady = await cdp.evaluate(
+        `document.querySelector('#card-page .dialog-head h2') !== null`,
+      );
+      if (pageReady) break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    const cardPage = await cdp.evaluate(`(() => {
+      const el = document.querySelector('#card-page');
       const r = el.getBoundingClientRect();
       return {
         display: getComputedStyle(el).display,
         width: Math.round(r.width),
-        height: Math.round(r.height),
-        viewport: [window.innerWidth, window.innerHeight],
-        centredX: Math.abs(r.left + r.width / 2 - window.innerWidth / 2) <= 2,
-        centredY: Math.abs(r.top + r.height / 2 - window.innerHeight / 2) <= 2,
+        viewport: window.innerWidth,
+        boardHidden: getComputedStyle(document.querySelector('#board')).display === 'none',
+        hash: location.hash,
         columns: getComputedStyle(el.querySelector('.dialog-columns')).gridTemplateColumns,
-        heading: el.querySelector('h2')?.textContent ?? '',
-        hasHistory: !!el.querySelector('.history'),
+        heading: el.querySelector('.dialog-head h2')?.textContent ?? '',
+        hasHistory: el.querySelectorAll('.history li').length > 0,
         historyItems: el.querySelectorAll('.history li').length,
+        hasBack: [...el.querySelectorAll('.dialog-head button')].some((b) => b.textContent.includes('←')),
+        hasCopy: [...el.querySelectorAll('.dialog-head button')].some((b) => /copy|复制/i.test(b.textContent)),
       };
     })()`);
-    const wide = dialog.width / dialog.viewport[0];
-    const tall = dialog.height / dialog.viewport[1];
+    const pageWide = cardPage.width / cardPage.viewport;
     report.push([
-      "the card dialog opens centred, and big",
-      dialog.display !== "none" &&
-        dialog.heading.length > 0 &&
-        dialog.hasHistory &&
-        dialog.centredX &&
-        dialog.centredY &&
-        wide > 0.55 &&
-        wide < 0.65 &&
-        tall > 0.8 &&
-        tall < 0.92 &&
-        // Two columns — the panel is wide enough that one would stretch.
-        dialog.columns.split(" ").length === 2,
-      `"${dialog.heading}" · ${dialog.width}×${dialog.height} of ${dialog.viewport.join("×")} (${Math.round(wide * 100)}% × ${Math.round(tall * 100)}%) · centred=${dialog.centredX}/${dialog.centredY} · columns=${dialog.columns} · ${dialog.historyItems} history entries`,
+      "a card opens as its own page with a shareable hash",
+      pageReady &&
+        cardPage.display !== "none" &&
+        cardPage.boardHidden &&
+        cardPage.heading.length > 0 &&
+        cardPage.hasHistory &&
+        cardPage.hash.startsWith("#/card/") &&
+        pageWide > 0.6 &&
+        cardPage.hasBack &&
+        cardPage.hasCopy &&
+        // Two columns — the page is wide enough that one would stretch.
+        cardPage.columns.split(" ").length === 2,
+      `"${cardPage.heading}" · hash=${cardPage.hash} · ${cardPage.width}px of ${cardPage.viewport} (${Math.round(pageWide * 100)}%) · columns=${cardPage.columns} · ${cardPage.historyItems} history entries · back=${cardPage.hasBack} copy=${cardPage.hasCopy}`,
     ]);
 
-    // escape closes it
+    // escape leaves the page and returns to the board
     await cdp.send("Input.dispatchKeyEvent", {
       type: "keyDown",
       key: "Escape",
@@ -493,14 +500,45 @@ async function main() {
       code: "Escape",
       windowsVirtualKeyCode: 27,
     });
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    let backOnBoard = false;
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      backOnBoard = await cdp.evaluate(
+        `getComputedStyle(document.querySelector('#card-page')).display === 'none' && document.querySelector('#board').hidden === false`,
+      );
+      if (backOnBoard) break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
     const closed = await cdp.evaluate(
-      `getComputedStyle(document.querySelector('#card-dialog')).display`,
+      `JSON.stringify({ page: getComputedStyle(document.querySelector('#card-page')).display, hash: location.hash })`,
     );
     report.push([
-      "Escape closes the card dialog",
-      closed === "none",
-      `display: ${closed}`,
+      "Escape closes the card page and returns to the board",
+      backOnBoard,
+      closed,
+    ]);
+
+    // A shared link must work cold: open the card page without visiting the
+    // board first, so it never has to download the whole board to know a title.
+    await cdp.send("Page.navigate", { url: `${url}#/card/1` });
+    let directReady = false;
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      directReady = await cdp.evaluate(
+        `(document.querySelector('#card-page .dialog-head h2')?.textContent ?? '').startsWith('#1 ')`,
+      );
+      if (directReady) break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    const direct = JSON.parse(
+      await cdp.evaluate(`JSON.stringify({
+        hash: location.hash,
+        boardHidden: getComputedStyle(document.querySelector('#board')).display === 'none',
+        heading: document.querySelector('#card-page .dialog-head h2')?.textContent ?? '',
+      })`),
+    );
+    report.push([
+      "a shared card link opens the card page directly",
+      directReady && direct.boardHidden && direct.hash === "#/card/1",
+      `hash=${direct.hash} · boardHidden=${direct.boardHidden} · "${direct.heading}"`,
     ]);
 
     /* ---------------------------- languages ------------------------------ */
@@ -534,7 +572,7 @@ async function main() {
     const en = await langState();
     report.push([
       "English board labels",
-      en.columns.join(",") === "Someday,Todo,Doing,Review,Done" &&
+      en.columns.join(",") === "Todo,Doing,Review,Done,Someday" &&
         en.active === "en" &&
         en.lang === "en",
       `columns=${en.columns.join("/")} · search="${en.searchPlaceholder}" · ${en.newCard}`,
@@ -544,7 +582,7 @@ async function main() {
     const zh = await langState();
     report.push([
       "Chinese board labels",
-      zh.columns.join(",") === "搁置,待办,进行中,审查中,已完成" &&
+      zh.columns.join(",") === "待办,进行中,审查中,已完成,搁置" &&
         zh.active === "zh" &&
         zh.lang === "zh-CN",
       `columns=${zh.columns.join("/")} · search="${zh.searchPlaceholder}" · ${zh.newCard}`,
@@ -698,14 +736,16 @@ async function main() {
     const expanded = JSON.parse(
       await cdp.evaluate(`JSON.stringify({
         rendered: document.querySelectorAll('[data-column="done"] .card').length,
-        projects: [...new Set([...document.querySelectorAll('[data-column="done"] .badge.project')].map((b) => b.textContent))],
+        scopes: [...new Set([...document.querySelectorAll('[data-column="done"] .card-scope')].map((b) => b.textContent))],
         collapse: document.querySelector('[data-column="done"] .column-more')?.textContent ?? null,
       })`),
     );
     report.push([
       "expanding the done column reveals every project's cards",
-      expanded.rendered > 8 && expanded.projects.length >= 1,
-      `rendered=${expanded.rendered} · projects=${expanded.projects.join("/")} · control="${expanded.collapse}"`,
+      expanded.rendered > 8 &&
+        expanded.scopes.some((scope) => scope.includes("project:web")) &&
+        expanded.scopes.some((scope) => scope.includes("project:api")),
+      `rendered=${expanded.rendered} · scopes=${expanded.scopes.join("/")} · control="${expanded.collapse}"`,
     ]);
 
     /* --------------------- relations, notes, documents -------------------- */
@@ -725,8 +765,8 @@ async function main() {
 
     const relations = JSON.parse(
       await cdp.evaluate(`JSON.stringify({
-        fields: [...document.querySelectorAll('#card-dialog .field > label')].map((l) => l.textContent),
-        downstream: [...document.querySelectorAll('#card-dialog .badge.relation')].map((b) => b.textContent),
+        fields: [...document.querySelectorAll('#card-page .field > label')].map((l) => l.textContent),
+        downstream: [...document.querySelectorAll('#card-page .badge.relation')].map((b) => b.textContent),
       })`),
     );
     report.push([
@@ -741,8 +781,8 @@ async function main() {
 
     const noteUi = JSON.parse(
       await cdp.evaluate(`JSON.stringify({
-        text: document.querySelector('#card-dialog .note-text')?.textContent ?? '',
-        link: document.querySelector('#card-dialog .note-link')?.textContent ?? '',
+        text: document.querySelector('#card-page .note .note-body')?.textContent?.trim() ?? '',
+        link: document.querySelector('#card-page .note-link')?.textContent ?? '',
         badge: document.querySelector('.badge.notes')?.textContent ?? '',
       })`),
     );
@@ -754,7 +794,7 @@ async function main() {
     ]);
 
     // clicking the link reads the document from the server and renders it here
-    await cdp.clickCenter("#card-dialog .note-link");
+    await cdp.clickCenter("#card-page .note-link");
     await new Promise((resolve) => setTimeout(resolve, 1200));
     const viewer = JSON.parse(
       await cdp.evaluate(`JSON.stringify({
@@ -810,7 +850,7 @@ async function main() {
 
     // and adding a relation from the UI writes the edge
     await cdp.evaluate(`(() => {
-      const fields = [...document.querySelectorAll('#card-dialog .field')];
+      const fields = [...document.querySelectorAll('#card-page .field')];
       const downstream = fields.find((f) => f.querySelector('label')?.textContent.startsWith('Downstream'));
       const input = downstream.querySelector('input');
       input.value = '3';
@@ -820,7 +860,7 @@ async function main() {
     await new Promise((resolve) => setTimeout(resolve, 900));
     const addedRelation = JSON.parse(
       await cdp.evaluate(`JSON.stringify({
-        downstream: [...document.querySelectorAll('#card-dialog .badge.relation')].map((b) => b.textContent),
+        downstream: [...document.querySelectorAll('#card-page .badge.relation')].map((b) => b.textContent),
         toasts: [...document.querySelectorAll('.toast')].map((toast) => toast.textContent),
       })`),
     );

@@ -1027,3 +1027,34 @@ describe("board summary", () => {
     expect(summaryCard?.notes).toEqual([]);
   });
 });
+
+describe("card page relations", () => {
+  it("returns titles and states for the parent, children and relations", async () => {
+    const umbrella = await createCard("umbrella card", { project: "web" });
+    const child = await createCard("child card");
+    await request(`/api/cards/${child.id}/parent`, {
+      method: "POST",
+      body: JSON.stringify({ parent: umbrella.id }),
+    });
+    const blocker = await createCard("blocking card");
+    await request(`/api/cards/${child.id}/relate`, {
+      method: "POST",
+      body: JSON.stringify({ other: blocker.id, direction: "upstream" }),
+    });
+
+    const response = await request(`/api/cards/${child.id}`);
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as {
+      related: { id: number; title: string; state: string }[];
+      projects: string[];
+    };
+    expect(payload.related).toEqual(
+      expect.arrayContaining([
+        { id: umbrella.id, title: "umbrella card", state: "todo" },
+        { id: blocker.id, title: "blocking card", state: "todo" },
+      ]),
+    );
+    // A cold card page builds its project picker from this list.
+    expect(payload.projects).toContain("web");
+  });
+});

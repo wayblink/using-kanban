@@ -98,6 +98,23 @@ export function searchQuery(raw) {
     .toLowerCase();
 }
 
+/**
+ * The card id in a `#/card/42` hash, or null.
+ *
+ * The card page is addressed by hash because the UI may be served from any
+ * path (a reverse proxy, a file bundle) and a hash link needs no server-side
+ * route. Exported so the parser is tested without a DOM.
+ */
+export function cardIdFromHash(hash) {
+  const match = /^#?\/?card\/(\d+)(?:[/?].*)?$/.exec(String(hash ?? ""));
+  return match ? Number(match[1]) : null;
+}
+
+/** The shareable path of a card. */
+export function cardPath(id) {
+  return `#/card/${id}`;
+}
+
 /** Everything a text search looks at — the id, notes included, links and all. */
 function cardHaystack(card) {
   const notes = (card.notes ?? [])
@@ -821,6 +838,12 @@ export const I18N = {
     "board.loading": "Loading the board…",
     "board.loadFailed": "Could not load the board.",
     "board.retry": "Retry",
+    "cardPage.back": "← Board",
+    "cardPage.copyLink": "Copy link",
+    "cardPage.copied": "Link copied",
+    "cardPage.loading": "Opening card…",
+    "cardPage.loadFailed": "Could not open this card.",
+    "cardPage.retry": "Retry",
     "card.project": "project:",
     "card.subproject": "sub:",
     "drawer.subproject": "Subproject",
@@ -1018,6 +1041,12 @@ export const I18N = {
     "board.loading": "正在加载看板…",
     "board.loadFailed": "看板加载失败。",
     "board.retry": "重试",
+    "cardPage.back": "← 看板",
+    "cardPage.copyLink": "复制链接",
+    "cardPage.copied": "链接已复制",
+    "cardPage.loading": "正在打开卡片…",
+    "cardPage.loadFailed": "卡片加载失败。",
+    "cardPage.retry": "重试",
     "card.project": "项目：",
     "card.subproject": "子项目：",
     "drawer.subproject": "子项目",
@@ -1273,8 +1302,8 @@ const DOCS_EN = [
         t: "ul",
         items: [
           [
-            "Card dialog",
-            "click any card to edit title/body/assignee/reviewer, run transitions, manage its upstream and downstream relations, attach notes, read the event history, or delete it (creator only).",
+            "Card page",
+            "click any card to open its own page and link (`#/card/<id>`) — share, bookmark or reload it. The page edits title/body/assignee/reviewer, runs transitions, manages upstream and downstream relations, attaches notes, reads the event history, or deletes the card (creator only). Opening it fetches that one card, not the whole board.",
           ],
           [
             "Relations",
@@ -1292,7 +1321,14 @@ const DOCS_EN = [
             "Live",
             "the board updates over SSE — cards moved by an agent, the CLI, or another browser tab appear without a refresh.",
           ],
-          ["Keyboard", "Enter opens a focused card, Escape closes panels."],
+          [
+            "Loading",
+            "the board shows a spinner until its first read, a thin top bar while a slow request runs, and a card link shows a skeleton until its card arrives.",
+          ],
+          [
+            "Keyboard",
+            "Enter opens a focused card, Escape closes the page or panel.",
+          ],
         ],
       },
     ],
@@ -1801,8 +1837,8 @@ const DOCS_ZH = [
         t: "ul",
         items: [
           [
-            "卡片详情弹窗",
-            "点击任意卡片可编辑标题/描述/负责人/审查者、执行状态流转、管理上下游关系、添加备注、查看事件历史，或删除卡片（仅创建者）。",
+            "卡片独立页面",
+            "点击任意卡片进入它自己的页面并拿到独立链接（`#/card/<id>`）——可分享、收藏、刷新。页面里可编辑标题/描述/负责人/审查者、执行状态流转、管理上下游关系、添加备注、查看事件历史，或删除卡片（仅创建者）。打开时只拉这一张卡，不拉整块看板。",
           ],
           [
             "上下游关系",
@@ -1820,7 +1856,11 @@ const DOCS_ZH = [
             "实时",
             "看板通过 SSE 更新——智能体、命令行或其他浏览器标签页移动的卡片都会自动出现，无需刷新。",
           ],
-          ["键盘", "聚焦卡片后按回车打开，按 Esc 关闭面板。"],
+          [
+            "加载提示",
+            "看板首次读取时显示 spinner，慢请求时顶栏出现细进度条；卡片链接在数据到达前显示骨架屏。",
+          ],
+          ["键盘", "聚焦卡片后按回车打开，按 Esc 关闭页面或面板。"],
         ],
       },
     ],
@@ -2220,8 +2260,8 @@ function startApp() {
     filterAssignee: document.getElementById("filter-assignee"),
     filterReviewer: document.getElementById("filter-reviewer"),
     newCard: document.getElementById("new-card"),
-    cardBackdrop: document.getElementById("card-dialog-backdrop"),
-    cardDialog: document.getElementById("card-dialog"),
+    cardPage: document.getElementById("card-page"),
+    progress: document.getElementById("top-progress"),
     modalBackdrop: document.getElementById("modal-backdrop"),
     modal: document.getElementById("modal"),
     docBackdrop: document.getElementById("doc-backdrop"),
@@ -2245,7 +2285,12 @@ function startApp() {
     },
     /** Columns the user has expanded past their collapsed preview. */
     expanded: new Set(),
+    /** The card page: which card it is showing, and whether it has loaded. */
     openCardId: null,
+    cardPageFor: null,
+    cardPageRelated: new Map(),
+    /** The board hash to return to when the card page is closed. */
+    cardReturnHash: "",
     dragCardId: null,
     route: currentRoute(),
     lang: loadLanguage(),
@@ -2309,11 +2354,9 @@ function startApp() {
       button.classList.toggle("active", active);
       button.setAttribute("aria-pressed", active ? "true" : "false");
     }
-    // the card dialog is built from translated labels, so rebuild it if it is open
-    const openCardId = state.openCardId;
-    if (openCardId !== null) {
-      state.openCardId = null;
-      void openCardDialog(openCardId);
+    // the card page is built from translated labels, so rebuild it in place
+    if (state.route === "card" && state.openCardId !== null) {
+      void renderCardPage();
     }
     render();
     if (state.route === "docs") void renderDocs();
@@ -2335,18 +2378,25 @@ function startApp() {
   }
 
   /**
-   * `#/board` (the home page), `#/insights`, `#/events` or `#/docs`.
+   * `#/board` (the home page), `#/insights`, `#/events`, `#/docs` or
+   * `#/card/<id>`.
    *
    * An empty hash is the board. A tool people open every day should not land
    * on its own manual; the docs are still one click away.
    */
   function currentRoute() {
     const hash = hashPath();
+    if (hash.startsWith("card/")) return "card";
     if (hash.startsWith("board")) return "board";
     if (hash.startsWith("insights")) return "insights";
     if (hash.startsWith("events")) return "events";
     if (hash.startsWith("docs")) return "docs";
     return "board";
+  }
+
+  /** The card id of the current `#/card/<id>` route, or null. */
+  function currentCardId() {
+    return cardIdFromHash(window.location.hash);
   }
 
   /**
@@ -2375,11 +2425,13 @@ function startApp() {
     state.route = currentRoute();
     const onDocs = state.route === "docs";
     const onEvents = state.route === "events";
+    const onCard = state.route === "card";
 
     els.board.hidden = state.route !== "board";
     els.insights.hidden = state.route !== "insights";
     els.docs.hidden = !onDocs;
     els.events.hidden = !onEvents;
+    els.cardPage.hidden = !onCard;
     els.boardControls.hidden = state.route !== "board";
     if (state.route === "board") syncBoardDeepLink();
 
@@ -2389,15 +2441,32 @@ function startApp() {
       link.setAttribute("aria-current", active ? "page" : "false");
     }
 
+    if (onCard) {
+      closeModal();
+      const id = currentCardId();
+      if (id === null) {
+        // `#/card/` with no number is not a card; the board is the way out.
+        window.location.hash = "#/board";
+        return;
+      }
+      state.openCardId = id;
+      state.cardPageFor = null;
+      state.cardPageRelated.clear();
+      els.cardPage.scrollTop = 0;
+      void renderCardPage();
+      return;
+    }
+
+    // Leaving the card page: drop its content and restore the document title.
+    clearCardPage();
+
     if (onEvents) {
-      closeCardDialog();
       closeModal();
       void renderEvents();
       return;
     }
 
     if (state.route === "insights") {
-      closeCardDialog();
       closeModal();
       // The container keeps its scroll across route changes; arriving at the
       // page is the one time that is wrong.
@@ -2415,7 +2484,6 @@ function startApp() {
     // re-rendering would reset the scroll position.
     if (!docsRendered) {
       docsRendered = true;
-      closeCardDialog();
       closeModal();
       void renderDocs();
       return;
@@ -2477,7 +2545,47 @@ function startApp() {
       : path;
   }
 
+  /* ---------------------------- progress ----------------------------- */
+
+  let pendingRequests = 0;
+  let progressTimer = null;
+
+  /**
+   * A 2px bar for work that takes long enough to notice.
+   *
+   * Requests are counted, not tracked individually: a burst of SSE-triggered
+   * board reads is one visible "busy" period. The bar waits 120ms so an
+   * instant local read does not flash.
+   */
+  function beginRequest() {
+    pendingRequests += 1;
+    if (progressTimer !== null) return;
+    progressTimer = window.setTimeout(() => {
+      progressTimer = null;
+      if (pendingRequests > 0) els.progress.hidden = false;
+    }, 120);
+  }
+
+  function endRequest() {
+    pendingRequests = Math.max(0, pendingRequests - 1);
+    if (pendingRequests > 0) return;
+    if (progressTimer !== null) {
+      window.clearTimeout(progressTimer);
+      progressTimer = null;
+    }
+    els.progress.hidden = true;
+  }
+
   async function api(path, options = {}) {
+    beginRequest();
+    try {
+      return await apiRequest(path, options);
+    } finally {
+      endRequest();
+    }
+  }
+
+  async function apiRequest(path, options = {}) {
     // `identity: false` asks the server who we are without telling it — see
     // `loadActor`. Otherwise every call carries the acting identity.
     const anonymous = options.identity === false;
@@ -2564,14 +2672,54 @@ function startApp() {
 
   /* ------------------------------ board ------------------------------ */
 
+  /**
+   * Fetch the board, with at most one request in flight.
+   *
+   * Live events arrive in bursts (one card saved during a migration fires
+   * several). Without this guard each event queued its own 550 KB read, so the
+   * page spent its time parsing boards that were already stale. A burst now
+   * costs one request, and one more after it settles.
+   */
   async function refresh() {
+    if (state.route === "card") {
+      // A mutation on the card page redraws that card, not the board behind it.
+      await renderCardPage();
+      return;
+    }
+    if (boardRequest !== null) {
+      boardAgain = true;
+      return boardRequest;
+    }
+    boardRequest = loadBoard();
+    try {
+      await boardRequest;
+    } finally {
+      boardRequest = null;
+      if (boardAgain) {
+        boardAgain = false;
+        scheduleRefresh();
+      }
+    }
+  }
+
+  async function loadBoard() {
     if (!state.boardLoaded) {
       state.boardLoading = true;
       state.boardError = null;
       render();
     }
     try {
-      const board = await api("/api/board?summary=1");
+      const params = new URLSearchParams({ summary: "1" });
+      // Narrow on the server only while drawing the board: a 550 KB board
+      // becomes the few dozen cards of one repository. Other routes use the
+      // cards to name event rows and insights, so they need the whole board.
+      if (state.route === "board" && state.filter.project) {
+        params.set("project", state.filter.project);
+      }
+      if (state.route === "board" && state.filter.subproject) {
+        params.set("subproject", state.filter.subproject);
+      }
+      const board = await api(`/api/board?${params}`);
       state.cards = [
         ...board.someday,
         ...board.todo,
@@ -2587,12 +2735,6 @@ function startApp() {
       // board it names has arrived — so the row is redrawn once the cards are
       // here, instead of showing a bare `#31` until the next load.
       if (state.route === "events") renderEventList();
-      // A card dialog opened from a ranking is a guest on that page: a save
-      // there has to redraw the dialog, and the aggregate behind it is now one
-      // event stale.
-      if (state.route !== "board" && state.openCardId !== null) {
-        void renderCardDialog();
-      }
       if (state.route === "insights" && state.insights.data) {
         scheduleInsightsRefresh();
       }
@@ -2608,14 +2750,33 @@ function startApp() {
     }
   }
 
+  let boardRequest = null;
+  let boardAgain = false;
   let refreshTimer = null;
+  let refreshWhileHidden = false;
+
   function scheduleRefresh() {
+    // The card page has its own request; a live event for some other card
+    // should not rebuild the page under the reader's cursor.
+    if (state.route === "card") return;
+    // A background tab does not need fresh columns every few seconds; catch up
+    // when it is looked at again.
+    if (document.visibilityState === "hidden") {
+      refreshWhileHidden = true;
+      return;
+    }
     if (refreshTimer) return;
     refreshTimer = window.setTimeout(() => {
       refreshTimer = null;
       void refresh();
     }, 60);
   }
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible" || !refreshWhileHidden) return;
+    refreshWhileHidden = false;
+    scheduleRefresh();
+  });
 
   function connectLive() {
     // No status pill: the stream reconnecting is not something the reader has
@@ -2669,7 +2830,6 @@ function startApp() {
     if (state.route !== "board") return;
     renderBoard();
     renderFilterOptions();
-    if (state.openCardId !== null) renderCardDialog();
   }
 
   function renderBoard() {
@@ -2831,7 +2991,7 @@ function startApp() {
   function childProgressOf(card) {
     const ids = card.children ?? [];
     const done = ids.filter((id) => {
-      const child = state.cards.find((entry) => entry.id === id);
+      const child = findCard(id);
       return child?.state === "done";
     }).length;
     return { total: ids.length, done };
@@ -2964,11 +3124,11 @@ function startApp() {
       meta,
     );
 
-    element.addEventListener("click", () => openCardDialog(card.id));
+    element.addEventListener("click", () => openCard(card.id));
     element.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
-        openCardDialog(card.id);
+        openCard(card.id);
       }
     });
     element.addEventListener("dragstart", (event) => {
@@ -3024,7 +3184,11 @@ function startApp() {
   function renderFilterOptions() {
     fillSelect(
       els.filterProject,
-      projectOptions(state.cards),
+      // The server narrows the board to one project when the filter is set, so
+      // the card list no longer names every project. The project list always
+      // comes back whole; fall back to the cards when talking to an older
+      // server that does not send it.
+      state.projects.length > 0 ? state.projects : projectOptions(state.cards),
       t("filter.anyProject"),
     );
     fillSelect(
@@ -3116,20 +3280,84 @@ function startApp() {
     }
   }
 
-  /* ----------------------------- card dialog -------------------------- */
+  /* ------------------------------ card page --------------------------- */
 
-  async function openCardDialog(id) {
-    state.openCardId = id;
-    els.cardBackdrop.hidden = false;
-    els.cardDialog.hidden = false;
-    await renderCardDialog();
+  /**
+   * Go to a card page. The hash is the link: shareable, reloadable, and the
+   * back button returns to whatever board filter the reader came from.
+   */
+  function openCard(id) {
+    if (state.route !== "card") {
+      state.cardReturnHash = window.location.hash || "#/board";
+    }
+    window.location.hash = cardPath(id);
   }
 
-  function closeCardDialog() {
+  /** Leave the card page for where the reader came from (or the board). */
+  function closeCardPage() {
+    const back = state.cardReturnHash || "#/board";
+    state.cardReturnHash = "";
+    window.location.hash = back;
+  }
+
+  /** Drop the page's content without navigating (a route change calls this). */
+  function clearCardPage() {
     state.openCardId = null;
-    els.cardBackdrop.hidden = true;
-    els.cardDialog.hidden = true;
-    els.cardDialog.textContent = "";
+    state.cardPageFor = null;
+    state.cardPageRelated.clear();
+    els.cardPage.textContent = "";
+    document.title = "using-kanban";
+  }
+
+  /** The card page's loading/error state, with the same spinner as the board. */
+  function renderCardPageStatus(kind, message = "") {
+    const status = document.createElement("div");
+    status.className = "board-status card-page-status";
+    status.setAttribute("role", kind === "loading" ? "status" : "alert");
+    if (kind === "loading") {
+      status.setAttribute("aria-live", "polite");
+      const spinner = document.createElement("div");
+      spinner.className = "spinner";
+      spinner.setAttribute("aria-hidden", "true");
+      const label = document.createElement("p");
+      label.textContent = t("cardPage.loading");
+      status.append(spinner, label);
+      return status;
+    }
+
+    const label = document.createElement("p");
+    label.textContent = t("cardPage.loadFailed");
+    status.append(label);
+    if (message) {
+      const detail = document.createElement("p");
+      detail.className = "board-status-detail";
+      detail.textContent = message;
+      status.append(detail);
+    }
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.className = "retry-button";
+    retry.textContent = t("cardPage.retry");
+    retry.addEventListener("click", () => {
+      state.cardPageFor = null;
+      void renderCardPage();
+    });
+    const back = document.createElement("button");
+    back.type = "button";
+    back.className = "retry-button";
+    back.textContent = t("cardPage.back");
+    back.addEventListener("click", closeCardPage);
+    status.append(retry, back);
+    return status;
+  }
+
+  /** A card by id from the board in hand, or from the page's `related` set. */
+  function findCard(id) {
+    return (
+      state.cards.find((entry) => entry.id === id) ??
+      state.cardPageRelated.get(id) ??
+      null
+    );
   }
 
   /**
@@ -3171,39 +3399,67 @@ function startApp() {
     return input;
   }
 
-  async function renderCardDialog() {
+  let cardPageRequest = 0;
+
+  async function renderCardPage() {
     const id = state.openCardId;
     if (id === null) return;
-    const cached = state.cards.find((entry) => entry.id === id);
-    let card = cached;
-    try {
-      // The board list is a summary (body preview, no notes); the dialog needs
-      // the full card, so fetch it even when the summary is in hand.
-      const payload = await api(`/api/cards/${id}`);
-      card = payload.card;
-    } catch {
-      if (!card) {
-        closeCardDialog();
-        return;
-      }
+    const request = ++cardPageRequest;
+    const firstLoad = state.cardPageFor !== id;
+    const previousScroll = window.scrollY;
+    if (firstLoad) {
+      state.cardPageFor = id;
+      els.cardPage.textContent = "";
+      els.cardPage.append(renderCardPageStatus("loading"));
+      window.scrollTo({ top: 0 });
     }
 
-    els.cardDialog.textContent = "";
+    let payload;
+    try {
+      // The page always fetches the full card: the board it came from holds a
+      // summary, and a link opened cold holds no board at all. One request
+      // returns the body, notes, history and the titles of related cards.
+      payload = await api(`/api/cards/${id}`);
+    } catch (error) {
+      if (request !== cardPageRequest || state.openCardId !== id) return;
+      // A mutation redraw can fail while the page is fine: keep the card on
+      // screen and report the failure, instead of replacing it with an error.
+      if (!firstLoad && els.cardPage.querySelector(".dialog-head") !== null) {
+        toast(error.message, "error");
+        return;
+      }
+      els.cardPage.textContent = "";
+      els.cardPage.append(renderCardPageStatus("error", error.message));
+      return;
+    }
+    // A slow earlier read must not overwrite a newer card page.
+    if (request !== cardPageRequest || state.openCardId !== id) return;
+    const card = payload.card;
+    if (Array.isArray(payload.projects)) state.projects = payload.projects;
+    state.cardPageRelated = new Map(
+      (payload.related ?? []).map((entry) => [entry.id, entry]),
+    );
+
+    els.cardPage.textContent = "";
 
     const header = document.createElement("div");
     header.className = "dialog-head";
+    const back = document.createElement("button");
+    back.type = "button";
+    back.className = "mini-button";
+    back.textContent = t("cardPage.back");
+    back.addEventListener("click", closeCardPage);
     const heading = document.createElement("h2");
     heading.textContent = `#${card.id} ${card.title}`;
     const pill = document.createElement("span");
     pill.className = "state-pill";
     pill.textContent = t(`column.${card.state}`);
-    const close = document.createElement("button");
-    close.className = "icon-button";
-    close.type = "button";
-    close.textContent = "✕";
-    close.setAttribute("aria-label", t("drawer.close"));
-    close.addEventListener("click", closeCardDialog);
-    header.append(heading, pill, close);
+    const copy = document.createElement("button");
+    copy.type = "button";
+    copy.className = "mini-button";
+    copy.textContent = t("cardPage.copyLink");
+    copy.addEventListener("click", () => void copyCardLink());
+    header.append(back, heading, pill, copy);
 
     const body = document.createElement("div");
     body.className = "dialog-body";
@@ -3356,8 +3612,8 @@ function startApp() {
       try {
         await api(`/api/cards/${id}`, { method: "DELETE" });
         toast(`deleted #${id}`);
-        closeCardDialog();
-        await refresh();
+        state.cardReturnHash = "";
+        window.location.hash = "#/board";
       } catch (error) {
         toast(error.message, "error");
       }
@@ -3368,26 +3624,42 @@ function startApp() {
     foot.className = "dialog-foot";
     foot.append(danger, actions);
 
-    els.cardDialog.append(header, body, foot);
-    void fillHistory(historyList, id);
+    els.cardPage.append(header, body, foot);
+    appendHistory(historyList, payload.history ?? []);
+    // A save redraws the page; keep the reader where they were. A new card
+    // starts at the top.
+    window.scrollTo({ top: firstLoad ? 0 : previousScroll });
+    document.title = `#${card.id} ${card.title} · using-kanban`;
   }
 
-  /** The card's history, appended to a list that is already on screen. */
-  async function fillHistory(list, id) {
+  /** Put the link in the address bar on the clipboard, or show it if it cannot. */
+  async function copyCardLink() {
     try {
-      const payload = await api(`/api/cards/${id}/history`);
-      for (const event of payload.events) {
-        const item = document.createElement("li");
-        const who = document.createElement("span");
-        who.className = "who";
-        who.textContent = `${event.actor.type}/${event.actor.name}`;
-        const what = document.createElement("span");
-        what.textContent = `${describeEvent(event)} · ${formatRelativeTime(event.ts, Date.now(), t)}`;
-        item.append(who, what);
-        list.append(item);
-      }
+      await navigator.clipboard.writeText(window.location.href);
+      toast(t("cardPage.copied"));
     } catch {
-      // history is best-effort
+      toast(window.location.href);
+    }
+  }
+
+  /** The card's history, rendered from the response that fetched the card. */
+  function appendHistory(list, events) {
+    if (events.length === 0) {
+      const item = document.createElement("li");
+      item.className = "history-empty";
+      item.textContent = t("drawer.none");
+      list.append(item);
+      return;
+    }
+    for (const event of events) {
+      const item = document.createElement("li");
+      const who = document.createElement("span");
+      who.className = "who";
+      who.textContent = `${event.actor.type}/${event.actor.name}`;
+      const what = document.createElement("span");
+      what.textContent = `${describeEvent(event)} · ${formatRelativeTime(event.ts, Date.now(), t)}`;
+      item.append(who, what);
+      list.append(item);
     }
   }
 
@@ -3447,12 +3719,12 @@ function startApp() {
     chips.className = "blockers";
 
     if (card.parent != null) {
-      const parent = state.cards.find((entry) => entry.id === card.parent);
+      const parent = findCard(card.parent);
       const chip = document.createElement("span");
       chip.className = "badge relation";
       chip.textContent = `⤷ #${card.parent}${parent ? ` ${parent.title} (${parent.state})` : ""}`;
       chip.title = parent?.title ?? `#${card.parent}`;
-      chip.addEventListener("click", () => void openCardDialog(card.parent));
+      chip.addEventListener("click", () => void openCard(card.parent));
       const detach = document.createElement("button");
       detach.className = "icon-button";
       detach.type = "button";
@@ -3498,7 +3770,7 @@ function startApp() {
     }
 
     const children = (card.children ?? [])
-      .map((id) => state.cards.find((entry) => entry.id === id))
+      .map((id) => findCard(id))
       .filter(Boolean);
     if (children.length > 0) {
       const done = children.filter((child) => child.state === "done").length;
@@ -3514,7 +3786,7 @@ function startApp() {
         chip.className = "badge relation";
         chip.textContent = `#${child.id} [${child.state}] ${child.title}`;
         chip.title = child.title;
-        chip.addEventListener("click", () => void openCardDialog(child.id));
+        chip.addEventListener("click", () => void openCard(child.id));
         chips.append(chip);
       }
     }
@@ -3558,12 +3830,12 @@ function startApp() {
     }
 
     for (const otherId of ids) {
-      const other = state.cards.find((entry) => entry.id === otherId);
+      const other = findCard(otherId);
       const chip = document.createElement("span");
       chip.className = "badge relation";
       chip.textContent = `#${otherId}${other ? ` ${other.title} (${other.state})` : ""}`;
       chip.title = other?.title ?? `#${otherId}`;
-      chip.addEventListener("click", () => void openCardDialog(otherId));
+      chip.addEventListener("click", () => void openCard(otherId));
       const remove = document.createElement("button");
       remove.className = "icon-button";
       remove.type = "button";
@@ -4662,7 +4934,7 @@ function startApp() {
       row.type = "button";
       row.className = "stuck-row";
       row.setAttribute("aria-label", t("insights.openCard", { id: card.id }));
-      row.addEventListener("click", () => void openCardDialog(card.id));
+      row.addEventListener("click", () => void openCard(card.id));
 
       const title = insightEl("span", "stuck-card");
       title.append(
@@ -5276,7 +5548,7 @@ function startApp() {
     ref.type = "button";
     ref.className = "event-card";
     ref.textContent = `#${event.cardId}${card?.title ? ` ${card.title}` : ""}`;
-    ref.addEventListener("click", () => void openCardDialog(event.cardId));
+    ref.addEventListener("click", () => void openCard(event.cardId));
 
     const desc = document.createElement("span");
     desc.className = "event-desc";
@@ -5311,7 +5583,6 @@ function startApp() {
   for (const button of document.querySelectorAll(".lang-option")) {
     button.addEventListener("click", () => setLanguage(button.dataset.lang));
   }
-  els.cardBackdrop.addEventListener("click", closeCardDialog);
   els.modalBackdrop.addEventListener("click", closeModal);
   els.docBackdrop.addEventListener("click", closeDoc);
   // Auto-sized audit pages follow the window; a fixed choice ignores it.
@@ -5331,10 +5602,13 @@ function startApp() {
     state.filter.subproject = "";
     renderFilterOptions();
     renderBoard();
+    // The project filter narrows the read on the server, not just the DOM.
+    scheduleRefresh();
   });
   els.filterSubproject.addEventListener("change", () => {
     state.filter.subproject = els.filterSubproject.value;
     renderBoard();
+    scheduleRefresh();
   });
   els.filterReviewer.addEventListener("change", () => {
     state.filter.reviewer = els.filterReviewer.value;
@@ -5342,13 +5616,16 @@ function startApp() {
   });
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
-    // The document viewer sits on top of the card dialog, so Escape peels one layer:
-    // closing both at once loses the card the reader came from.
+    // The document viewer sits on top of the card page, so Escape peels one
+    // layer at a time: closing both at once loses the card the reader came from.
     if (!els.docViewer.hidden) {
       closeDoc();
       return;
     }
-    closeCardDialog();
+    if (state.route === "card") {
+      closeCardPage();
+      return;
+    }
     closeModal();
   });
 
