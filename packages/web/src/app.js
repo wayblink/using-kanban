@@ -818,6 +818,9 @@ export const I18N = {
     "column.showRest": "show the other {n}",
     "column.showLess": "show less",
     "column.empty": "nothing here",
+    "board.loading": "Loading the board…",
+    "board.loadFailed": "Could not load the board.",
+    "board.retry": "Retry",
     "card.project": "project:",
     "card.subproject": "sub:",
     "drawer.subproject": "Subproject",
@@ -1012,6 +1015,9 @@ export const I18N = {
     "column.showRest": "显示其余 {n} 张",
     "column.showLess": "收起",
     "column.empty": "暂无卡片",
+    "board.loading": "正在加载看板…",
+    "board.loadFailed": "看板加载失败。",
+    "board.retry": "重试",
     "card.project": "项目：",
     "card.subproject": "子项目：",
     "drawer.subproject": "子项目",
@@ -2225,6 +2231,10 @@ function startApp() {
 
   const state = {
     cards: [],
+    /** First board load: show progress, not five empty columns. */
+    boardLoading: true,
+    boardLoaded: false,
+    boardError: null,
     actor: { name: "me", type: "human" },
     filter: {
       q: "",
@@ -2555,6 +2565,11 @@ function startApp() {
   /* ------------------------------ board ------------------------------ */
 
   async function refresh() {
+    if (!state.boardLoaded) {
+      state.boardLoading = true;
+      state.boardError = null;
+      render();
+    }
     try {
       const board = await api("/api/board?summary=1");
       state.cards = [
@@ -2565,6 +2580,8 @@ function startApp() {
         ...board.done,
       ];
       state.projects = board.projects ?? [];
+      state.boardLoaded = true;
+      state.boardError = null;
       render();
       // The audit rows carry card titles, and a live event can land before the
       // board it names has arrived — so the row is redrawn once the cards are
@@ -2580,7 +2597,14 @@ function startApp() {
         scheduleInsightsRefresh();
       }
     } catch (error) {
+      if (!state.boardLoaded) {
+        state.boardError =
+          error instanceof Error ? error.message : String(error);
+      }
       toast(error.message, "error");
+    } finally {
+      state.boardLoading = false;
+      render();
     }
   }
 
@@ -2649,9 +2673,22 @@ function startApp() {
   }
 
   function renderBoard() {
+    els.board.textContent = "";
+
+    // Before the first successful read the columns are not "empty" — they are
+    // unknown. Saying "nothing here" turns a slow first load into a false
+    // report that the board has no cards.
+    if (!state.boardLoaded && state.boardLoading) {
+      renderBoardStatus("loading");
+      return;
+    }
+    if (!state.boardLoaded && state.boardError !== null) {
+      renderBoardStatus("error", state.boardError);
+      return;
+    }
+
     const visible = filterCards(state.cards, state.filter);
     const blocked = blockedCardIds(state.cards);
-    els.board.textContent = "";
 
     for (const column of COLUMNS) {
       const section = document.createElement("section");
@@ -2724,6 +2761,39 @@ function startApp() {
     }
 
     settleGists();
+  }
+
+  /** The first-load state: a spinner, or an error with a retry. */
+  function renderBoardStatus(kind, message = "") {
+    const status = document.createElement("div");
+    status.className = "board-status";
+    status.setAttribute("role", kind === "loading" ? "status" : "alert");
+    if (kind === "loading") {
+      status.setAttribute("aria-live", "polite");
+      const spinner = document.createElement("div");
+      spinner.className = "spinner";
+      spinner.setAttribute("aria-hidden", "true");
+      const label = document.createElement("p");
+      label.textContent = t("board.loading");
+      status.append(spinner, label);
+    } else {
+      const label = document.createElement("p");
+      label.textContent = t("board.loadFailed");
+      const detail = document.createElement("p");
+      detail.className = "board-status-detail";
+      detail.textContent = message;
+      const retry = document.createElement("button");
+      retry.type = "button";
+      retry.className = "retry-button";
+      retry.textContent = t("board.retry");
+      retry.addEventListener("click", () => {
+        state.boardError = null;
+        state.boardLoaded = false;
+        void refresh();
+      });
+      status.append(label, detail, retry);
+    }
+    els.board.append(status);
   }
 
   /**
