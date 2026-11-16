@@ -73,9 +73,10 @@ describe("storage and dir resolution", () => {
     expect(resolveStorage({}, {})).toBe("sqlite");
   });
 
-  it("rejects unknown storage kinds", () => {
-    expect(() => resolveStorage({ storage: "postgres" }, {})).toThrowError(
-      /sqlite \| jsonl \| memory/,
+  it("accepts postgres and rejects unknown storage kinds", () => {
+    expect(resolveStorage({ storage: "postgres" }, {})).toBe("postgres");
+    expect(() => resolveStorage({ storage: "redis" }, {})).toThrowError(
+      /sqlite \| jsonl \| memory \| postgres/,
     );
   });
 

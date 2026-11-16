@@ -16,7 +16,8 @@ export async function runDoctor(
   flags: Record<string, string | true>,
   io: Io,
   dir: string,
-  storage: "sqlite" | "jsonl" | "memory",
+  storage: "sqlite" | "jsonl" | "memory" | "postgres",
+  postgresUrl?: string | undefined,
 ): Promise<number> {
   const checks: { ok: boolean; label: string; detail: string }[] = [];
   // One config file, four front doors. Doctor is where a reader finds out which
@@ -40,7 +41,7 @@ export async function runDoctor(
   try {
     mkdirSync(storeDir, { recursive: true });
     accessSync(storeDir, constants.W_OK);
-    const cards = await countCards(dir, storage);
+    const cards = await countCards(dir, storage, postgresUrl);
     checks.push({
       ok: true,
       label: "store",
@@ -147,7 +148,7 @@ export async function runDoctor(
   // 7. parent/child pairs that predate the rule. The engine refuses new ones,
   //    but the log is append-only — a board written earlier can still hold
   //    them, and only the owner can decide which end to move.
-  const slanted = await hierarchyViolations(dir, storage);
+  const slanted = await hierarchyViolations(dir, storage, postgresUrl);
   if (slanted) {
     checks.push({
       ok: slanted.length === 0,
@@ -200,10 +201,11 @@ function hereUrl(): string | undefined {
 
 async function countCards(
   dir: string,
-  storage: "sqlite" | "jsonl" | "memory",
+  storage: "sqlite" | "jsonl" | "memory" | "postgres",
+  postgresUrl?: string | undefined,
 ): Promise<number> {
   try {
-    const kanban = openKanban({ dir, storage });
+    const kanban = openKanban({ dir, storage, postgresUrl });
     const count = (await kanban.cards()).length;
     kanban.close();
     return count;
@@ -218,10 +220,11 @@ async function countCards(
  */
 async function hierarchyViolations(
   dir: string,
-  storage: "sqlite" | "jsonl" | "memory",
+  storage: "sqlite" | "jsonl" | "memory" | "postgres",
+  postgresUrl?: string | undefined,
 ): Promise<string[] | null> {
   try {
-    const kanban = openKanban({ dir, storage });
+    const kanban = openKanban({ dir, storage, postgresUrl });
     const found = (await kanban.hierarchyViolations()).map(
       (entry) => entry.reason,
     );

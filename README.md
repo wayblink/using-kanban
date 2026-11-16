@@ -297,7 +297,10 @@ server never reads would be a quiet lie.
 - **One board per machine**, at `~/.ukb/`. Every project shares it, separated by
   the `project` field; `--dir` / `UKB_DIR` points elsewhere.
 - **Storage**: SQLite (default, WAL — safe appends from several processes),
-  `--storage jsonl` (zero deps, git-friendly), or `memory` (tests).
+  `--storage jsonl` (zero deps, git-friendly), `memory` (tests), or
+  `--storage postgres` for a shared server (`--pg-url`, `UKB_PG_URL` or
+  `DATABASE_URL`). `ukb migrate --to postgres` copies the local SQLite log,
+  keeping event ids and card handles intact.
 - **Ids**: a card id counts cards, an event id counts events. They are separate
   sequences, so `add, edit, add` gives you `#1` and `#2` rather than `#1` and
   `#3` — the number you type is never inflated by a board's edit history. Ids

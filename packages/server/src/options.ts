@@ -15,13 +15,15 @@ export const ServerOptionsSchema = z.object({
   /** Board directory — the store lives at `<dir>/.ukb/`. */
   // One centralised board; projects are separated by the `project` field.
   dir: z.string().default(homedir()),
-  storage: z.enum(["sqlite", "jsonl", "memory"]).default("sqlite"),
+  storage: z.enum(["sqlite", "jsonl", "memory", "postgres"]).default("sqlite"),
   /** Bind address. Anything other than loopback is opt-in. */
   host: z.string().default(DEFAULT_HOST),
   /** 0 = let the OS pick a free port. */
   port: z.number().int().min(0).max(65535).default(0),
   /** Bearer token for mutations. Generated when omitted. */
   token: z.string().min(1).optional(),
+  /** Connection URL for `storage: "postgres"`. */
+  postgresUrl: z.string().min(1).optional(),
   /**
    * Allow binding beyond loopback without any account. Off by default: a board
    * that leaves the machine must say who may read it. `--allow-anonymous` is the
@@ -58,6 +60,8 @@ export interface ResolvedServerOptions {
   token: string;
   /** Where the account file lives (`<dir>/.ukb/accounts.json`). */
   accountsPath: string;
+  /** Postgres DSN, present only for `storage: postgres`. */
+  postgresUrl?: string | undefined;
   allowAnonymous: boolean;
   owner: string;
   actor: z.infer<typeof ActorSchema>;

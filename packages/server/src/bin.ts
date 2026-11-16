@@ -27,6 +27,9 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
       case "--storage":
         options.storage = next() as ServerOptions["storage"];
         break;
+      case "--pg-url":
+        options.postgresUrl = next();
+        break;
       case "--host":
         options.host = next();
         break;
@@ -84,7 +87,8 @@ function printHelp(): void {
       "Usage: ukb-server [options]",
       "",
       "  --dir <path>        board directory (store lives at <dir>/.ukb/)",
-      "  --storage <kind>    sqlite (default) | jsonl | memory",
+      "  --storage <kind>    sqlite (default) | jsonl | memory | postgres",
+      "  --pg-url <url>      postgres DSN (or UKB_PG_URL / DATABASE_URL)",
       "  --host <addr>       bind address (default 127.0.0.1)",
       "  --port <n>          port (default: random free port)",
       "  --token <token>     machine token for scripts (default: generated)",
@@ -109,7 +113,12 @@ async function main(): Promise<void> {
   // embedder (or a test) gets a predictable server when it passes nothing.
   const config = loadConfig(process.env);
   const owner = options.owner ?? resolveOwnerName({ env: process.env, config });
-  const running = await startServer({ ...options, owner });
+  const running = await startServer({
+    ...options,
+    postgresUrl:
+      options.postgresUrl ?? process.env.UKB_PG_URL ?? process.env.DATABASE_URL,
+    owner,
+  });
 
   if (quiet) {
     process.stdout.write(`${running.url}\n`);

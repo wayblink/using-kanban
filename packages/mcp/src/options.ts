@@ -10,7 +10,7 @@ import {
 export const McpOptionsSchema = z.object({
   /** Board directory — the store lives at `<dir>/.ukb/`. */
   dir: z.string().optional(),
-  storage: z.enum(["sqlite", "jsonl", "memory"]).optional(),
+  storage: z.enum(["sqlite", "jsonl", "memory", "postgres"]).optional(),
   /** Actor name this server acts as (what `mine` and `claim` resolve to). */
   agent: z.string().min(1).optional(),
   agentType: z.enum(["human", "agent"]).optional(),
@@ -18,6 +18,8 @@ export const McpOptionsSchema = z.object({
   server: z.string().min(1).optional(),
   /** Bearer token for that server. */
   token: z.string().min(1).optional(),
+  /** Postgres DSN for `storage: "postgres"` (or UKB_PG_URL / DATABASE_URL). */
+  pgUrl: z.string().min(1).optional(),
 });
 export type McpOptions = z.input<typeof McpOptionsSchema>;
 
@@ -33,6 +35,8 @@ export interface ResolvedMcpOptions {
   server: string | null;
   /** Token for that origin, when one was resolved. */
   token: string | null;
+  /** Postgres DSN for the local `storage: postgres` mode. */
+  postgresUrl: string | undefined;
 }
 
 const DEFAULT_AGENT_NAME = "agent";
@@ -79,6 +83,8 @@ export function resolveMcpOptions(
     owner: resolveOwnerName({ env, config }),
     server: transport.server,
     token: transport.token,
+    postgresUrl:
+      parsed.pgUrl ?? env.UKB_PG_URL ?? env.DATABASE_URL ?? undefined,
     usedDefaultAgent:
       parsed.agent === undefined &&
       env.UKB_AGENT === undefined &&
@@ -120,6 +126,9 @@ function parseArgv(argv: readonly string[]): McpOptions {
         break;
       case "--token":
         options.token = next();
+        break;
+      case "--pg-url":
+        options.pgUrl = next();
         break;
       case "--help":
       case "-h":

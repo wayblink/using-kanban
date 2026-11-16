@@ -6,10 +6,11 @@ import { MemoryEventLog } from "./event-log.js";
 import { SqliteEventLog } from "./event-log-sqlite.js";
 import { KanbanError } from "./errors.js";
 import { Kanban } from "./kanban.js";
+import { PgEventLog } from "./event-log-postgres.js";
 import { RemoteBoard } from "./remote.js";
 import { LocalBoardService, type BoardService } from "./service.js";
 
-export type StorageKind = "sqlite" | "jsonl" | "memory";
+export type StorageKind = "sqlite" | "jsonl" | "memory" | "postgres";
 
 export interface OpenKanbanOptions {
   /** Defaults to `sqlite`. */
@@ -38,12 +39,17 @@ export interface OpenKanbanOptions {
    * permission guard: the owner may modify and delete any card.
    */
   readonly owner?: string | undefined;
+  /**
+   * Connection URL for `storage: "postgres"` — `postgres://user:pass@host/db`.
+   * Required for that storage; ignored otherwise.
+   */
+  readonly postgresUrl?: string | undefined;
 }
 
 /** Per-project store directory, created on first open. */
 export const DEFAULT_STORAGE_DIR = ".ukb";
 
-const DEFAULT_FILE_NAMES: Record<Exclude<StorageKind, "memory">, string> = {
+const DEFAULT_FILE_NAMES: Record<"sqlite" | "jsonl", string> = {
   sqlite: "board.db",
   jsonl: "events.jsonl",
 };
@@ -56,6 +62,21 @@ const DEFAULT_FILE_NAMES: Record<Exclude<StorageKind, "memory">, string> = {
  */
 export function openKanban(options: OpenKanbanOptions = {}): Kanban {
   const storage = options.storage ?? "sqlite";
+  if (storage === "postgres") {
+    if (
+      options.postgresUrl === undefined ||
+      options.postgresUrl.trim() === ""
+    ) {
+      throw new KanbanError(
+        "invalid_input",
+        "postgres storage needs a connection URL (UKB_PG_URL or DATABASE_URL)",
+      );
+    }
+    return new Kanban({
+      log: new PgEventLog({ connectionString: options.postgresUrl }),
+      ...(options.owner !== undefined ? { owner: options.owner } : {}),
+    });
+  }
   if (storage === "memory") {
     return new Kanban({
       log: new MemoryEventLog(),
@@ -66,7 +87,11 @@ export function openKanban(options: OpenKanbanOptions = {}): Kanban {
   const dir = resolve(options.dir ?? homedir());
   const path = options.path
     ? resolve(options.path)
-    : join(dir, DEFAULT_STORAGE_DIR, DEFAULT_FILE_NAMES[storage]);
+    : join(
+        dir,
+        DEFAULT_STORAGE_DIR,
+        DEFAULT_FILE_NAMES[storage as "sqlite" | "jsonl"],
+      );
   if (options.create === false && !existsSync(path)) {
     // Wording matters here, and both halves of it are measured rather than
     // guessed:

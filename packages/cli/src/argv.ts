@@ -117,9 +117,14 @@ export function resolveStorage(
   env: NodeJS.ProcessEnv,
 ): StorageKind {
   const value = flagString(flags, "storage") ?? env.UKB_STORAGE ?? "sqlite";
-  if (value !== "sqlite" && value !== "jsonl" && value !== "memory") {
+  if (
+    value !== "sqlite" &&
+    value !== "jsonl" &&
+    value !== "memory" &&
+    value !== "postgres"
+  ) {
     throw new UsageError(
-      `--storage expects sqlite | jsonl | memory (got "${value}")`,
+      `--storage expects sqlite | jsonl | memory | postgres (got "${value}")`,
     );
   }
   return value;
@@ -138,4 +143,14 @@ export function resolveDir(
   env: NodeJS.ProcessEnv,
 ): string {
   return flagString(flags, "dir") ?? env.UKB_DIR ?? homedir();
+}
+
+/** Connection URL for `--storage postgres`: flag → environment. */
+export function resolvePostgresUrl(
+  flags: Record<string, string | true>,
+  env: NodeJS.ProcessEnv,
+): string | undefined {
+  const value =
+    flagString(flags, "pg-url") ?? env.UKB_PG_URL ?? env.DATABASE_URL;
+  return value === undefined || value.trim() === "" ? undefined : value.trim();
 }

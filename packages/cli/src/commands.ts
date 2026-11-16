@@ -20,6 +20,7 @@ import {
   flagString,
   parseArgv,
   resolveDir,
+  resolvePostgresUrl,
   resolveStorage,
   UsageError,
 } from "./argv.js";
@@ -41,6 +42,7 @@ import {
 import { runInit } from "./init.js";
 import { runDoctor } from "./doctor.js";
 import { readPipedLine, runUserCommand } from "./user.js";
+import { runMigrate } from "./migrate.js";
 
 /**
  * Each intent verb reports itself in its own words.
@@ -154,6 +156,7 @@ const COMMANDS = [
   "init",
   "doctor",
   "user",
+  "migrate",
   "login",
   "logout",
   "help",
@@ -251,6 +254,9 @@ setup:
                                      (--browser also adds the Playwright MCP server)
                                      pi registers the extension + skill package
   ukb doctor                        check the environment
+  ukb migrate --to postgres [--pg-url URL] [--from <sqlite>] [--force]
+                                     copy the local SQLite log into Postgres,
+                                     keeping event and card ids
 
 priority:
   high | normal | low   normal is the default. Rows sort high → normal → low
@@ -282,7 +288,8 @@ hierarchy:
 global flags:
   --dir <path>       board directory (default: home; the store is <dir>/.ukb)
   --project <dir>    where "ukb init" writes the agent config (default: cwd)
-  --storage <kind>   sqlite (default) | jsonl | memory
+  --storage <kind>   sqlite (default) | jsonl | memory | postgres
+  --pg-url <url>     postgres connection (or UKB_PG_URL / DATABASE_URL)
   --agent <name>     who you are (default: the machine's owner, see config)
   --agent-type <t>   human (default) | agent
 
@@ -340,6 +347,7 @@ export async function runCommand(
 
   const dir = resolveDir(parsed.flags, io.env);
   const storage = resolveStorage(parsed.flags, io.env);
+  const postgresUrl = resolvePostgresUrl(parsed.flags, io.env);
   const config = loadConfig(io.env);
 
   if (command === "login") {
@@ -361,7 +369,7 @@ export async function runCommand(
   });
   // Setup verbs talk to the store on this machine; a remote door must not
   // silently edit a local file that the server will never read.
-  const LOCAL_ONLY = new Set(["web", "init", "doctor", "user"]);
+  const LOCAL_ONLY = new Set(["web", "init", "doctor", "user", "migrate"]);
   if (transport.server !== null && LOCAL_ONLY.has(command)) {
     throw new UsageError(
       `ukb ${command} runs on the machine that owns the store; this CLI is pointed at ${transport.server}. Run it there, or unset --server/UKB_SERVER.`,
@@ -370,7 +378,7 @@ export async function runCommand(
 
   switch (command) {
     case "web":
-      return runWeb(parsed.flags, io, dir, storage);
+      return runWeb(parsed.flags, io, dir, storage, postgresUrl);
     case "init":
       // Onboarding a framework is about the project you are standing in, which
       // is no longer the board directory now that the store is centralised.
@@ -382,9 +390,11 @@ export async function runCommand(
         io.home ?? homedir(),
       );
     case "doctor":
-      return runDoctor(parsed.flags, io, dir, storage);
+      return runDoctor(parsed.flags, io, dir, storage, postgresUrl);
     case "user":
       return runUserCommand(parsed.positionals, parsed.flags, io, dir);
+    case "migrate":
+      return runMigrate(parsed.flags, io, dir, postgresUrl);
     default:
       break;
   }
@@ -399,6 +409,7 @@ export async function runCommand(
     owner: resolveOwner(io.env, config),
     server: transport.server,
     token: transport.token,
+    postgresUrl,
   });
   try {
     switch (command) {
@@ -755,7 +766,8 @@ async function runWeb(
   flags: Record<string, string | true>,
   io: Io,
   dir: string,
-  storage: "sqlite" | "jsonl" | "memory",
+  storage: "sqlite" | "jsonl" | "memory" | "postgres",
+  postgresUrl: string | undefined,
 ): Promise<number> {
   const { startServer } = await import("@wayblink/using-kanban-server");
   const uiDir = flagString(flags, "ui") ?? (await resolveDefaultUiDir());
@@ -768,6 +780,7 @@ async function runWeb(
   const running = await startServer({
     dir,
     storage,
+    postgresUrl,
     host: flagString(flags, "host"),
     port: flagString(flags, "port")
       ? Number(flagString(flags, "port"))
