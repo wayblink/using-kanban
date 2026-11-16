@@ -1,0 +1,45 @@
+# One board, one writer. SQLite is single-writer, so this stack is one `ukb`
+# replica behind one TLS proxy — not a horizontally scaled service.
+name: using-kanban
+
+services:
+  ukb:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:22-bookworm}
+        NODE_RUNTIME_IMAGE: ${NODE_RUNTIME_IMAGE:-node:22-bookworm-slim}
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
+    restart: unless-stopped
+    environment:
+      UKB_HOST: 0.0.0.0
+      UKB_PORT: "8787"
+      UKB_DIR: /data
+      # Accounts live in the data volume; create the first one before `up`:
+      #   docker compose run --rm ukb ukb user add alice
+    volumes:
+      - ukb-data:/data
+    expose:
+      - "8787"
+
+  caddy:
+    image: ${CADDY_IMAGE:-caddy:2.8}
+    restart: unless-stopped
+    depends_on:
+      - ukb
+    environment:
+      BOARD_DOMAIN: ${BOARD_DOMAIN:?set BOARD_DOMAIN in .env (e.g. board.example.com)}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  ukb-data:
+  caddy-data:
+  caddy-config:

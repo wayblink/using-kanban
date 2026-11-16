@@ -1,7 +1,7 @@
 # Sharing one board: server access and accounts
 
-Status: implemented for the HTTP/Web door and for remote CLI/MCP.
-Last updated: 2026-11-16
+Status: implemented for the HTTP/Web door, remote CLI/MCP, and the container
+stack. Last updated: 2026-11-16
 
 ## Goal
 
@@ -127,8 +127,8 @@ ukb web --host 127.0.0.1 --port 8787 --dir /srv/ukb
 ```
 
 The server does not terminate TLS. Basic auth without TLS exposes the password
-on every request. The deployment runbook (container, proxy example, backups,
-upgrades) is the next card.
+on every request. The container stack and its runbook live in
+[`deployment.md`](deployment.md).
 
 ## Remote CLI and MCP
 

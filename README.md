@@ -264,7 +264,12 @@ curl -H "Authorization: Bearer ukb_…" https://board.example.com/api/board
 Accounts and tokens live in `<dir>/.ukb/accounts.json` (0600; passwords are
 scrypt-hashed, tokens only as hashes). Health stays open at `/healthz` for
 probes. Basic auth carries a password on every request, so put TLS in front
-(Caddy or Nginx) and never publish plain HTTP; the deployment runbook is in
+(Caddy or Nginx) and never publish plain HTTP.
+
+The repository ships a container stack for exactly that: `docker compose up`
+builds the board image, serves it behind Caddy's automatic TLS, keeps the store
+on a volume, and provides an online backup script. The runbook is
+[`docs/deployment.md`](docs/deployment.md); the auth model is
 [`docs/shared-board-accounts.md`](docs/shared-board-accounts.md).
 
 ### Pointing a CLI or MCP server at the shared board
