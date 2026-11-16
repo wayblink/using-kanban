@@ -1,5 +1,4 @@
-import { existsSync } from "node:fs";
-import { basename, dirname, resolve } from "node:path";
+import { basename, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
@@ -9,6 +8,7 @@ import type {
   ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
 import { loadConfig, resolveTransport } from "./config.js";
+import { checkoutCliPath, resolveCliBin } from "./cli-path.js";
 import { resolveGuidance } from "./guidance.js";
 import { OVERLAY_LINES_STEP, parseOverlayCommand } from "./overlay-command.js";
 import {
@@ -416,18 +416,31 @@ const DESCRIPTION = [
 
 export default function usingKanbanExtension(pi: ExtensionAPI): void {
   const here = dirname(fileURLToPath(import.meta.url));
-  // <repo>/packages/pi/extensions/using-kanban -> <repo>/packages/cli/dist/bin.js
-  // (three levels up: the extension dir, extensions/, then pi/).
-  const bin = resolve(here, "../../../cli/dist/bin.js");
-  const ready = existsSync(bin);
+  // `<repo>/packages/pi/extensions/using-kanban` sits beside the CLI it drives,
+  // but a module remembers the checkout it was loaded from — and that checkout
+  // can be a worktree someone deletes, which used to take every tool call and
+  // the whole panel with it. So the derived path is the first candidate, not
+  // the answer: `resolveCliBin` also honours UKB_BIN and a ukb on PATH.
+  const cli = () => resolveCliBin({ here });
+  const bin = (): string => cli().bin;
+  // Recomputed per use, not once at load: a build that lands mid-session
+  // should start working without a restart.
+  const ready = (): boolean => cli().ready;
+  /** Why there is no usable CLI, in one actionable line. */
+  const notReady = (): string =>
+    cli().note ??
+    `ukb CLI not built at ${checkoutCliPath(here)} — run \`pnpm -r build\`.`;
 
-  // Said once at load rather than per call: an unbuilt CLI is a setup problem,
-  // and the overlay now surfaces the same fact through `notify` when it is the
-  // reason the panel is missing.
-  if (!ready) {
-    process.stderr.write(
-      `[using-kanban] ukb CLI not built at ${bin} — run \`pnpm -r build\` in the using-kanban repo.\n`,
-    );
+  // Said once at load rather than per call: a missing CLI is a setup problem,
+  // and the overlay surfaces the same fact through `notify` when it is the
+  // reason the panel is missing. A fallback to the PATH binary is said too — it
+  // works, but edits to this checkout's own CLI will not be the ones running,
+  // and that is exactly the kind of difference nobody notices until it matters.
+  const atLoad = cli();
+  if (!atLoad.ready) {
+    process.stderr.write(`[using-kanban] ${notReady()}\n`);
+  } else if (atLoad.source === "path" && atLoad.note !== null) {
+    process.stderr.write(`[using-kanban] ${atLoad.note}\n`);
   }
 
   /** Run the CLI and return its exit code plus combined output. */
@@ -437,7 +450,7 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
   ): Promise<{ code: number; output: string }> => {
     const result = await pi.exec(
       process.execPath,
-      [bin, ...argv],
+      [bin(), ...argv],
       signal === undefined ? undefined : { signal },
     );
     const output = [result.stdout, result.stderr]
@@ -455,7 +468,7 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
    * TUI, so it is started detached instead, and the session that started it owns
    * stopping it. See web-command.ts for the launch itself.
    */
-  const spawnWebServer = createDetachedWebSpawner({ script: bin });
+  const spawnWebServer = createDetachedWebSpawner({ script: bin() });
 
   /** The server this session started, if any. */
   let webServer: WebServer | null = null;
@@ -506,8 +519,8 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
       ctx.ui.notify(`ukb web: already running at ${webServer.url}`, "info");
       return;
     }
-    if (!ready) {
-      ctx.ui.notify(`ukb CLI not built at ${bin}`, "error");
+    if (!ready()) {
+      ctx.ui.notify(notReady(), "error");
       return;
     }
 
@@ -607,15 +620,15 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
     try {
       const { server, token } = resolveTransport({ config: loadConfig() });
       if (server !== null) return await readRemoteOverlayBoard(server, token);
-      if (!ready) {
+      if (!ready()) {
         return {
           stdout: null,
-          error: `ukb CLI not built at ${bin} — run \`pnpm -r build\` in the using-kanban repo`,
+          error: notReady(),
         };
       }
       const result = await pi.exec(
         process.execPath,
-        [bin, "board", "--json", "--brief"],
+        [bin(), "board", "--json", "--brief"],
         { timeout: OVERLAY_READ_TIMEOUT_MS },
       );
       if (result.code !== 0) {
@@ -980,13 +993,13 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
 
     async execute(_toolCallId, params, signal) {
       const typed = params as UkbParams;
-      if (!ready) {
+      if (!ready()) {
         return {
           isError: true,
           content: [
             {
               type: "text",
-              text: `ukb CLI not built at ${bin} — run \`pnpm -r build\`.`,
+              text: notReady(),
             },
           ],
           // `details` is required by AgentToolResult, not optional: the early
@@ -1034,8 +1047,8 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
         await handleWebCommand(tokens.slice(1), ctx);
         return;
       }
-      if (!ready) {
-        ctx.ui.notify(`ukb CLI not built at ${bin}`, "error");
+      if (!ready()) {
+        ctx.ui.notify(notReady(), "error");
         return;
       }
       const argv = tokens.length > 0 ? tokens : ["mine"];
