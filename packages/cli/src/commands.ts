@@ -242,9 +242,10 @@ gui (the Pi panel — /ukb gui, not a CLI verb):
 setup:
   ukb web [--host H] [--port N] [--no-open]
                                      start the API + Web UI (--host 0.0.0.0
-                                     needs an account, see \`ukb user\`)
-  ukb web --allow-anonymous         bind a trusted network with no accounts
-                                     (bearer token only; not for the internet)
+                                     needs an account or --allow-anonymous)
+  ukb web --allow-anonymous         bind a trusted network without accounts:
+                                     reads open, writes still need the token
+                                     (never for the internet)
   ukb web --doc-root <dir>[,<dir>]  let card notes link docs from there
                                      in Pi, /ukb web runs this in the background
                                      so the session keeps going; /ukb web stop

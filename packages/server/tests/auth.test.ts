@@ -1,8 +1,11 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import type { IncomingMessage } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { AccountStore } from "@wayblink/using-kanban-core";
+import { authorizeRequest, LoginThrottle } from "../src/auth.js";
+import { resolveServerOptions } from "../src/options.js";
 import { startServer, type RunningServer } from "../src/server.js";
 
 const TOKEN = "server-token";
@@ -105,10 +108,130 @@ describe("accounts on the server", () => {
     expect(mutation.status).toBe(401);
   });
 
-  it("refuses a non-loopback bind without accounts", async () => {
+  it("refuses a non-loopback bind without accounts, as a setup step", async () => {
     const dir = tempDir();
+    const failure = await startServer({
+      dir,
+      host: "0.0.0.0",
+      port: 0,
+      token: TOKEN,
+    }).then(
+      () => null,
+      (error: unknown) => error,
+    );
+
+    expect(failure).toBeInstanceOf(Error);
+    const error = failure as Error & { exitCode?: number };
+    expect(error.message).toMatch(
+      /^refusing to bind 0\.0\.0\.0 without accounts/,
+    );
+    expect(error.message).toContain(join(dir, ".ukb"));
+    expect(error.exitCode).toBe(78);
+  });
+
+  it("refuses even when the accounts file exists but holds no users", async () => {
+    const dir = tempDir();
+    mkdirSync(join(dir, ".ukb"), { recursive: true });
+    writeFileSync(
+      join(dir, ".ukb", "accounts.json"),
+      JSON.stringify({ version: 1, users: [], tokens: [] }),
+    );
     await expect(
       startServer({ dir, host: "0.0.0.0", port: 0, token: TOKEN }),
     ).rejects.toThrow(/refusing to bind/);
+  });
+});
+
+describe("a trusted network without accounts", () => {
+  const guest = (authorization?: string): IncomingMessage =>
+    ({
+      headers: authorization === undefined ? {} : { authorization },
+    }) as unknown as IncomingMessage;
+
+  const lan = (dir: string, allowAnonymous = true) =>
+    resolveServerOptions({
+      dir,
+      host: "0.0.0.0",
+      token: TOKEN,
+      allowAnonymous,
+    });
+
+  it("lets anonymous readers in when the flag marks the network trusted", async () => {
+    const dir = tempDir();
+    const options = lan(dir);
+    const result = await authorizeRequest(
+      guest(),
+      new URL("http://board.lan/api/board"),
+      options,
+      AccountStore.inStoreDir(dir),
+      false,
+      "192.168.1.20",
+      new LoginThrottle(),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("still requires the machine token to mutate", async () => {
+    const dir = tempDir();
+    const options = lan(dir);
+    const accounts = AccountStore.inStoreDir(dir);
+
+    const refused = await authorizeRequest(
+      guest(),
+      new URL("http://board.lan/api/cards"),
+      options,
+      accounts,
+      true,
+      "192.168.1.20",
+      new LoginThrottle(),
+    );
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(refused.status).toBe(401);
+
+    const allowed = await authorizeRequest(
+      guest(`Bearer ${TOKEN}`),
+      new URL("http://board.lan/api/cards"),
+      options,
+      accounts,
+      true,
+      "192.168.1.20",
+      new LoginThrottle(),
+    );
+    expect(allowed.ok).toBe(true);
+  });
+
+  it("leaves anonymous reads closed unless the flag is set", async () => {
+    const dir = tempDir();
+    const result = await authorizeRequest(
+      guest(),
+      new URL("http://board.lan/api/board"),
+      lan(dir, false),
+      AccountStore.inStoreDir(dir),
+      false,
+      "192.168.1.20",
+      new LoginThrottle(),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.status).toBe(401);
+  });
+
+  it("keeps accounts stricter even when the flag is set", async () => {
+    const dir = tempDir();
+    await AccountStore.inStoreDir(dir).addUser(
+      "alice",
+      "alice password",
+      "admin",
+    );
+    const result = await authorizeRequest(
+      guest(),
+      new URL("http://board.lan/api/board"),
+      lan(dir),
+      AccountStore.inStoreDir(dir),
+      false,
+      "192.168.1.20",
+      new LoginThrottle(),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.status).toBe(401);
   });
 });

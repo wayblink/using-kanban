@@ -94,8 +94,10 @@ export class LoginThrottle {
  *   HTTP Basic credentials or a machine token. The loopback exemption is gone on
  *   purpose — behind a reverse proxy every request looks local.
  * - **No accounts**: the original single-machine rules. Reads are free on
- *   loopback, mutations need the generated token, and a non-loopback bind is
- *   refused at startup (see `assertBindPolicy`).
+ *   loopback (or anywhere when `--allow-anonymous` explicitly marks the network
+ *   trusted), mutations need the generated token, and a non-loopback bind is
+ *   refused at startup unless that flag is set (see `assertBindPolicy`). The
+ *   flag relaxes the bind and anonymous reads, never the write credential.
  */
 export async function authorizeRequest(
   req: IncomingMessage,
@@ -164,7 +166,12 @@ export async function authorizeRequest(
       false,
     );
   }
-  if (isLoopbackHost(options.host)) return { ok: true, identity: null };
+  // The loopback exemption assumes the machine is the boundary. A non-loopback
+  // bind drops that assumption, so reads are only open when the operator said
+  // the network is trusted; writes always keep the token requirement above.
+  if (isLoopbackHost(options.host) || options.allowAnonymous) {
+    return { ok: true, identity: null };
+  }
   return failure(
     401,
     "unauthorized",

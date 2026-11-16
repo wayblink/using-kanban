@@ -92,7 +92,8 @@ function printHelp(): void {
       "  --host <addr>       bind address (default 127.0.0.1)",
       "  --port <n>          port (default: random free port)",
       "  --token <token>     machine token for scripts (default: generated)",
-      "  --allow-anonymous   allow a non-loopback bind with no accounts (trusted LAN only)",
+      "  --allow-anonymous   allow a non-loopback bind with no accounts: reads",
+      "                      open, writes still need the token (trusted LAN only)",
       "  --owner <name>      the human on this machine (default: the config",
       "                      owner, else the machine name)",
       "  --actor <name>      default actor name (default: the owner)",
@@ -159,5 +160,9 @@ main().catch((error: unknown) => {
   process.stderr.write(
     `${error instanceof Error ? error.message : String(error)}\n`,
   );
-  process.exit(1);
+  // A refused configuration carries EX_CONFIG (78); a real crash stays 1.
+  const exitCode = (error as { exitCode?: unknown } | null)?.exitCode;
+  process.exit(
+    typeof exitCode === "number" && Number.isInteger(exitCode) ? exitCode : 1,
+  );
 });

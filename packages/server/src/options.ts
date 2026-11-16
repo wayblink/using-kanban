@@ -27,7 +27,8 @@ export const ServerOptionsSchema = z.object({
   /**
    * Allow binding beyond loopback without any account. Off by default: a board
    * that leaves the machine must say who may read it. `--allow-anonymous` is the
-   * explicit escape hatch for a trusted LAN.
+   * explicit escape hatch for a trusted LAN: reads are open to whoever reaches
+   * the port, mutations still need the token.
    */
   allowAnonymous: z.boolean().default(false),
   /**
@@ -85,6 +86,23 @@ export function isLoopbackHost(host: string): boolean {
   );
 }
 
+/**
+ * A configuration the server cannot start with — a setup step, not a crash.
+ *
+ * Carried as an `exitCode` the CLI and `ukb-server` honor, so a supervisor can
+ * tell "needs an account" (EX_CONFIG, 78) from "the process broke" (1). The
+ * property is read structurally rather than by `instanceof`: the CLI imports
+ * the server lazily, and a bundled CLI may hold a different copy of this class.
+ */
+export class ServerConfigError extends Error {
+  readonly exitCode = 78;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "ServerConfigError";
+  }
+}
+
 /** Applies defaults, generates a token when none was given. */
 export function resolveServerOptions(
   options: ServerOptions = {},
@@ -108,16 +126,31 @@ export function resolveServerOptions(
  * binding beyond loopback needs an account (or an explicit opt-in).
  *
  * Refusing here, at startup, means the failure is a sentence in the operator's
- * terminal — not a silent exposure discovered later.
+ * terminal — not a silent exposure discovered later. The sentence has to be
+ * actionable from where the operator stands (a laptop or a container), so it
+ * names the resolved board directory and both ways to create the first account.
  */
 export function assertBindPolicy(
-  options: Pick<ResolvedServerOptions, "host" | "allowAnonymous">,
+  options: Pick<
+    ResolvedServerOptions,
+    "host" | "dir" | "accountsPath" | "allowAnonymous"
+  >,
   hasAccounts: boolean,
 ): void {
   if (isLoopbackHost(options.host) || options.allowAnonymous || hasAccounts) {
     return;
   }
-  throw new Error(
-    `refusing to bind ${options.host} without accounts: create one with \`ukb user add <name>\` in the board directory, or pass --allow-anonymous for a trusted network`,
+  throw new ServerConfigError(
+    [
+      `refusing to bind ${options.host} without accounts`,
+      "",
+      `  board      ${options.dir}`,
+      `  accounts   ${options.accountsPath} (no users yet)`,
+      `  create     ukb user add <name> --dir ${options.dir}`,
+      "  container  docker compose run --rm -T ukb ukb user add <name> --password-stdin",
+      "  trusted LAN without accounts: --allow-anonymous (reads open, writes still need the token)",
+      "",
+      "This is a setup step, not a server error: create the account, then restart.",
+    ].join("\n"),
   );
 }

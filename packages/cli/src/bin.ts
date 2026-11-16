@@ -32,6 +32,19 @@ main().catch((error: unknown) => {
     process.exitCode = 2;
     return;
   }
+  // A refused configuration (a non-loopback bind with no account, say) is a
+  // setup step, not a broken command: honor the code it carries so a
+  // supervisor can tell EX_CONFIG (78) from a real failure. Read it
+  // structurally — the server package is imported lazily and may be bundled
+  // under a different module instance than this file.
+  const configExit = (error as { exitCode?: unknown } | null)?.exitCode;
+  if (typeof configExit === "number" && Number.isInteger(configExit)) {
+    process.stderr.write(
+      `ukb: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
+    process.exitCode = configExit;
+    return;
+  }
   process.stderr.write(
     `ukb: ${error instanceof Error ? error.message : String(error)}\n`,
   );

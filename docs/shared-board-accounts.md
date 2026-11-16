@@ -88,9 +88,11 @@ static UI files:
 - The server's generated `--token` keeps working as a service credential; it is
   the same value printed in the `ukb web` URL.
 - Without accounts, the old rules apply: token for mutations, reads free on
-  loopback.
-- A non-loopback bind with no accounts refuses to start, unless
-  `--allow-anonymous` says the network is trusted.
+  loopback. `--allow-anonymous` extends those free reads to a non-loopback
+  bind; writes still need the token.
+- A non-loopback bind with no accounts refuses to start unless
+  `--allow-anonymous` says the network is trusted. Configured accounts always
+  win over the flag: with an account present, every request needs credentials.
 
 **Failure handling**:
 
@@ -100,6 +102,9 @@ static UI files:
   minute (429). Coarse on purpose; behind a reverse proxy every client shares
   the proxy's address, so this is a speed bump, not a per-user lockout.
 - A malformed accounts file fails closed (500), never "no accounts, let them in".
+- A refused bind is a setup step, not a crash: the process exits with EX_CONFIG
+  (78) before listening, naming the board directory, the accounts file and both
+  ways to create the first account.
 - Unknown names run the same scrypt work as known ones, so timing does not
   reveal which accounts exist.
 

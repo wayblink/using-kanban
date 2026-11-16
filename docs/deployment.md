@@ -27,8 +27,10 @@ Constraints worth knowing before you start:
 - **HTTPS only.** The board uses HTTP Basic auth, which sends the password on
   every request. Caddy terminates TLS; never publish plain HTTP.
 - **The first account must exist before the container starts.** The server
-  refuses a non-loopback bind with no accounts. That refusal is the safety net;
-  create the account with `docker compose run` (below).
+  refuses a non-loopback bind with no accounts. That refusal is the safety net,
+  and it is a setup step rather than a crash: the process exits 78 (EX_CONFIG)
+  and prints the board path and the command that creates the account. Create it
+  with `docker compose run` (below).
 - **Postgres is internal.** It has no published port; only the compose network
   reaches it. Keep `POSTGRES_PASSWORD` URL-safe (letters/digits) or set
   `UKB_PG_URL` explicitly with a properly encoded password.
@@ -221,7 +223,8 @@ docker compose run --rm ukb ukb user token revoke <id>
 - [ ] `.env` is not committed (only `.env.example` is).
 - [ ] Postgres has no published port; only the compose network reaches it.
 - [ ] Port 8787 is not published — only Caddy listens publicly.
-- [ ] At least one account exists; no `--allow-anonymous` on a public host.
+- [ ] At least one account exists; no `--allow-anonymous` on a public host
+      (the flag leaves reads open to the LAN; writes still need the token).
 - [ ] HTTPS works; `http://` redirects to `https://`.
 - [ ] Backups are copied off the server periodically.
 - [ ] Tokens can be revoked per machine (`ukb user token revoke`).
@@ -229,13 +232,13 @@ docker compose run --rm ukb ukb user token revoke <id>
 
 ## Troubleshooting
 
-| Symptom                                                     | Cause                                     | Fix                                                             |
-| ----------------------------------------------------------- | ----------------------------------------- | --------------------------------------------------------------- |
-| `ukb` restarts: `refusing to bind 0.0.0.0 without accounts` | no account yet                            | step 5, then `docker compose up -d`                             |
-| `ukb` restarts: Postgres connection refused                 | database not healthy                      | `docker compose logs postgres`; `docker compose up -d postgres` |
-| `password authentication failed`                            | password changed in `.env`, old volume    | keep the old password in `UKB_PG_URL`, or reset it in Postgres  |
-| browser keeps prompting                                     | wrong password, or a proxy not forwarding | `docker compose logs ukb`; test with `curl -u`                  |
-| `401` with a token                                          | token revoked or from another server      | mint a new one, `ukb login` again                               |
-| Caddy cannot get a certificate                              | DNS not pointing here, or 80/443 blocked  | `docker compose logs caddy`; check A record and firewall        |
-| `EACCES` on `/data`                                         | bind mount ownership                      | `chown -R 1000:1000 <dir>` (the image runs as `node`)           |
-| writes slow or `database is locked` (SQLite mode)           | second replica on the same file           | keep exactly one `ukb`                                          |
+| Symptom                                                               | Cause                                     | Fix                                                             |
+| --------------------------------------------------------------------- | ----------------------------------------- | --------------------------------------------------------------- |
+| `ukb` restarts (exit 78): `refusing to bind 0.0.0.0 without accounts` | no account yet                            | step 5, then `docker compose up -d`                             |
+| `ukb` restarts: Postgres connection refused                           | database not healthy                      | `docker compose logs postgres`; `docker compose up -d postgres` |
+| `password authentication failed`                                      | password changed in `.env`, old volume    | keep the old password in `UKB_PG_URL`, or reset it in Postgres  |
+| browser keeps prompting                                               | wrong password, or a proxy not forwarding | `docker compose logs ukb`; test with `curl -u`                  |
+| `401` with a token                                                    | token revoked or from another server      | mint a new one, `ukb login` again                               |
+| Caddy cannot get a certificate                                        | DNS not pointing here, or 80/443 blocked  | `docker compose logs caddy`; check A record and firewall        |
+| `EACCES` on `/data`                                                   | bind mount ownership                      | `chown -R 1000:1000 <dir>` (the image runs as `node`)           |
+| writes slow or `database is locked` (SQLite mode)                     | second replica on the same file           | keep exactly one `ukb`                                          |

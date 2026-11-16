@@ -3,7 +3,7 @@
 #
 # `docker compose run --rm ukb ukb user add alice` has to be able to create the
 # first account before the server binds 0.0.0.0 — otherwise the container exits
-# with the "refusing to bind without accounts" message and there is no way to
+# 78 with the "refusing to bind without accounts" message and there is no way to
 # fix it from inside.
 set -eu
 

@@ -247,9 +247,11 @@ ukb web --host 0.0.0.0 --port 8787
 ```
 
 `ukb web` refuses to bind beyond loopback until an account exists, so a
-mistaken `--host 0.0.0.0` cannot publish the board silently. (For a trusted LAN
-you can opt out with `--allow-anonymous`; the bearer token still guards
-mutations.)
+mistaken `--host 0.0.0.0` cannot publish the board silently. That refusal is a
+setup step, not a crash: it exits 78 and prints the board directory and the
+`ukb user add` command. For a trusted LAN, `--allow-anonymous` binds without
+accounts and leaves reads open to whoever reaches the port; writes still need
+the token.
 
 With an account configured, every request needs HTTP Basic credentials — the
 browser asks once and remembers — or a machine token for scripts:

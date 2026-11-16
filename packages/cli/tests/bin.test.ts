@@ -54,4 +54,35 @@ describe("the ukb executable", () => {
     const parsed = JSON.parse(result.stdout) as { todo: unknown[] };
     expect(parsed.todo).toHaveLength(40);
   });
+
+  it("exits 78 with the board path when a bind needs an account", () => {
+    const dir = mkdtempSync(join(tmpdir(), "ukb-bin-config-"));
+    tempDirs.push(dir);
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        bin,
+        "web",
+        "--dir",
+        dir,
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "0",
+        "--no-open",
+      ],
+      {
+        encoding: "utf8",
+        env: { ...process.env, UKB_DIR: dir },
+      },
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(78);
+    expect(result.stderr).toContain(
+      "refusing to bind 0.0.0.0 without accounts",
+    );
+    expect(result.stderr).toContain(join(dir, ".ukb"));
+  });
 });
