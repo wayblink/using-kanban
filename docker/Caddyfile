@@ -1,0 +1,8 @@
+# Caddy terminates TLS; the board never speaks plain HTTP beyond this network.
+# `{$BOARD_DOMAIN}` comes from .env / the compose environment. For a real domain
+# Caddy gets a Let's Encrypt certificate automatically; for localhost it uses
+# its internal CA (curl -k in the runbook's smoke test).
+{$BOARD_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy ukb:8787
+}
