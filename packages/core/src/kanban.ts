@@ -75,65 +75,68 @@ export class Kanban {
   /* ------------------------------ queries ------------------------------ */
 
   /** The whole board, or just one project's slice of it. */
-  board(project?: string | null, subproject?: string | null): Board {
-    this.projection.sync(this.log);
+  async board(
+    project?: string | null,
+    subproject?: string | null,
+  ): Promise<Board> {
+    await this.projection.sync(this.log);
     return this.projection.board(project, subproject);
   }
 
-  cards(): Card[] {
-    this.projection.sync(this.log);
+  async cards(): Promise<Card[]> {
+    await this.projection.sync(this.log);
     return this.projection.all();
   }
 
-  card(id: number): Card | null {
-    this.projection.sync(this.log);
+  async card(id: number): Promise<Card | null> {
+    await this.projection.sync(this.log);
     return this.projection.card(id) ?? null;
   }
 
   /** Full event history for one card, oldest first. */
-  history(id: number): Event[] {
-    return this.log.byCard(id);
+  async history(id: number): Promise<Event[]> {
+    return await this.log.byCard(id);
   }
 
   /** Every event in the log — used for SSE replay on connect. */
-  events(): Event[] {
-    return this.log.since(0);
+  async events(): Promise<Event[]> {
+    return await this.log.since(0);
   }
 
   /** Events appended after `id` — used to tail the log for SSE. */
-  eventsSince(id: number): Event[] {
-    return this.log.since(id);
+  async eventsSince(id: number): Promise<Event[]> {
+    return await this.log.since(id);
   }
 
   /** Open cards assigned to `assignee` — the "what should I work on" call. */
-  mine(
+  async mine(
     assignee: string,
     project?: string | null,
     subproject?: string | null,
-  ): Card[] {
-    this.projection.sync(this.log);
+  ): Promise<Card[]> {
+    await this.projection.sync(this.log);
     return this.projection.openFor(assignee, project, subproject);
   }
 
   /** Cards waiting for `reviewer` to review. */
-  reviewQueue(
+  async reviewQueue(
     reviewer: string,
     project?: string | null,
     subproject?: string | null,
-  ): Card[] {
-    this.projection.sync(this.log);
+  ): Promise<Card[]> {
+    await this.projection.sync(this.log);
     return this.projection.reviewQueueFor(reviewer, project, subproject);
   }
 
   /** Direct children of a card that still exist — an umbrella's parts. */
-  childrenOf(id: number): Card[] {
-    this.projection.sync(this.log);
+  async childrenOf(id: number): Promise<Card[]> {
+    await this.projection.sync(this.log);
     return this.projection.childrenOf(this.mustCard(id));
   }
 
   /** Every distinct project in use, sorted — drives filter dropdowns. */
-  projects(): string[] {
-    this.projection.sync(this.log);
+  async projects(): Promise<string[]> {
+    await this.projection.sync(this.log);
     const names = new Set<string>();
     for (const card of this.projection.all()) {
       if (card.project) names.add(card.project);
@@ -148,8 +151,8 @@ export class Kanban {
    * it cannot sort into the middle of the list. Counts include `done`, so the
    * numbers reconcile against the whole board rather than only open work.
    */
-  projectSummary(): ProjectSummary[] {
-    this.projection.sync(this.log);
+  async projectSummary(): Promise<ProjectSummary[]> {
+    await this.projection.sync(this.log);
     const summaries = new Map<string | null, ProjectSummary>();
     const bucket = (project: string | null): ProjectSummary => {
       const existing = summaries.get(project);
@@ -181,13 +184,13 @@ export class Kanban {
 
   /* ----------------------------- mutations ----------------------------- */
 
-  add(
+  async add(
     input: AddCardInput,
     actor: Actor,
     source: EventSource = "cli",
-  ): MutationResult {
+  ): Promise<MutationResult> {
     const parsed = this.parseInput(AddCardInputSchema, input);
-    this.projection.sync(this.log);
+    await this.projection.sync(this.log);
     const project = parsed.project?.trim() || null;
     const subproject = parsed.subproject?.trim() || null;
     // A blank string is not a name: `--reviewer "$REVIEWER"` with an unset
@@ -225,15 +228,15 @@ export class Kanban {
     });
   }
 
-  edit(
+  async edit(
     id: number,
     input: EditCardInput,
     actor: Actor,
     source: EventSource = "cli",
     options?: MutationOptions,
-  ): MutationResult {
+  ): Promise<MutationResult> {
     const parsed = this.parseInput(EditCardInputSchema, input);
-    this.projection.sync(this.log);
+    await this.projection.sync(this.log);
     const card = this.mustCard(id);
     this.checkRevision(card, options);
     this.assertCanModify(card, actor);
@@ -307,13 +310,13 @@ export class Kanban {
   }
 
   /** Start working a todo card: moves it to `doing` and assigns it to the actor. */
-  claim(
+  async claim(
     id: number,
     actor: Actor,
     source: EventSource = "cli",
     options?: MutationOptions,
-  ): MutationResult {
-    this.projection.sync(this.log);
+  ): Promise<MutationResult> {
+    await this.projection.sync(this.log);
     const card = this.mustCard(id);
     this.checkRevision(card, options);
     if (card.state === "done") {
@@ -351,13 +354,13 @@ export class Kanban {
   }
 
   /** Hand a card to its reviewer: moves it to `review`. */
-  review(
+  async review(
     id: number,
     actor: Actor,
     source: EventSource = "cli",
     options?: MutationOptions,
-  ): MutationResult {
-    this.projection.sync(this.log);
+  ): Promise<MutationResult> {
+    await this.projection.sync(this.log);
     const card = this.mustCard(id);
     this.checkRevision(card, options);
     if (card.state === "done") {
@@ -370,13 +373,13 @@ export class Kanban {
   }
 
   /** Mark a card complete. Idempotent. */
-  done(
+  async done(
     id: number,
     actor: Actor,
     source: EventSource = "cli",
     options?: MutationOptions,
-  ): MutationResult {
-    this.projection.sync(this.log);
+  ): Promise<MutationResult> {
+    await this.projection.sync(this.log);
     const card = this.mustCard(id);
     this.checkRevision(card, options);
     if (card.state === "done") return { card, events: [] };
@@ -384,40 +387,40 @@ export class Kanban {
   }
 
   /** Send a card back to `todo` (from any state). */
-  reopen(
+  async reopen(
     id: number,
     actor: Actor,
     source: EventSource = "cli",
     options?: MutationOptions,
-  ): MutationResult {
-    this.projection.sync(this.log);
+  ): Promise<MutationResult> {
+    await this.projection.sync(this.log);
     const card = this.mustCard(id);
     this.checkRevision(card, options);
     return this.transition(id, "todo", "reopen", actor, source);
   }
 
   /** Move a card to an arbitrary column. */
-  move(
+  async move(
     id: number,
     to: CardState,
     actor: Actor,
     source: EventSource = "cli",
     options?: MutationOptions,
-  ): MutationResult {
+  ): Promise<MutationResult> {
     const target = this.parseInput(CardStateSchema, to);
-    this.projection.sync(this.log);
+    await this.projection.sync(this.log);
     const card = this.mustCard(id);
     this.checkRevision(card, options);
     return this.transition(id, target, "move", actor, source);
   }
 
   /** Permanently delete a card. Creator or the machine's owner. */
-  remove(
+  async remove(
     id: number,
     actor: Actor,
     source: EventSource = "cli",
-  ): MutationResult {
-    this.projection.sync(this.log);
+  ): Promise<MutationResult> {
+    await this.projection.sync(this.log);
     const card = this.mustCard(id);
     if (card.createdBy !== actor.name && !this.isOwner(actor)) {
       throw new KanbanError(
@@ -435,26 +438,26 @@ export class Kanban {
   }
 
   /** Make card `id` wait on card `blockedById`. */
-  block(
+  async block(
     id: number,
     blockedById: number,
     actor: Actor,
     source: EventSource = "cli",
-  ): MutationResult {
-    this.projection.sync(this.log);
+  ): Promise<MutationResult> {
+    await this.projection.sync(this.log);
     this.mustCard(id);
     this.mustCard(blockedById);
     return this.addEdge(id, blockedById, actor, source);
   }
 
   /** Remove a dependency between two cards. */
-  unblock(
+  async unblock(
     id: number,
     blockedById: number,
     actor: Actor,
     source: EventSource = "cli",
-  ): MutationResult {
-    this.projection.sync(this.log);
+  ): Promise<MutationResult> {
+    await this.projection.sync(this.log);
     this.mustCard(id);
     return this.removeEdge(id, blockedById, actor, source);
   }
@@ -477,14 +480,14 @@ export class Kanban {
    * to remember an `unparent` first. `id` is the child: attaching changes that
    * card, so its creator or assignee is the one who may do it.
    */
-  parent(
+  async parent(
     id: number,
     parentId: number,
     actor: Actor,
     source: EventSource = "cli",
     options?: MutationOptions,
-  ): MutationResult {
-    this.projection.sync(this.log);
+  ): Promise<MutationResult> {
+    await this.projection.sync(this.log);
     const card = this.mustCard(id);
     const parentCard = this.mustCard(parentId);
     this.checkRevision(card, options);
@@ -537,13 +540,13 @@ export class Kanban {
   }
 
   /** Make card `id` a top-level card again. Idempotent. */
-  unparent(
+  async unparent(
     id: number,
     actor: Actor,
     source: EventSource = "cli",
     options?: MutationOptions,
-  ): MutationResult {
-    this.projection.sync(this.log);
+  ): Promise<MutationResult> {
+    await this.projection.sync(this.log);
     const card = this.mustCard(id);
     this.checkRevision(card, options);
     this.assertCanModify(card, actor);
@@ -563,15 +566,15 @@ export class Kanban {
    * this card. Both directions land on the same edge, so relating twice in
    * opposite orders cannot create two edges.
    */
-  relate(
+  async relate(
     id: number,
     otherId: number,
     direction: RelationDirection,
     actor: Actor,
     source: EventSource = "cli",
-  ): MutationResult {
+  ): Promise<MutationResult> {
     const side = this.parseInput(RelationDirectionSchema, direction);
-    this.projection.sync(this.log);
+    await this.projection.sync(this.log);
     const card = this.mustCard(id);
     const other = this.mustCard(otherId);
     if (id === otherId) {
@@ -586,13 +589,13 @@ export class Kanban {
   }
 
   /** Remove the relation between two cards, whichever way round it is. */
-  unrelate(
+  async unrelate(
     id: number,
     otherId: number,
     actor: Actor,
     source: EventSource = "cli",
-  ): MutationResult {
-    this.projection.sync(this.log);
+  ): Promise<MutationResult> {
+    await this.projection.sync(this.log);
     const card = this.mustCard(id);
     const other = this.mustCard(otherId);
     if (card.blockedBy.includes(otherId)) {
@@ -605,15 +608,15 @@ export class Kanban {
   }
 
   /** Attach a remark — text plus an optional document link — to a card. */
-  addNote(
+  async addNote(
     id: number,
     input: AddNoteInput,
     actor: Actor,
     source: EventSource = "cli",
     options?: MutationOptions,
-  ): MutationResult {
+  ): Promise<MutationResult> {
     const parsed = this.parseInput(AddNoteInputSchema, input);
-    this.projection.sync(this.log);
+    await this.projection.sync(this.log);
     const card = this.mustCard(id);
     this.checkRevision(card, options);
     this.assertCanModify(card, actor);
@@ -627,16 +630,16 @@ export class Kanban {
   }
 
   /** Edit a note's text and/or link. The note id is its `card.note_added` id. */
-  updateNote(
+  async updateNote(
     id: number,
     noteId: number,
     input: UpdateNoteInput,
     actor: Actor,
     source: EventSource = "cli",
     options?: MutationOptions,
-  ): MutationResult {
+  ): Promise<MutationResult> {
     const parsed = this.parseInput(UpdateNoteInputSchema, input);
-    this.projection.sync(this.log);
+    await this.projection.sync(this.log);
     const card = this.mustCard(id);
     this.checkRevision(card, options);
     this.assertCanModify(card, actor);
@@ -657,14 +660,14 @@ export class Kanban {
   }
 
   /** Remove a note from a card. */
-  removeNote(
+  async removeNote(
     id: number,
     noteId: number,
     actor: Actor,
     source: EventSource = "cli",
     options?: MutationOptions,
-  ): MutationResult {
-    this.projection.sync(this.log);
+  ): Promise<MutationResult> {
+    await this.projection.sync(this.log);
     const card = this.mustCard(id);
     this.checkRevision(card, options);
     this.assertCanModify(card, actor);
@@ -689,12 +692,12 @@ export class Kanban {
    * Both `block` and `relate` funnel through here, so a relation is stored
    * exactly once no matter which card you started from.
    */
-  private addEdge(
+  private async addEdge(
     successorId: number,
     upstreamId: number,
     actor: Actor,
     source: EventSource,
-  ): MutationResult {
+  ): Promise<MutationResult> {
     const card = this.mustCard(successorId);
     this.mustCard(upstreamId);
     this.assertCanModify(card, actor);
@@ -720,12 +723,12 @@ export class Kanban {
     });
   }
 
-  private removeEdge(
+  private async removeEdge(
     successorId: number,
     upstreamId: number,
     actor: Actor,
     source: EventSource,
-  ): MutationResult {
+  ): Promise<MutationResult> {
     const card = this.mustCard(successorId);
     this.assertCanModify(card, actor);
     if (!card.blockedBy.includes(upstreamId)) return { card, events: [] };
@@ -737,14 +740,14 @@ export class Kanban {
       payload: { blockedBy: upstreamId },
     });
   }
-  private transition(
+  private async transition(
     id: number,
     to: CardState,
     action: MoveAction,
     actor: Actor,
     source: EventSource,
     patch?: CardPatch,
-  ): MutationResult {
+  ): Promise<MutationResult> {
     const card = this.mustCard(id);
     // Entering `someday` clears both owner fields. This is the engine's
     // invariant — "a shelved card has no owner" — not a side effect of one
@@ -897,13 +900,13 @@ export class Kanban {
    * rather than rewritten. `ukb doctor` prints them; the fix is one move of the
    * end the message names.
    */
-  hierarchyViolations(): { card: Card; reason: string }[] {
-    this.projection.sync(this.log);
+  async hierarchyViolations(): Promise<{ card: Card; reason: string }[]> {
+    await this.projection.sync(this.log);
     return this.projection.hierarchyViolations();
   }
 
-  private emit(event: NewEvent): MutationResult {
-    const [stored] = this.log.append([event]);
+  private async emit(event: NewEvent): Promise<MutationResult> {
+    const [stored] = await this.log.append([event]);
     if (!stored) {
       throw new KanbanError(
         "internal_error",

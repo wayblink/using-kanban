@@ -40,7 +40,7 @@ export async function runDoctor(
   try {
     mkdirSync(storeDir, { recursive: true });
     accessSync(storeDir, constants.W_OK);
-    const cards = countCards(dir, storage);
+    const cards = await countCards(dir, storage);
     checks.push({
       ok: true,
       label: "store",
@@ -147,7 +147,7 @@ export async function runDoctor(
   // 7. parent/child pairs that predate the rule. The engine refuses new ones,
   //    but the log is append-only — a board written earlier can still hold
   //    them, and only the owner can decide which end to move.
-  const slanted = hierarchyViolations(dir, storage);
+  const slanted = await hierarchyViolations(dir, storage);
   if (slanted) {
     checks.push({
       ok: slanted.length === 0,
@@ -198,13 +198,13 @@ function hereUrl(): string | undefined {
   return entry ? pathToFileURL(resolve(entry)).href : undefined;
 }
 
-function countCards(
+async function countCards(
   dir: string,
   storage: "sqlite" | "jsonl" | "memory",
-): number {
+): Promise<number> {
   try {
     const kanban = openKanban({ dir, storage });
-    const count = kanban.cards().length;
+    const count = (await kanban.cards()).length;
     kanban.close();
     return count;
   } catch {
@@ -216,13 +216,15 @@ function countCards(
  * One line per out-of-step pair, or `null` when the board cannot be read (the
  * store check already reported that — no point reporting it twice).
  */
-function hierarchyViolations(
+async function hierarchyViolations(
   dir: string,
   storage: "sqlite" | "jsonl" | "memory",
-): string[] | null {
+): Promise<string[] | null> {
   try {
     const kanban = openKanban({ dir, storage });
-    const found = kanban.hierarchyViolations().map((entry) => entry.reason);
+    const found = (await kanban.hierarchyViolations()).map(
+      (entry) => entry.reason,
+    );
     kanban.close();
     return found;
   } catch {

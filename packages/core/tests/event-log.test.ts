@@ -77,9 +77,9 @@ const logs = [
 ] as const;
 
 describe.each(logs)("%s event log", (_name, open) => {
-  it("gives a card its own id, independent of the event sequence", () => {
+  it("gives a card its own id, independent of the event sequence", async () => {
     const log = open();
-    const [first, second, third] = log.append([
+    const [first, second, third] = await log.append([
       created("a"),
       moved(1),
       created("b"),
@@ -92,138 +92,138 @@ describe.each(logs)("%s event log", (_name, open) => {
     expect(first?.cardId).toBe(1);
     expect(second?.cardId).toBe(1);
     expect(third?.cardId).toBe(2);
-    expect(log.maxId()).toBe(3);
-    log.close();
+    expect(await log.maxId()).toBe(3);
+    await log.close();
   });
 
-  it("starts above the card ids already in the log", () => {
+  it("starts above the card ids already in the log", async () => {
     // A board written before the split carries card ids from the event
     // sequence — 900 here. The first new card must not collide with them.
     const log = open();
-    log.append([legacyCreated("old", 900)]);
-    const [fresh] = log.append([created("new")]);
+    await log.append([legacyCreated("old", 900)]);
+    const [fresh] = await log.append([created("new")]);
     expect(fresh?.cardId).toBe(901);
-    log.close();
+    await log.close();
   });
 
-  it("does not reuse the id of a deleted card", () => {
+  it("does not reuse the id of a deleted card", async () => {
     const log = open();
-    log.append([created("a"), deleted(1)]);
-    const [next] = log.append([created("b")]);
+    await log.append([created("a"), deleted(1)]);
+    const [next] = await log.append([created("b")]);
     expect(next?.cardId).toBe(2);
-    log.close();
+    await log.close();
   });
 
-  it("reads events incrementally and by card", () => {
+  it("reads events incrementally and by card", async () => {
     const log = open();
-    log.append([created("a"), created("b")]);
-    log.append([moved(1)]);
+    await log.append([created("a"), created("b")]);
+    await log.append([moved(1)]);
 
-    expect(log.since(0).map((event) => event.id)).toEqual([1, 2, 3]);
-    expect(log.since(2).map((event) => event.id)).toEqual([3]);
-    expect(log.byCard(1).map((event) => event.type)).toEqual([
+    expect((await log.since(0)).map((event) => event.id)).toEqual([1, 2, 3]);
+    expect((await log.since(2)).map((event) => event.id)).toEqual([3]);
+    expect((await log.byCard(1)).map((event) => event.type)).toEqual([
       "card.created",
       "card.moved",
     ]);
-    expect(log.byCard(2)).toHaveLength(1);
-    log.close();
+    expect(await log.byCard(2)).toHaveLength(1);
+    await log.close();
   });
 
-  it("appends atomically in one call", () => {
+  it("appends atomically in one call", async () => {
     const log = open();
-    const events = log.append([created("a"), moved(1), created("b")]);
+    const events = await log.append([created("a"), moved(1), created("b")]);
     expect(events.map((event) => event.id)).toEqual([1, 2, 3]);
-    expect(log.since(0)).toHaveLength(3);
-    log.close();
+    expect(await log.since(0)).toHaveLength(3);
+    await log.close();
   });
 });
 
 describe("SqliteEventLog", () => {
-  it("persists across reopen", () => {
+  it("persists across reopen", async () => {
     const path = join(tempDir(), "board.db");
     const first = new SqliteEventLog(path);
-    first.append([created("persisted"), moved(1)]);
-    first.close();
+    await first.append([created("persisted"), moved(1)]);
+    await first.close();
 
     const second = new SqliteEventLog(path);
-    expect(second.maxId()).toBe(2);
-    expect(second.byCard(1).map((event) => event.type)).toEqual([
+    expect(await second.maxId()).toBe(2);
+    expect((await second.byCard(1)).map((event) => event.type)).toEqual([
       "card.created",
       "card.moved",
     ]);
-    second.close();
+    await second.close();
   });
 
-  it("keeps appending after reopen without reusing ids", () => {
+  it("keeps appending after reopen without reusing ids", async () => {
     const path = join(tempDir(), "board.db");
     const first = new SqliteEventLog(path);
-    first.append([created("a")]);
-    first.close();
+    await first.append([created("a")]);
+    await first.close();
 
     const second = new SqliteEventLog(path);
-    const [event] = second.append([created("b")]);
+    const [event] = await second.append([created("b")]);
     expect(event?.id).toBe(2);
-    second.close();
+    await second.close();
   });
 
-  it("keeps card ids dense across a reopen, with events in between", () => {
+  it("keeps card ids dense across a reopen, with events in between", async () => {
     // The bug this replaces: before the split, `add, move, add` produced #3 for
     // the second card. The card sequence must survive a reopen too.
     const path = join(tempDir(), "board.db");
     const first = new SqliteEventLog(path);
-    first.append([created("a"), moved(1), moved(1)]);
-    first.close();
+    await first.append([created("a"), moved(1), moved(1)]);
+    await first.close();
 
     const second = new SqliteEventLog(path);
-    const [event] = second.append([created("b")]);
+    const [event] = await second.append([created("b")]);
     expect(event?.id).toBe(4);
     expect(event?.cardId).toBe(2);
-    second.close();
+    await second.close();
   });
 });
 
 describe("JsonlEventLog", () => {
-  it("writes one JSON object per line and persists across reopen", () => {
+  it("writes one JSON object per line and persists across reopen", async () => {
     const path = join(tempDir(), "events.jsonl");
     const first = new JsonlEventLog(path);
-    first.append([created("a"), moved(1)]);
-    first.close();
+    await first.append([created("a"), moved(1)]);
+    await first.close();
 
     const lines = readFileSync(path, "utf8").trim().split("\n");
     expect(lines).toHaveLength(2);
     expect(JSON.parse(lines[0]!).cardId).toBe(1);
 
     const second = new JsonlEventLog(path);
-    expect(second.maxId()).toBe(2);
-    expect(second.byCard(1)).toHaveLength(2);
-    second.close();
+    expect(await second.maxId()).toBe(2);
+    expect(await second.byCard(1)).toHaveLength(2);
+    await second.close();
   });
 
-  it("keeps card ids dense across a reopen, with events in between", () => {
+  it("keeps card ids dense across a reopen, with events in between", async () => {
     const path = join(tempDir(), "events.jsonl");
     const first = new JsonlEventLog(path);
-    first.append([created("a"), moved(1), moved(1)]);
-    first.close();
+    await first.append([created("a"), moved(1), moved(1)]);
+    await first.close();
 
     const second = new JsonlEventLog(path);
-    const [event] = second.append([created("b")]);
+    const [event] = await second.append([created("b")]);
     expect(event?.id).toBe(4);
     expect(event?.cardId).toBe(2);
-    second.close();
+    await second.close();
   });
 
-  it("creates the file lazily and tolerates a trailing newline", () => {
+  it("creates the file lazily and tolerates a trailing newline", async () => {
     const dir = tempDir();
     const path = join(dir, "nested", "events.jsonl");
     const log = new JsonlEventLog(path);
     expect(existsSync(path)).toBe(false);
 
-    log.append([created("a")]);
+    await log.append([created("a")]);
     expect(existsSync(path)).toBe(true);
 
     const reopened = new JsonlEventLog(path);
-    expect(reopened.maxId()).toBe(1);
-    log.close();
+    expect(await reopened.maxId()).toBe(1);
+    await log.close();
     reopened.close();
   });
 });

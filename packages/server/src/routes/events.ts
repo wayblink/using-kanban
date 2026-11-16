@@ -19,11 +19,11 @@ const MAX_LIMIT = 500;
  * and every returned event carries the `project` it was attributed to — so the
  * column reads the same whether or not the card still exists.
  */
-export function listEvents(ctx: RequestContext): void {
+export async function listEvents(ctx: RequestContext): Promise<void> {
   const limit = parseLimit(ctx);
   const before = parseBefore(ctx);
   const project = parseProject(ctx);
-  const all = ctx.kanban.events();
+  const all = await ctx.kanban.events();
   // Attribution is folded once, from the whole log, so the filter and the
   // project column cannot disagree — including for a card that is now gone.
   const attributed = attributeProjects(all);
@@ -126,7 +126,7 @@ function parseBefore(ctx: RequestContext): number | null {
  * broker tails the event log, mutations made by the CLI or an MCP server show
  * up here too.
  */
-export function streamEvents(ctx: RequestContext): void {
+export async function streamEvents(ctx: RequestContext): Promise<void> {
   const since = parseSince(ctx);
   const res = ctx.res;
 
@@ -148,7 +148,7 @@ export function streamEvents(ctx: RequestContext): void {
   };
 
   let lastSent = since;
-  for (const event of ctx.kanban.eventsSince(since)) {
+  for (const event of await ctx.kanban.eventsSince(since)) {
     send(event);
   }
 

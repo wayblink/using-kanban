@@ -32,8 +32,8 @@ export class Projection {
   }
 
   /** Applies everything appended to the log since the last sync. */
-  sync(log: EventLog): void {
-    for (const event of log.since(this.lastEventId)) {
+  async sync(log: EventLog): Promise<void> {
+    for (const event of await log.since(this.lastEventId)) {
       this.apply(event);
     }
   }

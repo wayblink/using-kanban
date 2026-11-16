@@ -3,12 +3,12 @@ import { sendJson } from "../http.js";
 import { openApiSpec } from "../openapi.js";
 import type { RequestContext } from "../router.js";
 
-export function health(ctx: RequestContext): void {
+export async function health(ctx: RequestContext): Promise<void> {
   sendJson(ctx.res, 200, { ok: true });
 }
 
-export function me(ctx: RequestContext): void {
-  const board = ctx.kanban.board();
+export async function me(ctx: RequestContext): Promise<void> {
+  const board = await ctx.kanban.board();
   sendJson(ctx.res, 200, {
     actor: ctx.actor,
     user: ctx.identity?.name ?? null,
@@ -26,6 +26,6 @@ export function me(ctx: RequestContext): void {
   });
 }
 
-export function openapi(ctx: RequestContext): void {
+export async function openapi(ctx: RequestContext): Promise<void> {
   sendJson(ctx.res, 200, openApiSpec());
 }

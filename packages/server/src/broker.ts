@@ -12,11 +12,26 @@ export class EventBroker {
   private timer: NodeJS.Timeout | null = null;
   private cursor = 0;
 
+  private readonly ready: Promise<void>;
+  private polling = false;
+
   constructor(
     private readonly kanban: Kanban,
     private readonly pollMs: number,
   ) {
-    this.cursor = lastEventId(kanban);
+    // The cursor starts at the log's current end, so a new subscriber sees
+    // what happens next — not a replay of the whole board.
+    this.ready = this.initCursor();
+  }
+
+  private async initCursor(): Promise<void> {
+    try {
+      const events = await this.kanban.events();
+      this.cursor = events.at(-1)?.id ?? 0;
+    } catch {
+      // A broker that cannot read yet keeps cursor 0; the first successful poll
+      // re-reads from the beginning, which is the honest fallback.
+    }
   }
 
   subscribe(listener: (event: Event) => void): () => void {
@@ -39,27 +54,29 @@ export class EventBroker {
 
   private start(): void {
     if (this.timer) return;
-    this.timer = setInterval(() => this.poll(), this.pollMs);
+    this.timer = setInterval(() => {
+      void this.poll();
+    }, this.pollMs);
     this.timer.unref();
   }
 
-  private poll(): void {
-    let events: Event[];
+  private async poll(): Promise<void> {
+    if (this.polling) return;
+    this.polling = true;
     try {
-      events = this.kanban.eventsSince(this.cursor);
-    } catch {
-      return;
-    }
-    for (const event of events) {
-      this.cursor = event.id;
-      for (const listener of [...this.listeners]) {
-        listener(event);
+      await this.ready;
+      const events = await this.kanban.eventsSince(this.cursor);
+      for (const event of events) {
+        this.cursor = event.id;
+        for (const listener of [...this.listeners]) {
+          listener(event);
+        }
       }
+    } catch {
+      // Transient read failures are retried on the next tick; the cursor has
+      // not moved, so nothing is lost.
+    } finally {
+      this.polling = false;
     }
   }
-}
-
-function lastEventId(kanban: Kanban): number {
-  const events = kanban.events();
-  return events.at(-1)?.id ?? 0;
 }

@@ -11,18 +11,18 @@ import type { RequestContext } from "../router.js";
 
 /* ------------------------------- queries ------------------------------- */
 
-export function getBoard(ctx: RequestContext): void {
+export async function getBoard(ctx: RequestContext): Promise<void> {
   // `?project=` and `?subproject=` narrow the board; the full project list
   // always comes back so a client can build its filter without a second call.
   const project = ctx.query.get("project");
   const subproject = ctx.query.get("subproject");
   sendJson(ctx.res, 200, {
-    ...ctx.kanban.board(project, subproject),
-    projects: ctx.kanban.projects(),
+    ...(await ctx.kanban.board(project, subproject)),
+    projects: await ctx.kanban.projects(),
   });
 }
 
-export function listCards(ctx: RequestContext): void {
+export async function listCards(ctx: RequestContext): Promise<void> {
   const { query, kanban, actor } = ctx;
 
   const state = query.get("state");
@@ -32,7 +32,7 @@ export function listCards(ctx: RequestContext): void {
   const subproject = query.get("subproject");
   const text = query.get("q")?.toLowerCase();
 
-  let cards = kanban.cards();
+  let cards = await kanban.cards();
 
   if (state === "open") {
     // "Open" means not finished, so a parked card counts: it is owed, just not
@@ -80,29 +80,29 @@ export function listCards(ctx: RequestContext): void {
   sendJson(ctx.res, 200, { cards });
 }
 
-export function getCard(ctx: RequestContext): void {
+export async function getCard(ctx: RequestContext): Promise<void> {
   const id = parseId(ctx);
-  const card = ctx.kanban.card(id);
+  const card = await ctx.kanban.card(id);
   if (!card) {
     throw notFound(id);
   }
-  sendJson(ctx.res, 200, { card, history: ctx.kanban.history(id) });
+  sendJson(ctx.res, 200, { card, history: await ctx.kanban.history(id) });
 }
 
-export function getCardHistory(ctx: RequestContext): void {
+export async function getCardHistory(ctx: RequestContext): Promise<void> {
   const id = parseId(ctx);
-  const card = ctx.kanban.card(id);
+  const card = await ctx.kanban.card(id);
   if (!card) {
     throw notFound(id);
   }
-  sendJson(ctx.res, 200, { events: ctx.kanban.history(id) });
+  sendJson(ctx.res, 200, { events: await ctx.kanban.history(id) });
 }
 
 /* ------------------------------ mutations ------------------------------ */
 
-export function createCard(ctx: RequestContext): void {
+export async function createCard(ctx: RequestContext): Promise<void> {
   const input = readBodyObject(ctx.body);
-  const result = ctx.kanban.add(
+  const result = await ctx.kanban.add(
     input as Parameters<typeof ctx.kanban.add>[0],
     ctx.actor,
     ctx.source,
@@ -110,10 +110,10 @@ export function createCard(ctx: RequestContext): void {
   sendJson(ctx.res, 201, { card: result.card });
 }
 
-export function updateCard(ctx: RequestContext): void {
+export async function updateCard(ctx: RequestContext): Promise<void> {
   const id = parseId(ctx);
   const patch = readBodyObject(ctx.body);
-  const result = ctx.kanban.edit(
+  const result = await ctx.kanban.edit(
     id,
     patch as Parameters<typeof ctx.kanban.edit>[1],
     ctx.actor,
@@ -123,45 +123,45 @@ export function updateCard(ctx: RequestContext): void {
   sendJson(ctx.res, 200, { card: result.card });
 }
 
-export function deleteCard(ctx: RequestContext): void {
+export async function deleteCard(ctx: RequestContext): Promise<void> {
   const id = parseId(ctx);
-  ctx.kanban.remove(id, ctx.actor, ctx.source);
+  await ctx.kanban.remove(id, ctx.actor, ctx.source);
   sendNoContent(ctx.res);
 }
 
-export function claimCard(ctx: RequestContext): void {
+export async function claimCard(ctx: RequestContext): Promise<void> {
   const id = parseId(ctx);
-  const result = ctx.kanban.claim(id, ctx.actor, ctx.source, {
+  const result = await ctx.kanban.claim(id, ctx.actor, ctx.source, {
     expectedRevision: expectedRevision(ctx, readBodyObject(ctx.body)),
   });
   sendJson(ctx.res, 200, { card: result.card });
 }
 
-export function reviewCard(ctx: RequestContext): void {
+export async function reviewCard(ctx: RequestContext): Promise<void> {
   const id = parseId(ctx);
-  const result = ctx.kanban.review(id, ctx.actor, ctx.source, {
+  const result = await ctx.kanban.review(id, ctx.actor, ctx.source, {
     expectedRevision: expectedRevision(ctx, readBodyObject(ctx.body)),
   });
   sendJson(ctx.res, 200, { card: result.card });
 }
 
-export function doneCard(ctx: RequestContext): void {
+export async function doneCard(ctx: RequestContext): Promise<void> {
   const id = parseId(ctx);
-  const result = ctx.kanban.done(id, ctx.actor, ctx.source, {
+  const result = await ctx.kanban.done(id, ctx.actor, ctx.source, {
     expectedRevision: expectedRevision(ctx, readBodyObject(ctx.body)),
   });
   sendJson(ctx.res, 200, { card: result.card });
 }
 
-export function reopenCard(ctx: RequestContext): void {
+export async function reopenCard(ctx: RequestContext): Promise<void> {
   const id = parseId(ctx);
-  const result = ctx.kanban.reopen(id, ctx.actor, ctx.source, {
+  const result = await ctx.kanban.reopen(id, ctx.actor, ctx.source, {
     expectedRevision: expectedRevision(ctx, readBodyObject(ctx.body)),
   });
   sendJson(ctx.res, 200, { card: result.card });
 }
 
-export function moveCard(ctx: RequestContext): void {
+export async function moveCard(ctx: RequestContext): Promise<void> {
   const id = parseId(ctx);
   const body = readBodyObject(ctx.body);
   const to = body.to;
@@ -172,13 +172,13 @@ export function moveCard(ctx: RequestContext): void {
       `body.to must be one of ${CARD_STATES.join(", ")}`,
     );
   }
-  const result = ctx.kanban.move(id, to, ctx.actor, ctx.source, {
+  const result = await ctx.kanban.move(id, to, ctx.actor, ctx.source, {
     expectedRevision: expectedRevision(ctx, body),
   });
   sendJson(ctx.res, 200, { card: result.card });
 }
 
-export function blockCard(ctx: RequestContext): void {
+export async function blockCard(ctx: RequestContext): Promise<void> {
   const id = parseId(ctx);
   const blockedBy = readBodyObject(ctx.body).blockedBy;
   if (typeof blockedBy !== "number") {
@@ -188,11 +188,11 @@ export function blockCard(ctx: RequestContext): void {
       "body.blockedBy must be a card id (number)",
     );
   }
-  const result = ctx.kanban.block(id, blockedBy, ctx.actor, ctx.source);
+  const result = await ctx.kanban.block(id, blockedBy, ctx.actor, ctx.source);
   sendJson(ctx.res, 200, { card: result.card });
 }
 
-export function unblockCard(ctx: RequestContext): void {
+export async function unblockCard(ctx: RequestContext): Promise<void> {
   const id = parseId(ctx);
   const blockedBy = readBodyObject(ctx.body).blockedBy;
   if (typeof blockedBy !== "number") {
@@ -202,12 +202,12 @@ export function unblockCard(ctx: RequestContext): void {
       "body.blockedBy must be a card id (number)",
     );
   }
-  const result = ctx.kanban.unblock(id, blockedBy, ctx.actor, ctx.source);
+  const result = await ctx.kanban.unblock(id, blockedBy, ctx.actor, ctx.source);
   sendJson(ctx.res, 200, { card: result.card });
 }
 
 /** Make card `id` a child of `body.parent`. One level only; see kanban.parent. */
-export function parentCard(ctx: RequestContext): void {
+export async function parentCard(ctx: RequestContext): Promise<void> {
   const id = parseId(ctx);
   const parent = readBodyObject(ctx.body).parent;
   if (typeof parent !== "number") {
@@ -217,18 +217,18 @@ export function parentCard(ctx: RequestContext): void {
       "body.parent must be a card id (number)",
     );
   }
-  const result = ctx.kanban.parent(id, parent, ctx.actor, ctx.source);
+  const result = await ctx.kanban.parent(id, parent, ctx.actor, ctx.source);
   sendJson(ctx.res, 200, { card: result.card });
 }
 
 /** Make card `id` a top-level card again. Idempotent. */
-export function unparentCard(ctx: RequestContext): void {
+export async function unparentCard(ctx: RequestContext): Promise<void> {
   const id = parseId(ctx);
-  const result = ctx.kanban.unparent(id, ctx.actor, ctx.source);
+  const result = await ctx.kanban.unparent(id, ctx.actor, ctx.source);
   sendJson(ctx.res, 200, { card: result.card });
 }
 
-export function relateCard(ctx: RequestContext): void {
+export async function relateCard(ctx: RequestContext): Promise<void> {
   const id = parseId(ctx);
   const body = readBodyObject(ctx.body);
   const other = body.other;
@@ -247,11 +247,17 @@ export function relateCard(ctx: RequestContext): void {
       'body.direction must be "upstream" or "downstream"',
     );
   }
-  const result = ctx.kanban.relate(id, other, direction, ctx.actor, ctx.source);
+  const result = await ctx.kanban.relate(
+    id,
+    other,
+    direction,
+    ctx.actor,
+    ctx.source,
+  );
   sendJson(ctx.res, 200, { card: result.card });
 }
 
-export function unrelateCard(ctx: RequestContext): void {
+export async function unrelateCard(ctx: RequestContext): Promise<void> {
   const id = parseId(ctx);
   const other = readBodyObject(ctx.body).other;
   if (typeof other !== "number") {
@@ -261,11 +267,11 @@ export function unrelateCard(ctx: RequestContext): void {
       "body.other must be a card id (number)",
     );
   }
-  const result = ctx.kanban.unrelate(id, other, ctx.actor, ctx.source);
+  const result = await ctx.kanban.unrelate(id, other, ctx.actor, ctx.source);
   sendJson(ctx.res, 200, { card: result.card });
 }
 
-export function addCardNote(ctx: RequestContext): void {
+export async function addCardNote(ctx: RequestContext): Promise<void> {
   const id = parseId(ctx);
   const body = readBodyObject(ctx.body);
   const text = body.text;
@@ -280,12 +286,17 @@ export function addCardNote(ctx: RequestContext): void {
       "body.url must be a string or null",
     );
   }
-  const result = ctx.kanban.addNote(id, { text, url }, ctx.actor, ctx.source);
+  const result = await ctx.kanban.addNote(
+    id,
+    { text, url },
+    ctx.actor,
+    ctx.source,
+  );
   const note = result.card.notes[result.card.notes.length - 1];
   sendJson(ctx.res, 201, { note, card: result.card });
 }
 
-export function updateCardNote(ctx: RequestContext): void {
+export async function updateCardNote(ctx: RequestContext): Promise<void> {
   const id = parseId(ctx);
   const noteId = parseNoteId(ctx);
   const body = readBodyObject(ctx.body);
@@ -313,7 +324,7 @@ export function updateCardNote(ctx: RequestContext): void {
       "nothing to update — pass text and/or url",
     );
   }
-  const result = ctx.kanban.updateNote(
+  const result = await ctx.kanban.updateNote(
     id,
     noteId,
     patch,
@@ -325,10 +336,10 @@ export function updateCardNote(ctx: RequestContext): void {
   sendJson(ctx.res, 200, { note, card: result.card });
 }
 
-export function removeCardNote(ctx: RequestContext): void {
+export async function removeCardNote(ctx: RequestContext): Promise<void> {
   const id = parseId(ctx);
   const noteId = parseNoteId(ctx);
-  ctx.kanban.removeNote(id, noteId, ctx.actor, ctx.source);
+  await ctx.kanban.removeNote(id, noteId, ctx.actor, ctx.source);
   sendNoContent(ctx.res);
 }
 

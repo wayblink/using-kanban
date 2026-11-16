@@ -108,19 +108,19 @@ export class SqliteEventLog implements EventLog {
     return Number(this.nextCardSeqStatement.run().lastInsertRowid);
   }
 
-  append(rows: readonly NewEvent[]): Event[] {
+  async append(rows: readonly NewEvent[]): Promise<Event[]> {
     return this.appendTransaction(rows);
   }
 
-  since(id: number): Event[] {
+  async since(id: number): Promise<Event[]> {
     return this.sinceStatement.all(id).map((row) => this.toEvent(row));
   }
 
-  byCard(cardId: number): Event[] {
+  async byCard(cardId: number): Promise<Event[]> {
     return this.byCardStatement.all(cardId).map((row) => this.toEvent(row));
   }
 
-  maxId(): number {
+  async maxId(): Promise<number> {
     const row = this.db
       .prepare(`SELECT MAX(id) AS max_id FROM events`)
       .get() as { max_id: number | null } | undefined;

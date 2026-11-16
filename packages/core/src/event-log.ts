@@ -16,12 +16,12 @@ import type { Event, NewEvent } from "./types.js";
  */
 export interface EventLog {
   /** Atomically appends events and returns them with assigned ids. */
-  append(events: readonly NewEvent[]): Event[];
+  append(events: readonly NewEvent[]): Promise<Event[]>;
   /** All events with an id greater than `id` (ascending). */
-  since(id: number): Event[];
+  since(id: number): Promise<Event[]>;
   /** All events for one card (ascending). */
-  byCard(cardId: number): Event[];
-  maxId(): number;
+  byCard(cardId: number): Promise<Event[]>;
+  maxId(): Promise<number>;
   close(): void;
 }
 
@@ -31,7 +31,7 @@ export class MemoryEventLog implements EventLog {
   private nextId = 1;
   private nextCardId = 1;
 
-  append(rows: readonly NewEvent[]): Event[] {
+  async append(rows: readonly NewEvent[]): Promise<Event[]> {
     const stored: Event[] = [];
     for (const row of rows) {
       const id = this.nextId;
@@ -55,15 +55,15 @@ export class MemoryEventLog implements EventLog {
     return stored;
   }
 
-  since(id: number): Event[] {
+  async since(id: number): Promise<Event[]> {
     return this.events.filter((event) => event.id > id);
   }
 
-  byCard(cardId: number): Event[] {
+  async byCard(cardId: number): Promise<Event[]> {
     return this.events.filter((event) => event.cardId === cardId);
   }
 
-  maxId(): number {
+  async maxId(): Promise<number> {
     return this.nextId - 1;
   }
 

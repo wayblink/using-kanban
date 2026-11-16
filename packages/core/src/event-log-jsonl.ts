@@ -32,7 +32,7 @@ export class JsonlEventLog implements EventLog {
     this.refresh();
   }
 
-  append(rows: readonly NewEvent[]): Event[] {
+  async append(rows: readonly NewEvent[]): Promise<Event[]> {
     const stored: Event[] = [];
     const lines: string[] = [];
     for (const row of rows) {
@@ -61,17 +61,17 @@ export class JsonlEventLog implements EventLog {
     return stored;
   }
 
-  since(id: number): Event[] {
+  async since(id: number): Promise<Event[]> {
     this.refresh();
     return this.events.filter((event) => event.id > id);
   }
 
-  byCard(cardId: number): Event[] {
+  async byCard(cardId: number): Promise<Event[]> {
     this.refresh();
     return this.events.filter((event) => event.cardId === cardId);
   }
 
-  maxId(): number {
+  async maxId(): Promise<number> {
     this.refresh();
     return this.nextId - 1;
   }

@@ -17,12 +17,12 @@ import type { RequestContext } from "../router.js";
  * `tz` is an IANA zone rather than an offset: the same offset means different
  * days in summer and winter, and the client already knows its zone.
  */
-export function getInsights(ctx: RequestContext): void {
+export async function getInsights(ctx: RequestContext): Promise<void> {
   const days = parseDays(ctx);
   const timeZone = parseTimeZone(ctx);
   const insights = buildInsights({
-    events: ctx.kanban.events(),
-    cards: ctx.kanban.cards(),
+    events: await ctx.kanban.events(),
+    cards: await ctx.kanban.cards(),
     days,
     timeZone,
   });

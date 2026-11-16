@@ -38,13 +38,13 @@ function makeKanban(): Kanban {
   return new Kanban({ log: new MemoryEventLog() });
 }
 
-function expectKanbanError(
-  fn: () => unknown,
+async function expectKanbanError(
+  fn: () => Promise<unknown>,
   code: string,
   message?: RegExp,
-): void {
+): Promise<void> {
   try {
-    fn();
+    await fn();
   } catch (error) {
     expect(error).toBeInstanceOf(KanbanError);
     expect((error as KanbanError).code).toBe(code);
@@ -57,9 +57,9 @@ function expectKanbanError(
 }
 
 describe("add", () => {
-  it("creates a todo card with defaults", () => {
+  it("creates a todo card with defaults", async () => {
     const kanban = makeKanban();
-    const { card } = kanban.add({ title: "write docs" }, human);
+    const { card } = await kanban.add({ title: "write docs" }, human);
 
     expect(card.id).toBe(1);
     expect(card.title).toBe("write docs");
@@ -72,32 +72,32 @@ describe("add", () => {
     expect(card.revision).toBe(1);
   });
 
-  it("trims the title and rejects an empty one", () => {
+  it("trims the title and rejects an empty one", async () => {
     const kanban = makeKanban();
-    expect(kanban.add({ title: "  spaced  " }, human).card.title).toBe(
+    expect((await kanban.add({ title: "  spaced  " }, human)).card.title).toBe(
       "spaced",
     );
-    expectKanbanError(
-      () => kanban.add({ title: "   " }, human),
+    await expectKanbanError(
+      async () => await kanban.add({ title: "   " }, human),
       "invalid_input",
     );
   });
 
-  it("rejects blockers that do not exist", () => {
+  it("rejects blockers that do not exist", async () => {
     const kanban = makeKanban();
-    expectKanbanError(
-      () => kanban.add({ title: "x", blockedBy: [42] }, human),
+    await expectKanbanError(
+      async () => await kanban.add({ title: "x", blockedBy: [42] }, human),
       "card_not_found",
     );
   });
 
-  it("stores blank optional fields as null, not as empty strings", () => {
+  it("stores blank optional fields as null, not as empty strings", async () => {
     // `--reviewer "$REVIEWER"` with an unset shell variable is the everyday way
     // this happens, and an empty string is neither "unassigned" nor a name: it
     // silently drops out of `mine` and every assignee filter. `edit` already
     // normalises; `add` has to agree with it.
     const kanban = makeKanban();
-    const { card } = kanban.add(
+    const { card } = await kanban.add(
       { title: "x", assignee: "   ", reviewer: "" },
       human,
     );
@@ -106,9 +106,9 @@ describe("add", () => {
     expect(card.reviewer).toBeNull();
   });
 
-  it("trims a name it keeps", () => {
+  it("trims a name it keeps", async () => {
     const kanban = makeKanban();
-    const { card } = kanban.add(
+    const { card } = await kanban.add(
       { title: "x", assignee: "  codex  ", reviewer: " pi " },
       human,
     );
@@ -119,57 +119,60 @@ describe("add", () => {
 });
 
 describe("claim", () => {
-  it("moves a todo card to doing and assigns the actor", () => {
+  it("moves a todo card to doing and assigns the actor", async () => {
     const kanban = makeKanban();
-    const { card } = kanban.add({ title: "fix bug" }, human);
+    const { card } = await kanban.add({ title: "fix bug" }, human);
 
-    const claimed = kanban.claim(card.id, agent, "mcp");
+    const claimed = await kanban.claim(card.id, agent, "mcp");
     expect(claimed.card.state).toBe("doing");
     expect(claimed.card.assignee).toBe("claude-code");
     expect(claimed.events).toHaveLength(1);
     expect(claimed.events[0]?.type).toBe("card.moved");
   });
 
-  it("is idempotent for the same actor and conflicts for another", () => {
+  it("is idempotent for the same actor and conflicts for another", async () => {
     const kanban = makeKanban();
-    const { card } = kanban.add({ title: "fix bug" }, human);
-    kanban.claim(card.id, agent);
+    const { card } = await kanban.add({ title: "fix bug" }, human);
+    await kanban.claim(card.id, agent);
 
-    const again = kanban.claim(card.id, agent);
+    const again = await kanban.claim(card.id, agent);
     expect(again.events).toHaveLength(0);
 
-    expectKanbanError(
-      () => kanban.claim(card.id, otherAgent),
+    await expectKanbanError(
+      async () => await kanban.claim(card.id, otherAgent),
       "claim_conflict",
     );
   });
 
-  it("claims a card that move left doing with nobody owning it", () => {
+  it("claims a card that move left doing with nobody owning it", async () => {
     // `move <id> doing` does not assign, so the card sits in the working
     // column unowned. Claiming it is the fix, not a conflict: refusing here
     // reported a phantom owner and sent the caller off to "pick another card"
     // over work that was genuinely up for grabs.
     const kanban = makeKanban();
-    const { card } = kanban.add({ title: "queued" }, human);
-    kanban.move(card.id, "doing", otherAgent);
-    expect(kanban.card(card.id)?.assignee).toBeNull();
+    const { card } = await kanban.add({ title: "queued" }, human);
+    await kanban.move(card.id, "doing", otherAgent);
+    expect((await kanban.card(card.id))?.assignee).toBeNull();
 
-    const claimed = kanban.claim(card.id, agent);
+    const claimed = await kanban.claim(card.id, agent);
     expect(claimed.card.assignee).toBe(agent.name);
     expect(claimed.card.state).toBe("doing");
     expect(claimed.events).toHaveLength(1);
   });
 
-  it("still conflicts when the doing card has a real owner", () => {
+  it("still conflicts when the doing card has a real owner", async () => {
     const kanban = makeKanban();
-    const { card } = kanban.add({ title: "mine" }, human);
-    kanban.claim(card.id, otherAgent);
+    const { card } = await kanban.add({ title: "mine" }, human);
+    await kanban.claim(card.id, otherAgent);
 
     // The message must name the owner: there is no "someone else" case left to
     // fall back to, so an unowned doing card can no longer produce that string.
-    expectKanbanError(() => kanban.claim(card.id, agent), "claim_conflict");
+    await expectKanbanError(
+      async () => await kanban.claim(card.id, agent),
+      "claim_conflict",
+    );
     try {
-      kanban.claim(card.id, agent);
+      await kanban.claim(card.id, agent);
       expect.unreachable("should have thrown");
     } catch (error) {
       expect((error as Error).message).toBe(
@@ -178,62 +181,68 @@ describe("claim", () => {
     }
   });
 
-  it("refuses cards in review or done", () => {
+  it("refuses cards in review or done", async () => {
     const kanban = makeKanban();
-    const inReview = kanban.add({ title: "a" }, human).card;
-    kanban.review(inReview.id, agent);
-    expectKanbanError(() => kanban.claim(inReview.id, agent), "claim_conflict");
+    const inReview = (await kanban.add({ title: "a" }, human)).card;
+    await kanban.review(inReview.id, agent);
+    await expectKanbanError(
+      async () => await kanban.claim(inReview.id, agent),
+      "claim_conflict",
+    );
 
-    const finished = kanban.add({ title: "b" }, human).card;
-    kanban.done(finished.id, human);
-    expectKanbanError(() => kanban.claim(finished.id, agent), "invalid_state");
+    const finished = (await kanban.add({ title: "b" }, human)).card;
+    await kanban.done(finished.id, human);
+    await expectKanbanError(
+      async () => await kanban.claim(finished.id, agent),
+      "invalid_state",
+    );
   });
 });
 
 describe("transitions", () => {
-  it("moves through the full workflow", () => {
+  it("moves through the full workflow", async () => {
     const kanban = makeKanban();
-    const { card } = kanban.add(
+    const { card } = await kanban.add(
       { title: "ship it", assignee: "codex", reviewer: "jyxc" },
       human,
     );
 
-    kanban.claim(card.id, otherAgent);
-    expect(kanban.card(card.id)?.state).toBe("doing");
+    await kanban.claim(card.id, otherAgent);
+    expect((await kanban.card(card.id))?.state).toBe("doing");
 
-    kanban.review(card.id, otherAgent);
-    expect(kanban.card(card.id)?.state).toBe("review");
+    await kanban.review(card.id, otherAgent);
+    expect((await kanban.card(card.id))?.state).toBe("review");
 
-    kanban.done(card.id, human);
-    expect(kanban.card(card.id)?.state).toBe("done");
+    await kanban.done(card.id, human);
+    expect((await kanban.card(card.id))?.state).toBe("done");
   });
 
-  it("done is idempotent and reopen goes back to todo from any state", () => {
+  it("done is idempotent and reopen goes back to todo from any state", async () => {
     const kanban = makeKanban();
-    const { card } = kanban.add({ title: "task" }, human);
+    const { card } = await kanban.add({ title: "task" }, human);
 
-    kanban.done(card.id, human);
-    expect(kanban.done(card.id, human).events).toHaveLength(0);
+    await kanban.done(card.id, human);
+    expect((await kanban.done(card.id, human)).events).toHaveLength(0);
 
-    kanban.reopen(card.id, human);
-    expect(kanban.card(card.id)?.state).toBe("todo");
+    await kanban.reopen(card.id, human);
+    expect((await kanban.card(card.id))?.state).toBe("todo");
   });
 
-  it("supports arbitrary moves", () => {
+  it("supports arbitrary moves", async () => {
     const kanban = makeKanban();
-    const { card } = kanban.add({ title: "task" }, human);
-    kanban.move(card.id, "doing", human);
-    expect(kanban.card(card.id)?.state).toBe("doing");
+    const { card } = await kanban.add({ title: "task" }, human);
+    await kanban.move(card.id, "doing", human);
+    expect((await kanban.card(card.id))?.state).toBe("doing");
   });
 
-  it("groups cards into board columns", () => {
+  it("groups cards into board columns", async () => {
     const kanban = makeKanban();
-    kanban.add({ title: "a" }, human);
-    kanban.add({ title: "b" }, human);
-    const third = kanban.add({ title: "c" }, human).card;
-    kanban.done(third.id, human);
+    await kanban.add({ title: "a" }, human);
+    await kanban.add({ title: "b" }, human);
+    const third = (await kanban.add({ title: "c" }, human)).card;
+    await kanban.done(third.id, human);
 
-    const board = kanban.board();
+    const board = await kanban.board();
     expect(board.todo.map((c) => c.title)).toEqual(["a", "b"]);
     expect(board.done.map((c) => c.title)).toEqual(["c"]);
     expect(board.doing).toEqual([]);
@@ -242,41 +251,44 @@ describe("transitions", () => {
 });
 
 describe("permissions", () => {
-  it("lets the creator and assignee edit, nobody else", () => {
+  it("lets the creator and assignee edit, nobody else", async () => {
     const kanban = makeKanban();
-    const { card } = kanban.add({ title: "task", assignee: "codex" }, human);
+    const { card } = await kanban.add(
+      { title: "task", assignee: "codex" },
+      human,
+    );
 
-    kanban.edit(card.id, { title: "renamed by creator" }, human);
-    expect(kanban.card(card.id)?.title).toBe("renamed by creator");
+    await kanban.edit(card.id, { title: "renamed by creator" }, human);
+    expect((await kanban.card(card.id))?.title).toBe("renamed by creator");
 
-    kanban.edit(card.id, { body: "notes from assignee" }, otherAgent);
-    expect(kanban.card(card.id)?.body).toBe("notes from assignee");
+    await kanban.edit(card.id, { body: "notes from assignee" }, otherAgent);
+    expect((await kanban.card(card.id))?.body).toBe("notes from assignee");
 
-    expectKanbanError(
-      () => kanban.edit(card.id, { title: "nope" }, agent),
+    await expectKanbanError(
+      async () => await kanban.edit(card.id, { title: "nope" }, agent),
       "forbidden",
     );
   });
 
-  it("clears optional fields with null and rejects an empty title", () => {
+  it("clears optional fields with null and rejects an empty title", async () => {
     const kanban = makeKanban();
-    const { card } = kanban.add(
+    const { card } = await kanban.add(
       { title: "task", assignee: "codex", body: "x" },
       human,
     );
 
-    kanban.edit(card.id, { assignee: null, body: null }, human);
-    const updated = kanban.card(card.id);
+    await kanban.edit(card.id, { assignee: null, body: null }, human);
+    const updated = await kanban.card(card.id);
     expect(updated?.assignee).toBeNull();
     expect(updated?.body).toBeNull();
 
-    expectKanbanError(
-      () => kanban.edit(card.id, { title: "" }, human),
+    await expectKanbanError(
+      async () => await kanban.edit(card.id, { title: "" }, human),
       "invalid_input",
     );
   });
 
-  it("lets the machine's owner edit and delete anyone's card", () => {
+  it("lets the machine's owner edit and delete anyone's card", async () => {
     // The solo-machine case: agents claim work under their own names, and the
     // person at the keyboard must not be locked out of their own board by a
     // name they never typed.
@@ -284,115 +296,129 @@ describe("permissions", () => {
       log: new MemoryEventLog(),
       owner: "jyxc",
     });
-    const { card } = kanban.add(
+    const { card } = await kanban.add(
       { title: "claimed by an agent", assignee: "codex" },
       agent,
     );
 
-    kanban.edit(card.id, { title: "renamed by the owner" }, human);
-    expect(kanban.card(card.id)?.title).toBe("renamed by the owner");
+    await kanban.edit(card.id, { title: "renamed by the owner" }, human);
+    expect((await kanban.card(card.id))?.title).toBe("renamed by the owner");
 
-    kanban.remove(card.id, human);
-    expect(kanban.card(card.id)).toBeNull();
+    await kanban.remove(card.id, human);
+    expect(await kanban.card(card.id)).toBeNull();
   });
 
-  it("does not let a non-owner human through", () => {
+  it("does not let a non-owner human through", async () => {
     const kanban = new Kanban({
       log: new MemoryEventLog(),
       owner: "someone-else",
     });
-    const { card } = kanban.add({ title: "task", assignee: "codex" }, agent);
+    const { card } = await kanban.add(
+      { title: "task", assignee: "codex" },
+      agent,
+    );
 
-    expectKanbanError(
-      () => kanban.edit(card.id, { title: "nope" }, human),
+    await expectKanbanError(
+      async () => await kanban.edit(card.id, { title: "nope" }, human),
       "forbidden",
       /only the creator/,
     );
   });
 
-  it("allows only the creator to delete and cleans dangling blockers", () => {
+  it("allows only the creator to delete and cleans dangling blockers", async () => {
     const kanban = makeKanban();
-    const first = kanban.add({ title: "first" }, human).card;
-    const second = kanban.add(
-      { title: "second", blockedBy: [first.id] },
-      human,
+    const first = (await kanban.add({ title: "first" }, human)).card;
+    const second = (
+      await kanban.add({ title: "second", blockedBy: [first.id] }, human)
     ).card;
-    expect(kanban.card(second.id)?.blockedBy).toEqual([first.id]);
+    expect((await kanban.card(second.id))?.blockedBy).toEqual([first.id]);
 
-    expectKanbanError(() => kanban.remove(first.id, agent), "forbidden");
+    await expectKanbanError(
+      async () => await kanban.remove(first.id, agent),
+      "forbidden",
+    );
 
-    kanban.remove(first.id, human);
-    expect(kanban.card(first.id)).toBeNull();
-    expect(kanban.card(second.id)?.blockedBy).toEqual([]);
+    await kanban.remove(first.id, human);
+    expect(await kanban.card(first.id)).toBeNull();
+    expect((await kanban.card(second.id))?.blockedBy).toEqual([]);
   });
 });
 
 describe("dependencies", () => {
-  it("blocks, unblocks, and rejects self-blocks, unknown cards, and cycles", () => {
+  it("blocks, unblocks, and rejects self-blocks, unknown cards, and cycles", async () => {
     const kanban = makeKanban();
-    const a = kanban.add({ title: "a" }, human).card;
-    const b = kanban.add({ title: "b" }, human).card;
-    const c = kanban.add({ title: "c" }, human).card;
+    const a = (await kanban.add({ title: "a" }, human)).card;
+    const b = (await kanban.add({ title: "b" }, human)).card;
+    const c = (await kanban.add({ title: "c" }, human)).card;
 
-    kanban.block(b.id, a.id, human);
-    kanban.block(c.id, b.id, human);
-    expect(kanban.card(c.id)?.blockedBy).toEqual([b.id]);
+    await kanban.block(b.id, a.id, human);
+    await kanban.block(c.id, b.id, human);
+    expect((await kanban.card(c.id))?.blockedBy).toEqual([b.id]);
 
-    kanban.unblock(c.id, b.id, human);
-    expect(kanban.card(c.id)?.blockedBy).toEqual([]);
+    await kanban.unblock(c.id, b.id, human);
+    expect((await kanban.card(c.id))?.blockedBy).toEqual([]);
 
-    expectKanbanError(() => kanban.block(a.id, a.id, human), "invalid_input");
-    expectKanbanError(() => kanban.block(a.id, 999, human), "card_not_found");
+    await expectKanbanError(
+      async () => await kanban.block(a.id, a.id, human),
+      "invalid_input",
+    );
+    await expectKanbanError(
+      async () => await kanban.block(a.id, 999, human),
+      "card_not_found",
+    );
 
-    kanban.block(b.id, a.id, human);
-    kanban.block(c.id, b.id, human);
-    expectKanbanError(() => kanban.block(a.id, c.id, human), "invalid_input");
+    await kanban.block(b.id, a.id, human);
+    await kanban.block(c.id, b.id, human);
+    await expectKanbanError(
+      async () => await kanban.block(a.id, c.id, human),
+      "invalid_input",
+    );
   });
 });
 
 describe("queries", () => {
-  it("lists open cards per assignee and the review queue", () => {
+  it("lists open cards per assignee and the review queue", async () => {
     const kanban = makeKanban();
-    kanban.add({ title: "for codex", assignee: "codex" }, human);
-    kanban.add({ title: "for claude", assignee: "claude-code" }, human);
-    const finished = kanban.add(
-      { title: "old", assignee: "codex" },
-      human,
+    await kanban.add({ title: "for codex", assignee: "codex" }, human);
+    await kanban.add({ title: "for claude", assignee: "claude-code" }, human);
+    const finished = (
+      await kanban.add({ title: "old", assignee: "codex" }, human)
     ).card;
-    kanban.done(finished.id, human);
-    kanban.add({ title: "review me", reviewer: "jyxc" }, human);
-    const waiting = kanban.add(
-      { title: "waiting review", reviewer: "jyxc" },
-      human,
+    await kanban.done(finished.id, human);
+    await kanban.add({ title: "review me", reviewer: "jyxc" }, human);
+    const waiting = (
+      await kanban.add({ title: "waiting review", reviewer: "jyxc" }, human)
     ).card;
-    kanban.review(waiting.id, agent);
+    await kanban.review(waiting.id, agent);
 
-    expect(kanban.mine("codex").map((c) => c.title)).toEqual(["for codex"]);
-    expect(kanban.reviewQueue("jyxc").map((c) => c.title)).toEqual([
+    expect((await kanban.mine("codex")).map((c) => c.title)).toEqual([
+      "for codex",
+    ]);
+    expect((await kanban.reviewQueue("jyxc")).map((c) => c.title)).toEqual([
       "waiting review",
     ]);
   });
 
-  it("exposes per-card history", () => {
+  it("exposes per-card history", async () => {
     const kanban = makeKanban();
-    const { card } = kanban.add({ title: "task" }, human);
-    kanban.claim(card.id, agent);
+    const { card } = await kanban.add({ title: "task" }, human);
+    await kanban.claim(card.id, agent);
 
-    const types = kanban.history(card.id).map((event) => event.type);
+    const types = (await kanban.history(card.id)).map((event) => event.type);
     expect(types).toEqual(["card.created", "card.moved"]);
   });
 });
 
 describe("optimistic concurrency", () => {
-  it("rejects mutations built on a stale revision", () => {
+  it("rejects mutations built on a stale revision", async () => {
     const kanban = makeKanban();
-    const { card } = kanban.add({ title: "task" }, human);
+    const { card } = await kanban.add({ title: "task" }, human);
     const stale = card.revision;
 
-    kanban.edit(card.id, { body: "first edit" }, human);
-    expectKanbanError(
-      () =>
-        kanban.edit(card.id, { body: "second edit" }, human, "cli", {
+    await kanban.edit(card.id, { body: "first edit" }, human);
+    await expectKanbanError(
+      async () =>
+        await kanban.edit(card.id, { body: "second edit" }, human, "cli", {
           expectedRevision: stale,
         }),
       "revision_conflict",
@@ -401,84 +427,86 @@ describe("optimistic concurrency", () => {
 });
 
 describe("shared stores (no daemon)", () => {
-  it("shares a sqlite board across independent instances", () => {
+  it("shares a sqlite board across independent instances", async () => {
     const dir = tempDir();
     const writer = openKanban({ storage: "sqlite", dir });
-    const { card } = writer.add({ title: "shared card" }, human);
+    const { card } = await writer.add({ title: "shared card" }, human);
 
     const reader = openKanban({ storage: "sqlite", dir });
-    expect(reader.card(card.id)?.title).toBe("shared card");
+    expect((await reader.card(card.id))?.title).toBe("shared card");
 
-    reader.claim(card.id, agent, "mcp");
-    expect(writer.card(card.id)?.state).toBe("doing");
-    expect(writer.card(card.id)?.assignee).toBe("claude-code");
+    await reader.claim(card.id, agent, "mcp");
+    expect((await writer.card(card.id))?.state).toBe("doing");
+    expect((await writer.card(card.id))?.assignee).toBe("claude-code");
   });
 
-  it("shares a jsonl board across independent instances", () => {
+  it("shares a jsonl board across independent instances", async () => {
     const dir = tempDir();
     const writer = openKanban({ storage: "jsonl", dir });
-    const { card } = writer.add(
+    const { card } = await writer.add(
       { title: "jsonl card", assignee: "codex" },
       human,
     );
 
     const reader = openKanban({ storage: "jsonl", dir });
-    expect(reader.card(card.id)?.title).toBe("jsonl card");
+    expect((await reader.card(card.id))?.title).toBe("jsonl card");
 
-    reader.done(card.id, human);
-    expect(writer.card(card.id)?.state).toBe("done");
+    await reader.done(card.id, human);
+    expect((await writer.card(card.id))?.state).toBe("done");
   });
 
-  it("defaults to a sqlite store at <dir>/.ukb/board.db", () => {
+  it("defaults to a sqlite store at <dir>/.ukb/board.db", async () => {
     const dir = tempDir();
     const kanban = openKanban({ dir });
-    const { card } = kanban.add({ title: "default location" }, human);
+    const { card } = await kanban.add({ title: "default location" }, human);
 
     expect(existsSync(join(dir, DEFAULT_STORAGE_DIR, "board.db"))).toBe(true);
-    expect(openKanban({ dir }).card(card.id)?.title).toBe("default location");
+    expect((await openKanban({ dir }).card(card.id))?.title).toBe(
+      "default location",
+    );
   });
 });
 
 describe("priority", () => {
-  it("defaults to normal and can be set at creation", () => {
+  it("defaults to normal and can be set at creation", async () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    const plain = kanban.add({ title: "plain" }, human).card;
-    const urgent = kanban.add(
-      { title: "urgent", priority: "high" },
-      human,
+    const plain = (await kanban.add({ title: "plain" }, human)).card;
+    const urgent = (
+      await kanban.add({ title: "urgent", priority: "high" }, human)
     ).card;
 
     expect(plain.priority).toBe("normal");
     expect(urgent.priority).toBe("high");
   });
 
-  it("can be changed by edit, including back to normal", () => {
+  it("can be changed by edit, including back to normal", async () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    const { card } = kanban.add({ title: "x" }, human);
+    const { card } = await kanban.add({ title: "x" }, human);
 
-    const low = kanban.edit(card.id, { priority: "low" }, human).card;
+    const low = (await kanban.edit(card.id, { priority: "low" }, human)).card;
     expect(low.priority).toBe("low");
 
-    const reset = kanban.edit(card.id, { priority: "normal" }, human).card;
+    const reset = (await kanban.edit(card.id, { priority: "normal" }, human))
+      .card;
     expect(reset.priority).toBe("normal");
   });
 
-  it("rejects a priority outside the scale", () => {
+  it("rejects a priority outside the scale", async () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    expect(() =>
+    await expect(
       kanban.add(
         { title: "x", priority: "urgent" as unknown as "high" },
         human,
       ),
-    ).toThrow();
+    ).rejects.toThrow();
   });
 
-  it("treats an event written before priorities existed as normal", () => {
+  it("treats an event written before priorities existed as normal", async () => {
     // The backward-compatibility contract: an old log replays unchanged, with
     // no migration step and no null to special-case at every read.
     const log = new MemoryEventLog();
     const kanban = new Kanban({ log });
-    const { card, events } = kanban.add({ title: "old card" }, human);
+    const { card, events } = await kanban.add({ title: "old card" }, human);
     const created = events[0]!;
     // Rewrite the event the way a pre-priority writer would have left it.
     const { priority: _dropped, ...payload } = created.payload as Record<
@@ -488,387 +516,413 @@ describe("priority", () => {
     void _dropped;
     const legacy: typeof created = { ...created, payload };
     const legacyLog = new MemoryEventLog();
-    legacyLog.append([legacy]);
+    await legacyLog.append([legacy]);
 
     const replayed = new Kanban({ log: legacyLog });
-    expect(replayed.card(card.id)?.priority).toBe("normal");
+    expect((await replayed.card(card.id))?.priority).toBe("normal");
   });
 
-  it("orders cards high → normal → low, then by id", () => {
+  it("orders cards high → normal → low, then by id", async () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    kanban.add({ title: "l", priority: "low" }, human);
-    kanban.add({ title: "n1" }, human);
-    kanban.add({ title: "h", priority: "high" }, human);
-    kanban.add({ title: "n2" }, human);
+    await kanban.add({ title: "l", priority: "low" }, human);
+    await kanban.add({ title: "n1" }, human);
+    await kanban.add({ title: "h", priority: "high" }, human);
+    await kanban.add({ title: "n2" }, human);
 
-    const order = kanban
-      .cards()
+    const order = (await kanban.cards())
       .slice()
       .sort(compareByPriority)
       .map((card) => card.title);
     expect(order).toEqual(["h", "n1", "n2", "l"]);
   });
 
-  it("no longer accepts `pending` — it is a state now, not a priority", () => {
+  it("no longer accepts `pending` — it is a state now, not a priority", async () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    expect(() =>
+    await expect(
       kanban.add(
         { title: "x", priority: "pending" as unknown as "low" },
         human,
       ),
-    ).toThrow();
+    ).rejects.toThrow();
   });
 });
 
 describe("someday", () => {
-  it("is a real column, and a card enters it by move", () => {
+  it("is a real column, and a card enters it by move", async () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    const { card } = kanban.add({ title: "parked idea" }, human);
+    const { card } = await kanban.add({ title: "parked idea" }, human);
 
-    kanban.move(card.id, "someday", human, "cli");
+    await kanban.move(card.id, "someday", human, "cli");
 
-    expect(kanban.card(card.id)?.state).toBe("someday");
-    expect(kanban.board().someday.map((c) => c.id)).toEqual([card.id]);
-    expect(kanban.board().todo).toEqual([]);
+    expect((await kanban.card(card.id))?.state).toBe("someday");
+    expect((await kanban.board()).someday.map((c) => c.id)).toEqual([card.id]);
+    expect((await kanban.board()).todo).toEqual([]);
   });
 
-  it("clears the owner on entry — a shelved card has nobody on it", () => {
+  it("clears the owner on entry — a shelved card has nobody on it", async () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    const { card } = kanban.add(
+    const { card } = await kanban.add(
       { title: "owned", assignee: "codex", reviewer: "jyxc" },
       human,
     );
 
-    const parked = kanban.move(card.id, "someday", human, "cli").card;
+    const parked = (await kanban.move(card.id, "someday", human, "cli")).card;
 
     expect(parked.assignee).toBeNull();
     expect(parked.reviewer).toBeNull();
   });
 
-  it("keeps a card out of `mine` — the shelf is not a to-do list", () => {
+  it("keeps a card out of `mine` — the shelf is not a to-do list", async () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    const mine = kanban.add({ title: "mine", assignee: "pi" }, human).card;
-    const parked = kanban.add({ title: "parked", assignee: "pi" }, human).card;
-    kanban.move(parked.id, "someday", human, "cli");
+    const mine = (await kanban.add({ title: "mine", assignee: "pi" }, human))
+      .card;
+    const parked = (
+      await kanban.add({ title: "parked", assignee: "pi" }, human)
+    ).card;
+    await kanban.move(parked.id, "someday", human, "cli");
 
-    expect(kanban.mine("pi").map((c) => c.id)).toEqual([mine.id]);
+    expect((await kanban.mine("pi")).map((c) => c.id)).toEqual([mine.id]);
   });
 
-  it("can be claimed straight out of the shelf", () => {
+  it("can be claimed straight out of the shelf", async () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    const { card } = kanban.add({ title: "parked" }, human);
-    kanban.move(card.id, "someday", human, "cli");
+    const { card } = await kanban.add({ title: "parked" }, human);
+    await kanban.move(card.id, "someday", human, "cli");
 
-    const claimed = kanban.claim(card.id, otherAgent, "cli").card;
+    const claimed = (await kanban.claim(card.id, otherAgent, "cli")).card;
 
     expect(claimed.state).toBe("doing");
     expect(claimed.assignee).toBe("codex");
   });
 
-  it("refuses to put an owner back on a shelved card by edit", () => {
+  it("refuses to put an owner back on a shelved card by edit", async () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    const { card } = kanban.add({ title: "parked" }, human);
-    kanban.move(card.id, "someday", human, "cli");
+    const { card } = await kanban.add({ title: "parked" }, human);
+    await kanban.move(card.id, "someday", human, "cli");
 
-    expect(() => kanban.edit(card.id, { assignee: "codex" }, human)).toThrow(
-      /cannot carry an assignee/,
-    );
-    expect(kanban.card(card.id)?.assignee).toBeNull();
+    await expect(
+      kanban.edit(card.id, { assignee: "codex" }, human),
+    ).rejects.toThrow(/cannot carry an assignee/);
+    expect((await kanban.card(card.id))?.assignee).toBeNull();
   });
 
-  it("still blocks its dependents — later is not finished", () => {
+  it("still blocks its dependents — later is not finished", async () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    const parked = kanban.add({ title: "parked" }, human).card;
-    const waiting = kanban.add(
-      { title: "waiting", blockedBy: [parked.id] },
-      human,
+    const parked = (await kanban.add({ title: "parked" }, human)).card;
+    const waiting = (
+      await kanban.add({ title: "waiting", blockedBy: [parked.id] }, human)
     ).card;
-    kanban.move(parked.id, "someday", human, "cli");
+    await kanban.move(parked.id, "someday", human, "cli");
 
     // `later` is not `finished`: the parked blocker still stands in the way.
-    expectKanbanError(
-      () => kanban.claim(waiting.id, human, "cli"),
+    await expectKanbanError(
+      async () => await kanban.claim(waiting.id, human, "cli"),
       "invalid_state",
     );
   });
 
-  it("is a no-op once a card is already there", () => {
+  it("is a no-op once a card is already there", async () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    const { card } = kanban.add({ title: "parked" }, human);
-    kanban.move(card.id, "someday", human, "cli");
+    const { card } = await kanban.add({ title: "parked" }, human);
+    await kanban.move(card.id, "someday", human, "cli");
 
-    const again = kanban.move(card.id, "someday", human, "cli");
+    const again = await kanban.move(card.id, "someday", human, "cli");
 
     expect(again.events).toEqual([]);
   });
 });
 
 describe("parent / child", () => {
-  function tree() {
+  async function tree() {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    const parent = kanban.add({ title: "epic" }, human).card;
-    const a = kanban.add({ title: "a" }, human).card;
-    const b = kanban.add({ title: "b" }, human).card;
+    const parent = (await kanban.add({ title: "epic" }, human)).card;
+    const a = (await kanban.add({ title: "a" }, human)).card;
+    const b = (await kanban.add({ title: "b" }, human)).card;
     return { kanban, parent, a, b };
   }
 
-  it("links a child to its parent, mirrored on both cards", () => {
-    const { kanban, parent, a } = tree();
+  it("links a child to its parent, mirrored on both cards", async () => {
+    const { kanban, parent, a } = await tree();
 
-    const linked = kanban.parent(a.id, parent.id, human, "cli").card;
+    const linked = (await kanban.parent(a.id, parent.id, human, "cli")).card;
 
     expect(linked.parent).toBe(parent.id);
-    expect(kanban.card(parent.id)?.children).toEqual([a.id]);
+    expect((await kanban.card(parent.id))?.children).toEqual([a.id]);
     // and the parent end comes back from a plain read
-    expect(kanban.childrenOf(parent.id).map((c) => c.id)).toEqual([a.id]);
+    expect((await kanban.childrenOf(parent.id)).map((c) => c.id)).toEqual([
+      a.id,
+    ]);
   });
 
-  it("is idempotent and re-parents in one move", () => {
-    const { kanban, parent, a, b } = tree();
-    kanban.parent(a.id, parent.id, human, "cli");
-    expect(kanban.parent(a.id, parent.id, human, "cli").events).toEqual([]);
+  it("is idempotent and re-parents in one move", async () => {
+    const { kanban, parent, a, b } = await tree();
+    await kanban.parent(a.id, parent.id, human, "cli");
+    expect((await kanban.parent(a.id, parent.id, human, "cli")).events).toEqual(
+      [],
+    );
 
-    kanban.parent(a.id, b.id, human, "cli");
-    expect(kanban.card(a.id)?.parent).toBe(b.id);
-    expect(kanban.card(parent.id)?.children).toEqual([]);
-    expect(kanban.card(b.id)?.children).toEqual([a.id]);
+    await kanban.parent(a.id, b.id, human, "cli");
+    expect((await kanban.card(a.id))?.parent).toBe(b.id);
+    expect((await kanban.card(parent.id))?.children).toEqual([]);
+    expect((await kanban.card(b.id))?.children).toEqual([a.id]);
   });
 
-  it("allows a child in another project", () => {
+  it("allows a child in another project", async () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    const parent = kanban.add({ title: "epic", project: "web" }, human).card;
-    const child = kanban.add({ title: "part", project: "api" }, human).card;
+    const parent = (await kanban.add({ title: "epic", project: "web" }, human))
+      .card;
+    const child = (await kanban.add({ title: "part", project: "api" }, human))
+      .card;
 
     // Composition is a relation, not a project partition: the two may differ,
     // and the project filter then shows a slice of the umbrella.
-    kanban.parent(child.id, parent.id, human, "cli");
-    expect(kanban.card(child.id)?.parent).toBe(parent.id);
+    await kanban.parent(child.id, parent.id, human, "cli");
+    expect((await kanban.card(child.id))?.parent).toBe(parent.id);
   });
 
-  it("nests to any depth", () => {
-    const { kanban, parent, a, b } = tree();
-    kanban.parent(a.id, parent.id, human, "cli");
+  it("nests to any depth", async () => {
+    const { kanban, parent, a, b } = await tree();
+    await kanban.parent(a.id, parent.id, human, "cli");
 
     // a is a part of the goal and a goal of its own: a part of a part is a
     // plan with chapters, not a second board
-    kanban.parent(b.id, a.id, human, "cli");
-    expect(kanban.card(b.id)?.parent).toBe(a.id);
-    expect(kanban.card(a.id)?.children).toEqual([b.id]);
+    await kanban.parent(b.id, a.id, human, "cli");
+    expect((await kanban.card(b.id))?.parent).toBe(a.id);
+    expect((await kanban.card(a.id))?.children).toEqual([b.id]);
 
     // and the tree can be walked in both directions
-    expect(kanban.card(a.id)?.parent).toBe(parent.id);
-    expect(kanban.card(parent.id)?.children).toEqual([a.id]);
+    expect((await kanban.card(a.id))?.parent).toBe(parent.id);
+    expect((await kanban.card(parent.id))?.children).toEqual([a.id]);
   });
 
-  it("refuses to make a card a part of something inside it", () => {
-    const { kanban, parent, a, b } = tree();
-    kanban.parent(a.id, parent.id, human, "cli");
-    kanban.parent(b.id, a.id, human, "cli");
+  it("refuses to make a card a part of something inside it", async () => {
+    const { kanban, parent, a, b } = await tree();
+    await kanban.parent(a.id, parent.id, human, "cli");
+    await kanban.parent(b.id, a.id, human, "cli");
 
     // parent > a > b, so neither a nor parent may go under b
-    expectKanbanError(
-      () => kanban.parent(a.id, b.id, human, "cli"),
+    await expectKanbanError(
+      async () => await kanban.parent(a.id, b.id, human, "cli"),
       "invalid_input",
     );
-    expectKanbanError(
-      () => kanban.parent(parent.id, b.id, human, "cli"),
+    await expectKanbanError(
+      async () => await kanban.parent(parent.id, b.id, human, "cli"),
       "invalid_input",
     );
   });
 
-  it("keeps a deep chain's ends in agreement", () => {
-    const { kanban, parent, a, b } = tree();
-    kanban.parent(a.id, parent.id, human, "cli");
-    kanban.parent(b.id, a.id, human, "cli");
+  it("keeps a deep chain's ends in agreement", async () => {
+    const { kanban, parent, a, b } = await tree();
+    await kanban.parent(a.id, parent.id, human, "cli");
+    await kanban.parent(b.id, a.id, human, "cli");
 
     // the part of a part cannot start before its own goal does
-    expectKanbanError(() => kanban.claim(b.id, human, "cli"), "invalid_state");
-    kanban.claim(parent.id, human, "cli");
-    expectKanbanError(() => kanban.claim(b.id, human, "cli"), "invalid_state");
-    kanban.claim(a.id, human, "cli");
-    kanban.claim(b.id, human, "cli");
+    await expectKanbanError(
+      async () => await kanban.claim(b.id, human, "cli"),
+      "invalid_state",
+    );
+    await kanban.claim(parent.id, human, "cli");
+    await expectKanbanError(
+      async () => await kanban.claim(b.id, human, "cli"),
+      "invalid_state",
+    );
+    await kanban.claim(a.id, human, "cli");
+    await kanban.claim(b.id, human, "cli");
 
     // and no level can finish while a level below it is still open
-    expectKanbanError(() => kanban.done(a.id, human, "cli"), "invalid_state");
-    expectKanbanError(
-      () => kanban.done(parent.id, human, "cli"),
+    await expectKanbanError(
+      async () => await kanban.done(a.id, human, "cli"),
+      "invalid_state",
+    );
+    await expectKanbanError(
+      async () => await kanban.done(parent.id, human, "cli"),
       "invalid_state",
     );
 
     // finishing bottom-up is what the rule allows
-    kanban.done(b.id, human, "cli");
-    kanban.done(a.id, human, "cli");
-    kanban.done(parent.id, human, "cli");
-    expect(kanban.card(parent.id)?.state).toBe("done");
+    await kanban.done(b.id, human, "cli");
+    await kanban.done(a.id, human, "cli");
+    await kanban.done(parent.id, human, "cli");
+    expect((await kanban.card(parent.id))?.state).toBe("done");
   });
 
-  it("refuses a card as its own parent", () => {
-    const { kanban, parent } = tree();
-    expectKanbanError(
-      () => kanban.parent(parent.id, parent.id, human, "cli"),
+  it("refuses a card as its own parent", async () => {
+    const { kanban, parent } = await tree();
+    await expectKanbanError(
+      async () => await kanban.parent(parent.id, parent.id, human, "cli"),
       "invalid_input",
     );
   });
 
-  it("unparents, and is a no-op when already top-level", () => {
-    const { kanban, parent, a } = tree();
-    kanban.parent(a.id, parent.id, human, "cli");
+  it("unparents, and is a no-op when already top-level", async () => {
+    const { kanban, parent, a } = await tree();
+    await kanban.parent(a.id, parent.id, human, "cli");
 
-    const cleared = kanban.unparent(a.id, human, "cli").card;
+    const cleared = (await kanban.unparent(a.id, human, "cli")).card;
     expect(cleared.parent).toBeNull();
-    expect(kanban.card(parent.id)?.children).toEqual([]);
-    expect(kanban.unparent(a.id, human, "cli").events).toEqual([]);
+    expect((await kanban.card(parent.id))?.children).toEqual([]);
+    expect((await kanban.unparent(a.id, human, "cli")).events).toEqual([]);
   });
 
-  it("only the child's creator or assignee may attach it", () => {
-    const { kanban, parent, a } = tree();
-    kanban.edit(a.id, { assignee: "codex" }, human);
+  it("only the child's creator or assignee may attach it", async () => {
+    const { kanban, parent, a } = await tree();
+    await kanban.edit(a.id, { assignee: "codex" }, human);
 
     // `otherAgent` is codex: the assignee may attach its own card
-    kanban.parent(a.id, parent.id, otherAgent, "cli");
-    expect(kanban.card(a.id)?.parent).toBe(parent.id);
+    await kanban.parent(a.id, parent.id, otherAgent, "cli");
+    expect((await kanban.card(a.id))?.parent).toBe(parent.id);
 
     const stranger: Actor = { type: "agent", name: "nobody" };
-    const detached = kanban.unparent(a.id, otherAgent, "cli").card;
+    const detached = (await kanban.unparent(a.id, otherAgent, "cli")).card;
     void detached;
-    expectKanbanError(
-      () => kanban.parent(a.id, parent.id, stranger, "cli"),
+    await expectKanbanError(
+      async () => await kanban.parent(a.id, parent.id, stranger, "cli"),
       "forbidden",
     );
   });
 });
 
 describe("parent and child states have to agree", () => {
-  function umbrella() {
+  async function umbrella() {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    const parent = kanban.add({ title: "epic" }, human).card;
-    const child = kanban.add({ title: "part" }, human).card;
-    kanban.parent(child.id, parent.id, human, "cli");
+    const parent = (await kanban.add({ title: "epic" }, human)).card;
+    const child = (await kanban.add({ title: "part" }, human)).card;
+    await kanban.parent(child.id, parent.id, human, "cli");
     return { kanban, parent, child };
   }
 
-  it("lets the umbrella start, and then its parts", () => {
-    const { kanban, parent, child } = umbrella();
+  it("lets the umbrella start, and then its parts", async () => {
+    const { kanban, parent, child } = await umbrella();
 
-    expect(kanban.claim(parent.id, human, "cli").card.state).toBe("doing");
-    expect(kanban.claim(child.id, human, "cli").card.state).toBe("doing");
+    expect((await kanban.claim(parent.id, human, "cli")).card.state).toBe(
+      "doing",
+    );
+    expect((await kanban.claim(child.id, human, "cli")).card.state).toBe(
+      "doing",
+    );
   });
 
-  it("refuses a part in play while the umbrella is still todo", () => {
-    const { kanban, parent, child } = umbrella();
+  it("refuses a part in play while the umbrella is still todo", async () => {
+    const { kanban, parent, child } = await umbrella();
 
-    expectKanbanError(
-      () => kanban.claim(child.id, human, "cli"),
+    await expectKanbanError(
+      async () => await kanban.claim(child.id, human, "cli"),
       "invalid_state",
       /part of #\d+ \(todo\)/,
     );
-    expectKanbanError(
-      () => kanban.review(child.id, human, "cli"),
+    await expectKanbanError(
+      async () => await kanban.review(child.id, human, "cli"),
       "invalid_state",
     );
     // …and once the umbrella is under way, the same move is fine.
-    kanban.claim(parent.id, human, "cli");
-    expect(kanban.claim(child.id, human, "cli").card.state).toBe("doing");
+    await kanban.claim(parent.id, human, "cli");
+    expect((await kanban.claim(child.id, human, "cli")).card.state).toBe(
+      "doing",
+    );
   });
 
-  it("refuses to finish or review an umbrella with an open part", () => {
-    const { kanban, parent, child } = umbrella();
-    kanban.claim(parent.id, human, "cli");
-    kanban.claim(child.id, human, "cli");
+  it("refuses to finish or review an umbrella with an open part", async () => {
+    const { kanban, parent, child } = await umbrella();
+    await kanban.claim(parent.id, human, "cli");
+    await kanban.claim(child.id, human, "cli");
 
-    expectKanbanError(
-      () => kanban.done(parent.id, human, "cli"),
+    await expectKanbanError(
+      async () => await kanban.done(parent.id, human, "cli"),
       "invalid_state",
       /unfinished child/,
     );
-    expectKanbanError(
-      () => kanban.review(parent.id, human, "cli"),
+    await expectKanbanError(
+      async () => await kanban.review(parent.id, human, "cli"),
       "invalid_state",
     );
 
-    kanban.done(child.id, human, "cli");
-    expect(kanban.review(parent.id, human, "cli").card.state).toBe("review");
+    await kanban.done(child.id, human, "cli");
+    expect((await kanban.review(parent.id, human, "cli")).card.state).toBe(
+      "review",
+    );
   });
 
-  it("refuses to park the umbrella while a part is in play", () => {
-    const { kanban, parent, child } = umbrella();
-    kanban.claim(parent.id, human, "cli");
-    kanban.claim(child.id, human, "cli");
+  it("refuses to park the umbrella while a part is in play", async () => {
+    const { kanban, parent, child } = await umbrella();
+    await kanban.claim(parent.id, human, "cli");
+    await kanban.claim(child.id, human, "cli");
 
-    expectKanbanError(
-      () => kanban.move(parent.id, "todo", human, "cli"),
+    await expectKanbanError(
+      async () => await kanban.move(parent.id, "todo", human, "cli"),
       "invalid_state",
       /parts? in play/,
     );
 
-    kanban.done(child.id, human, "cli");
-    expect(kanban.move(parent.id, "someday", human, "cli").card.state).toBe(
-      "someday",
-    );
+    await kanban.done(child.id, human, "cli");
+    expect(
+      (await kanban.move(parent.id, "someday", human, "cli")).card.state,
+    ).toBe("someday");
   });
 
-  it("refuses to reopen a part of a reviewed or finished umbrella", () => {
-    const { kanban, parent, child } = umbrella();
-    kanban.claim(parent.id, human, "cli");
-    kanban.claim(child.id, human, "cli");
-    kanban.done(child.id, human, "cli");
-    kanban.review(parent.id, human, "cli");
+  it("refuses to reopen a part of a reviewed or finished umbrella", async () => {
+    const { kanban, parent, child } = await umbrella();
+    await kanban.claim(parent.id, human, "cli");
+    await kanban.claim(child.id, human, "cli");
+    await kanban.done(child.id, human, "cli");
+    await kanban.review(parent.id, human, "cli");
 
-    expectKanbanError(
-      () => kanban.reopen(child.id, human, "cli"),
+    await expectKanbanError(
+      async () => await kanban.reopen(child.id, human, "cli"),
       "invalid_state",
       /move #\d+ back out of review/,
     );
 
-    kanban.reopen(parent.id, human, "cli");
-    kanban.claim(parent.id, human, "cli");
-    expect(kanban.reopen(child.id, human, "cli").card.state).toBe("todo");
-  });
-
-  it("still closes a leaf card with nobody in the way", () => {
-    const kanban = new Kanban({ log: new MemoryEventLog() });
-    const leaf = kanban.add({ title: "solo" }, human).card;
-    expect(kanban.done(leaf.id, human, "cli").card.state).toBe("done");
-  });
-
-  it("lets an in-flight card become an umbrella", () => {
-    // Working an umbrella is the normal case now: attaching a part to a card
-    // that is already `doing` is exactly how a goal starts collecting parts.
-    const kanban = new Kanban({ log: new MemoryEventLog() });
-    const parent = kanban.add({ title: "epic" }, human).card;
-    const child = kanban.add({ title: "part" }, human).card;
-    kanban.claim(parent.id, human, "cli");
-
-    expect(kanban.parent(child.id, parent.id, human, "cli").card.parent).toBe(
-      parent.id,
+    await kanban.reopen(parent.id, human, "cli");
+    await kanban.claim(parent.id, human, "cli");
+    expect((await kanban.reopen(child.id, human, "cli")).card.state).toBe(
+      "todo",
     );
   });
 
-  it("refuses to attach a part that is already in play under a parked umbrella", () => {
+  it("still closes a leaf card with nobody in the way", async () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    const parent = kanban.add({ title: "epic" }, human).card;
-    const child = kanban.add({ title: "part" }, human).card;
-    kanban.claim(child.id, human, "cli");
+    const leaf = (await kanban.add({ title: "solo" }, human)).card;
+    expect((await kanban.done(leaf.id, human, "cli")).card.state).toBe("done");
+  });
 
-    expectKanbanError(
-      () => kanban.parent(child.id, parent.id, human, "cli"),
+  it("lets an in-flight card become an umbrella", async () => {
+    // Working an umbrella is the normal case now: attaching a part to a card
+    // that is already `doing` is exactly how a goal starts collecting parts.
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    const parent = (await kanban.add({ title: "epic" }, human)).card;
+    const child = (await kanban.add({ title: "part" }, human)).card;
+    await kanban.claim(parent.id, human, "cli");
+
+    expect(
+      (await kanban.parent(child.id, parent.id, human, "cli")).card.parent,
+    ).toBe(parent.id);
+  });
+
+  it("refuses to attach a part that is already in play under a parked umbrella", async () => {
+    const kanban = new Kanban({ log: new MemoryEventLog() });
+    const parent = (await kanban.add({ title: "epic" }, human)).card;
+    const child = (await kanban.add({ title: "part" }, human)).card;
+    await kanban.claim(child.id, human, "cli");
+
+    await expectKanbanError(
+      async () => await kanban.parent(child.id, parent.id, human, "cli"),
       "invalid_state",
       /a part cannot be in doing or review/,
     );
   });
 
-  it("refuses to attach an unfinished part to a reviewed umbrella", () => {
+  it("refuses to attach an unfinished part to a reviewed umbrella", async () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    const parent = kanban.add({ title: "epic" }, human).card;
-    const doneChild = kanban.add({ title: "done part" }, human).card;
-    const openChild = kanban.add({ title: "open part" }, human).card;
-    kanban.parent(doneChild.id, parent.id, human, "cli");
-    kanban.claim(parent.id, human, "cli");
-    kanban.done(doneChild.id, human, "cli");
-    kanban.review(parent.id, human, "cli");
+    const parent = (await kanban.add({ title: "epic" }, human)).card;
+    const doneChild = (await kanban.add({ title: "done part" }, human)).card;
+    const openChild = (await kanban.add({ title: "open part" }, human)).card;
+    await kanban.parent(doneChild.id, parent.id, human, "cli");
+    await kanban.claim(parent.id, human, "cli");
+    await kanban.done(doneChild.id, human, "cli");
+    await kanban.review(parent.id, human, "cli");
 
-    expectKanbanError(
-      () => kanban.parent(openChild.id, parent.id, human, "cli"),
+    await expectKanbanError(
+      async () => await kanban.parent(openChild.id, parent.id, human, "cli"),
       "invalid_state",
       /cannot take on the unfinished card/,
     );
@@ -876,15 +930,15 @@ describe("parent and child states have to agree", () => {
 });
 
 describe("a board written before the rule", () => {
-  it("reports the pairs the engine would now refuse", () => {
+  it("reports the pairs the engine would now refuse", async () => {
     const log = new MemoryEventLog();
     const kanban = new Kanban({ log });
-    const epic = kanban.add({ title: "epic" }, human).card;
-    const part = kanban.add({ title: "part" }, human).card;
+    const epic = (await kanban.add({ title: "epic" }, human)).card;
+    const part = (await kanban.add({ title: "part" }, human)).card;
 
     // Appended directly: the point is a log that already holds a pair the
     // engine no longer writes, so `claim`/`parent` cannot be used to build it.
-    log.append([
+    await log.append([
       {
         actor: human,
         source: "cli",
@@ -901,28 +955,28 @@ describe("a board written before the rule", () => {
       },
     ]);
 
-    const found = kanban.hierarchyViolations();
+    const found = await kanban.hierarchyViolations();
     expect(found).toHaveLength(1);
     expect(found[0]?.card.id).toBe(part.id);
     expect(found[0]?.reason).toMatch(/is doing while its umbrella .* is todo/);
 
     // The pair is reported, never silently corrected: the card stays where the
     // log put it, and the move that would fix it is one `claim` away.
-    expect(kanban.card(part.id)?.state).toBe("doing");
-    kanban.claim(epic.id, human, "cli");
-    expect(kanban.hierarchyViolations()).toHaveLength(0);
+    expect((await kanban.card(part.id))?.state).toBe("doing");
+    await kanban.claim(epic.id, human, "cli");
+    expect(await kanban.hierarchyViolations()).toHaveLength(0);
   });
 
-  it("reports an umbrella that was closed over an open part", () => {
+  it("reports an umbrella that was closed over an open part", async () => {
     const log = new MemoryEventLog();
     const kanban = new Kanban({ log });
-    const epic = kanban.add({ title: "epic" }, human).card;
-    const donePart = kanban.add({ title: "done part" }, human).card;
-    const openPart = kanban.add({ title: "open part" }, human).card;
-    kanban.parent(donePart.id, epic.id, human, "cli");
-    kanban.done(donePart.id, human, "cli");
+    const epic = (await kanban.add({ title: "epic" }, human)).card;
+    const donePart = (await kanban.add({ title: "done part" }, human)).card;
+    const openPart = (await kanban.add({ title: "open part" }, human)).card;
+    await kanban.parent(donePart.id, epic.id, human, "cli");
+    await kanban.done(donePart.id, human, "cli");
 
-    log.append([
+    await log.append([
       {
         actor: human,
         source: "cli",
@@ -939,34 +993,34 @@ describe("a board written before the rule", () => {
       },
     ]);
 
-    const found = kanban.hierarchyViolations();
+    const found = await kanban.hierarchyViolations();
     expect(found).toHaveLength(1);
     expect(found[0]?.reason).toMatch(/is done with .* still open/);
   });
 });
 
 describe("deleting a card in a hierarchy", () => {
-  it("orphans the children of a deleted umbrella", () => {
+  it("orphans the children of a deleted umbrella", async () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    const parent = kanban.add({ title: "epic" }, human).card;
-    const child = kanban.add({ title: "part" }, human).card;
-    kanban.parent(child.id, parent.id, human, "cli");
+    const parent = (await kanban.add({ title: "epic" }, human)).card;
+    const child = (await kanban.add({ title: "part" }, human)).card;
+    await kanban.parent(child.id, parent.id, human, "cli");
 
-    kanban.remove(parent.id, human, "cli");
+    await kanban.remove(parent.id, human, "cli");
 
-    expect(kanban.card(parent.id)).toBeNull();
-    expect(kanban.card(child.id)?.parent).toBeNull();
+    expect(await kanban.card(parent.id)).toBeNull();
+    expect((await kanban.card(child.id))?.parent).toBeNull();
   });
 
-  it("removes a deleted child from its parent's list", () => {
+  it("removes a deleted child from its parent's list", async () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    const parent = kanban.add({ title: "epic" }, human).card;
-    const child = kanban.add({ title: "part" }, human).card;
-    kanban.parent(child.id, parent.id, human, "cli");
+    const parent = (await kanban.add({ title: "epic" }, human)).card;
+    const child = (await kanban.add({ title: "part" }, human)).card;
+    await kanban.parent(child.id, parent.id, human, "cli");
 
-    kanban.remove(child.id, human, "cli");
+    await kanban.remove(child.id, human, "cli");
 
-    expect(kanban.card(parent.id)?.children).toEqual([]);
+    expect((await kanban.card(parent.id))?.children).toEqual([]);
   });
 });
 
@@ -974,30 +1028,30 @@ describe("projects", () => {
   const web = { title: "web card", project: "web" };
   const api = { title: "api card", project: "api" };
 
-  it("records the project on the card and lists the ones in use", () => {
+  it("records the project on the card and lists the ones in use", async () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    kanban.add(web, human);
-    kanban.add(api, human);
-    kanban.add({ title: "no project" }, human);
+    await kanban.add(web, human);
+    await kanban.add(api, human);
+    await kanban.add({ title: "no project" }, human);
 
-    expect(kanban.board().todo.map((card) => card.project)).toEqual([
+    expect((await kanban.board()).todo.map((card) => card.project)).toEqual([
       "web",
       "api",
       null,
     ]);
-    expect(kanban.projects()).toEqual(["api", "web"]);
+    expect(await kanban.projects()).toEqual(["api", "web"]);
   });
 
-  it("summarises every project, with the untagged bucket last", () => {
+  it("summarises every project, with the untagged bucket last", async () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    kanban.add(web, human);
-    kanban.add(api, human);
-    kanban.add({ title: "no project" }, human);
-    const apiCard = kanban.add(api, human).card;
-    kanban.claim(apiCard.id, human, "cli");
-    kanban.done(apiCard.id, human, "cli");
+    await kanban.add(web, human);
+    await kanban.add(api, human);
+    await kanban.add({ title: "no project" }, human);
+    const apiCard = (await kanban.add(api, human)).card;
+    await kanban.claim(apiCard.id, human, "cli");
+    await kanban.done(apiCard.id, human, "cli");
 
-    expect(kanban.projectSummary()).toEqual([
+    expect(await kanban.projectSummary()).toEqual([
       { project: "api", someday: 0, todo: 1, doing: 0, review: 0, done: 1 },
       { project: "web", someday: 0, todo: 1, doing: 0, review: 0, done: 0 },
       // A card with no project is in no project, but it still has to be
@@ -1006,88 +1060,88 @@ describe("projects", () => {
     ]);
   });
 
-  it("filters the board to one project", () => {
+  it("filters the board to one project", async () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    kanban.add(web, human);
-    kanban.add(api, human);
-    kanban.add({ title: "no project" }, human);
+    await kanban.add(web, human);
+    await kanban.add(api, human);
+    await kanban.add({ title: "no project" }, human);
 
-    const board = kanban.board("web");
+    const board = await kanban.board("web");
     expect(board.todo.map((card) => card.title)).toEqual(["web card"]);
     // no filter means every project, including the untagged card
-    expect(kanban.board().todo).toHaveLength(3);
+    expect((await kanban.board()).todo).toHaveLength(3);
     // an unknown project is an empty board, not an error
-    expect(kanban.board("nope").todo).toEqual([]);
+    expect((await kanban.board("nope")).todo).toEqual([]);
   });
 
-  it("filters mine and the review queue", () => {
+  it("filters mine and the review queue", async () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    const a = kanban.add(web, human);
-    kanban.add({ ...web, title: "other" }, human);
-    kanban.claim(a.card.id, agent);
+    const a = await kanban.add(web, human);
+    await kanban.add({ ...web, title: "other" }, human);
+    await kanban.claim(a.card.id, agent);
 
-    expect(kanban.mine("claude-code").map((c) => c.title)).toEqual([
+    expect((await kanban.mine("claude-code")).map((c) => c.title)).toEqual([
       "web card",
     ]);
-    expect(kanban.mine("claude-code", "api")).toEqual([]);
+    expect(await kanban.mine("claude-code", "api")).toEqual([]);
 
-    const r = kanban.add({ ...api, reviewer: "jyxc" }, human);
-    kanban.review(r.card.id, agent);
-    expect(kanban.reviewQueue("jyxc").map((c) => c.title)).toEqual([
+    const r = await kanban.add({ ...api, reviewer: "jyxc" }, human);
+    await kanban.review(r.card.id, agent);
+    expect((await kanban.reviewQueue("jyxc")).map((c) => c.title)).toEqual([
       "api card",
     ]);
-    expect(kanban.reviewQueue("jyxc", "web")).toEqual([]);
+    expect(await kanban.reviewQueue("jyxc", "web")).toEqual([]);
   });
 
-  it("lets the creator or assignee move a card between projects", () => {
+  it("lets the creator or assignee move a card between projects", async () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    const added = kanban.add(web, human);
+    const added = await kanban.add(web, human);
 
     // an unrelated agent cannot, exactly as for any other field
-    expect(() => kanban.edit(added.card.id, { project: "api" }, agent)).toThrow(
-      KanbanError,
-    );
+    await expect(
+      kanban.edit(added.card.id, { project: "api" }, agent),
+    ).rejects.toThrow(KanbanError);
 
-    kanban.claim(added.card.id, agent);
-    const moved = kanban.edit(added.card.id, { project: "api" }, agent);
+    await kanban.claim(added.card.id, agent);
+    const moved = await kanban.edit(added.card.id, { project: "api" }, agent);
     expect(moved.card.project).toBe("api");
 
-    const cleared = kanban.edit(added.card.id, { project: null }, human);
+    const cleared = await kanban.edit(added.card.id, { project: null }, human);
     expect(cleared.card.project).toBeNull();
   });
 
-  it("normalises the slug so Web and web cannot diverge", () => {
+  it("normalises the slug so Web and web cannot diverge", async () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    const added = kanban.add({ title: "x", project: "  Web  " }, human);
+    const added = await kanban.add({ title: "x", project: "  Web  " }, human);
     expect(added.card.project).toBe("web");
 
-    const viaEdit = kanban.edit(added.card.id, { project: "API" }, human);
+    const viaEdit = await kanban.edit(added.card.id, { project: "API" }, human);
     expect(viaEdit.card.project).toBe("api");
   });
 
-  it("rejects a slug that is not url/cli safe", () => {
+  it("rejects a slug that is not url/cli safe", async () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    expect(() => kanban.add({ title: "x", project: "web ui" }, human)).toThrow(
-      KanbanError,
-    );
-    expect(() => kanban.add({ title: "x", project: "web/api" }, human)).toThrow(
-      KanbanError,
-    );
-    expect(() => kanban.add({ title: "x", project: "  " }, human)).toThrow(
-      KanbanError,
-    );
-    expect(() =>
+    await expect(
+      kanban.add({ title: "x", project: "web ui" }, human),
+    ).rejects.toThrow(KanbanError);
+    await expect(
+      kanban.add({ title: "x", project: "web/api" }, human),
+    ).rejects.toThrow(KanbanError);
+    await expect(
+      kanban.add({ title: "x", project: "  " }, human),
+    ).rejects.toThrow(KanbanError);
+    await expect(
       kanban.add({ title: "x", project: "-leading-dash" }, human),
-    ).toThrow(KanbanError);
+    ).rejects.toThrow(KanbanError);
     // 65 characters
-    expect(() =>
+    await expect(
       kanban.add({ title: "x", project: "a".repeat(65) }, human),
-    ).toThrow(KanbanError);
+    ).rejects.toThrow(KanbanError);
   });
 
   it("replays events written before projects existed", async () => {
     const dir = tempDir();
-    const added = openKanban({ dir, storage: "jsonl" }).add(
+    const added = await openKanban({ dir, storage: "jsonl" }).add(
       { title: "legacy", reviewer: "jyxc" },
       human,
     );
@@ -1107,30 +1161,29 @@ describe("projects", () => {
     );
 
     const reopened = openKanban({ dir, storage: "jsonl" });
-    expect(reopened.card(added.card.id)?.project).toBeNull();
-    expect(reopened.card(added.card.id)?.title).toBe("legacy");
-    expect(reopened.projects()).toEqual([]);
-    expect(reopened.board("web").todo).toHaveLength(0);
-    expect(reopened.board().todo).toHaveLength(1);
+    expect((await reopened.card(added.card.id))?.project).toBeNull();
+    expect((await reopened.card(added.card.id))?.title).toBe("legacy");
+    expect(await reopened.projects()).toEqual([]);
+    expect((await reopened.board("web")).todo).toHaveLength(0);
+    expect((await reopened.board()).todo).toHaveLength(1);
   });
 });
 
 describe("blockers gate starting work", () => {
-  const setup = () => {
+  const setup = async () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    const blocker = kanban.add({ title: "blocker" }, human).card;
-    const blocked = kanban.add(
-      { title: "blocked", blockedBy: [blocker.id] },
-      human,
+    const blocker = (await kanban.add({ title: "blocker" }, human)).card;
+    const blocked = (
+      await kanban.add({ title: "blocked", blockedBy: [blocker.id] }, human)
     ).card;
     return { kanban, blocker, blocked };
   };
 
-  it("refuses to claim a card whose blocker is unfinished", () => {
-    const { kanban, blocked, blocker } = setup();
+  it("refuses to claim a card whose blocker is unfinished", async () => {
+    const { kanban, blocked, blocker } = await setup();
     let error: KanbanError | undefined;
     try {
-      kanban.claim(blocked.id, agent);
+      await kanban.claim(blocked.id, agent);
     } catch (caught) {
       error = caught as KanbanError;
     }
@@ -1139,49 +1192,55 @@ describe("blockers gate starting work", () => {
     // the message must name the blocker and its state, so it is actionable
     expect(error?.message).toContain(`#${blocker.id}`);
     expect(error?.message).toContain("todo");
-    expect(kanban.card(blocked.id)?.state).toBe("todo");
+    expect((await kanban.card(blocked.id))?.state).toBe("todo");
   });
 
-  it("refuses to move it into doing, but allows any other column", () => {
-    const { kanban, blocked } = setup();
-    expect(() => kanban.move(blocked.id, "doing", agent)).toThrow(KanbanError);
+  it("refuses to move it into doing, but allows any other column", async () => {
+    const { kanban, blocked } = await setup();
+    await expect(kanban.move(blocked.id, "doing", agent)).rejects.toThrow(
+      KanbanError,
+    );
     // review is not gated: the work is already done by then, and refusing would
     // only create friction
-    expect(kanban.move(blocked.id, "review", agent).card.state).toBe("review");
+    expect((await kanban.move(blocked.id, "review", agent)).card.state).toBe(
+      "review",
+    );
   });
 
-  it("lets the card through once the blocker is done", () => {
-    const { kanban, blocked, blocker } = setup();
-    kanban.done(blocker.id, agent);
-    const claimed = kanban.claim(blocked.id, agent);
+  it("lets the card through once the blocker is done", async () => {
+    const { kanban, blocked, blocker } = await setup();
+    await kanban.done(blocker.id, agent);
+    const claimed = await kanban.claim(blocked.id, agent);
     expect(claimed.card.state).toBe("doing");
     expect(claimed.card.assignee).toBe("claude-code");
   });
 
-  it("treats a deleted blocker as satisfied", () => {
-    const { kanban, blocked, blocker } = setup();
-    kanban.remove(blocker.id, human);
+  it("treats a deleted blocker as satisfied", async () => {
+    const { kanban, blocked, blocker } = await setup();
+    await kanban.remove(blocker.id, human);
     // otherwise deleting a card could block another one forever
-    expect(kanban.claim(blocked.id, agent).card.state).toBe("doing");
+    expect((await kanban.claim(blocked.id, agent)).card.state).toBe("doing");
   });
 
-  it("never gates done — a card must always be closable", () => {
-    const { kanban, blocked } = setup();
-    expect(kanban.done(blocked.id, agent).card.state).toBe("done");
+  it("never gates done — a card must always be closable", async () => {
+    const { kanban, blocked } = await setup();
+    expect((await kanban.done(blocked.id, agent)).card.state).toBe("done");
   });
 
-  it("reports every open blocker, not just the first", () => {
+  it("reports every open blocker, not just the first", async () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    const first = kanban.add({ title: "one" }, human).card;
-    const second = kanban.add({ title: "two" }, human).card;
-    const blocked = kanban.add(
-      { title: "blocked", blockedBy: [first.id, second.id] },
-      human,
+    const first = (await kanban.add({ title: "one" }, human)).card;
+    const second = (await kanban.add({ title: "two" }, human)).card;
+    const blocked = (
+      await kanban.add(
+        { title: "blocked", blockedBy: [first.id, second.id] },
+        human,
+      )
     ).card;
 
     let message = "";
     try {
-      kanban.claim(blocked.id, agent);
+      await kanban.claim(blocked.id, agent);
     } catch (caught) {
       message = (caught as KanbanError).message;
     }
@@ -1191,161 +1250,173 @@ describe("blockers gate starting work", () => {
     expect(message).toContain("them");
   });
 
-  it("does not gate a card with no blockers", () => {
+  it("does not gate a card with no blockers", async () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    const card = kanban.add({ title: "free" }, human).card;
-    expect(kanban.claim(card.id, agent).card.state).toBe("doing");
+    const card = (await kanban.add({ title: "free" }, human)).card;
+    expect((await kanban.claim(card.id, agent)).card.state).toBe("doing");
   });
 });
 
 describe("relations", () => {
-  function pair() {
+  async function pair() {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    const upstream = kanban.add({ title: "design the API" }, human).card;
-    const downstream = kanban.add(
-      { title: "implement the API", assignee: "claude-code" },
-      human,
+    const upstream = (await kanban.add({ title: "design the API" }, human))
+      .card;
+    const downstream = (
+      await kanban.add(
+        { title: "implement the API", assignee: "claude-code" },
+        human,
+      )
     ).card;
     return { kanban, upstream, downstream };
   }
 
-  it("links from either side onto the same single edge", () => {
-    const { kanban, upstream, downstream } = pair();
+  it("links from either side onto the same single edge", async () => {
+    const { kanban, upstream, downstream } = await pair();
 
-    kanban.relate(downstream.id, upstream.id, "upstream", human);
-    expect(kanban.card(downstream.id)?.blockedBy).toEqual([upstream.id]);
-    expect(kanban.card(upstream.id)?.blocks).toEqual([downstream.id]);
+    await kanban.relate(downstream.id, upstream.id, "upstream", human);
+    expect((await kanban.card(downstream.id))?.blockedBy).toEqual([
+      upstream.id,
+    ]);
+    expect((await kanban.card(upstream.id))?.blocks).toEqual([downstream.id]);
 
     // saying it the other way round is the same edge, not a second one
-    const again = kanban.relate(
+    const again = await kanban.relate(
       upstream.id,
       downstream.id,
       "downstream",
       human,
     );
     expect(again.events).toHaveLength(0);
-    expect(kanban.card(downstream.id)?.blockedBy).toEqual([upstream.id]);
-    expect(kanban.card(upstream.id)?.blocks).toEqual([downstream.id]);
+    expect((await kanban.card(downstream.id))?.blockedBy).toEqual([
+      upstream.id,
+    ]);
+    expect((await kanban.card(upstream.id))?.blocks).toEqual([downstream.id]);
   });
 
-  it("is many-to-many in both directions", () => {
-    const { kanban, upstream, downstream } = pair();
-    const third = kanban.add({ title: "docs" }, human).card;
+  it("is many-to-many in both directions", async () => {
+    const { kanban, upstream, downstream } = await pair();
+    const third = (await kanban.add({ title: "docs" }, human)).card;
 
-    kanban.relate(downstream.id, upstream.id, "upstream", human);
-    kanban.relate(third.id, upstream.id, "upstream", human);
-    kanban.relate(third.id, downstream.id, "upstream", human);
+    await kanban.relate(downstream.id, upstream.id, "upstream", human);
+    await kanban.relate(third.id, upstream.id, "upstream", human);
+    await kanban.relate(third.id, downstream.id, "upstream", human);
     // saying it from the other end changes nothing — it is the same edge
-    kanban.relate(upstream.id, third.id, "downstream", human);
+    await kanban.relate(upstream.id, third.id, "downstream", human);
 
-    expect(kanban.card(third.id)?.blockedBy).toEqual([
+    expect((await kanban.card(third.id))?.blockedBy).toEqual([
       upstream.id,
       downstream.id,
     ]);
-    expect(kanban.card(upstream.id)?.blocks).toEqual([downstream.id, third.id]);
-    expect(kanban.card(downstream.id)?.blocks).toEqual([third.id]);
+    expect((await kanban.card(upstream.id))?.blocks).toEqual([
+      downstream.id,
+      third.id,
+    ]);
+    expect((await kanban.card(downstream.id))?.blocks).toEqual([third.id]);
   });
 
-  it("still gates claiming on the upstream side", () => {
-    const { kanban, upstream, downstream } = pair();
-    kanban.relate(downstream.id, upstream.id, "upstream", human);
-    expectKanbanError(
-      () => kanban.claim(downstream.id, agent),
+  it("still gates claiming on the upstream side", async () => {
+    const { kanban, upstream, downstream } = await pair();
+    await kanban.relate(downstream.id, upstream.id, "upstream", human);
+    await expectKanbanError(
+      async () => await kanban.claim(downstream.id, agent),
       "invalid_state",
     );
-    kanban.done(upstream.id, human);
-    expect(kanban.claim(downstream.id, agent).card.state).toBe("doing");
+    await kanban.done(upstream.id, human);
+    expect((await kanban.claim(downstream.id, agent)).card.state).toBe("doing");
   });
 
-  it("rejects cycles whichever side you start from", () => {
-    const { kanban, upstream, downstream } = pair();
-    kanban.relate(downstream.id, upstream.id, "upstream", human);
-    expectKanbanError(
-      () => kanban.relate(upstream.id, downstream.id, "upstream", human),
+  it("rejects cycles whichever side you start from", async () => {
+    const { kanban, upstream, downstream } = await pair();
+    await kanban.relate(downstream.id, upstream.id, "upstream", human);
+    await expectKanbanError(
+      async () =>
+        await kanban.relate(upstream.id, downstream.id, "upstream", human),
       "invalid_input",
     );
   });
 
-  it("rejects relating a card to itself", () => {
-    const { kanban, upstream } = pair();
-    expectKanbanError(
-      () => kanban.relate(upstream.id, upstream.id, "upstream", human),
+  it("rejects relating a card to itself", async () => {
+    const { kanban, upstream } = await pair();
+    await expectKanbanError(
+      async () =>
+        await kanban.relate(upstream.id, upstream.id, "upstream", human),
       "invalid_input",
     );
   });
 
-  it("unrelates in whichever direction the edge runs", () => {
-    const { kanban, upstream, downstream } = pair();
-    kanban.relate(downstream.id, upstream.id, "upstream", human);
+  it("unrelates in whichever direction the edge runs", async () => {
+    const { kanban, upstream, downstream } = await pair();
+    await kanban.relate(downstream.id, upstream.id, "upstream", human);
 
     // start from the upstream card — the direction does not have to be known
-    kanban.unrelate(upstream.id, downstream.id, human);
-    expect(kanban.card(downstream.id)?.blockedBy).toEqual([]);
-    expect(kanban.card(upstream.id)?.blocks).toEqual([]);
+    await kanban.unrelate(upstream.id, downstream.id, human);
+    expect((await kanban.card(downstream.id))?.blockedBy).toEqual([]);
+    expect((await kanban.card(upstream.id))?.blocks).toEqual([]);
 
     // unrelated cards are a no-op, not an error
-    expect(kanban.unrelate(upstream.id, downstream.id, human).events).toEqual(
-      [],
-    );
+    expect(
+      (await kanban.unrelate(upstream.id, downstream.id, human)).events,
+    ).toEqual([]);
   });
 
-  it("keeps block/unblock working as the upstream spelling", () => {
-    const { kanban, upstream, downstream } = pair();
-    kanban.block(downstream.id, upstream.id, human);
-    expect(kanban.card(upstream.id)?.blocks).toEqual([downstream.id]);
-    kanban.unblock(downstream.id, upstream.id, human);
-    expect(kanban.card(upstream.id)?.blocks).toEqual([]);
+  it("keeps block/unblock working as the upstream spelling", async () => {
+    const { kanban, upstream, downstream } = await pair();
+    await kanban.block(downstream.id, upstream.id, human);
+    expect((await kanban.card(upstream.id))?.blocks).toEqual([downstream.id]);
+    await kanban.unblock(downstream.id, upstream.id, human);
+    expect((await kanban.card(upstream.id))?.blocks).toEqual([]);
   });
 
-  it("drops both ends of the edge when a card is deleted", () => {
-    const { kanban, upstream, downstream } = pair();
-    kanban.relate(downstream.id, upstream.id, "upstream", human);
-    kanban.remove(upstream.id, human);
-    expect(kanban.card(downstream.id)?.blockedBy).toEqual([]);
+  it("drops both ends of the edge when a card is deleted", async () => {
+    const { kanban, upstream, downstream } = await pair();
+    await kanban.relate(downstream.id, upstream.id, "upstream", human);
+    await kanban.remove(upstream.id, human);
+    expect((await kanban.card(downstream.id))?.blockedBy).toEqual([]);
 
-    const other = kanban.add({ title: "other" }, human).card;
-    kanban.relate(downstream.id, other.id, "downstream", human);
-    expect(kanban.card(other.id)?.blockedBy).toEqual([downstream.id]);
-    kanban.remove(other.id, human);
-    expect(kanban.card(downstream.id)?.blocks).toEqual([]);
+    const other = (await kanban.add({ title: "other" }, human)).card;
+    await kanban.relate(downstream.id, other.id, "downstream", human);
+    expect((await kanban.card(other.id))?.blockedBy).toEqual([downstream.id]);
+    await kanban.remove(other.id, human);
+    expect((await kanban.card(downstream.id))?.blocks).toEqual([]);
   });
 
-  it("mirrors blockers given at creation time", () => {
+  it("mirrors blockers given at creation time", async () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    const upstream = kanban.add({ title: "up" }, human).card;
-    const downstream = kanban.add(
-      { title: "down", blockedBy: [upstream.id] },
-      human,
+    const upstream = (await kanban.add({ title: "up" }, human)).card;
+    const downstream = (
+      await kanban.add({ title: "down", blockedBy: [upstream.id] }, human)
     ).card;
-    expect(kanban.card(upstream.id)?.blocks).toEqual([downstream.id]);
+    expect((await kanban.card(upstream.id))?.blocks).toEqual([downstream.id]);
   });
 
-  it("is creator-or-assignee on the card that gains the wait", () => {
-    const { kanban, upstream, downstream } = pair();
-    expectKanbanError(
-      () => kanban.relate(downstream.id, upstream.id, "upstream", otherAgent),
+  it("is creator-or-assignee on the card that gains the wait", async () => {
+    const { kanban, upstream, downstream } = await pair();
+    await expectKanbanError(
+      async () =>
+        await kanban.relate(downstream.id, upstream.id, "upstream", otherAgent),
       "forbidden",
     );
   });
 });
 
 describe("notes", () => {
-  function card() {
+  async function card() {
     const kanban = new Kanban({ log: new MemoryEventLog() });
     return {
       kanban,
-      card: kanban.add({ title: "ship the thing" }, human).card,
+      card: (await kanban.add({ title: "ship the thing" }, human)).card,
     };
   }
 
-  it("starts with no notes", () => {
-    const { kanban, card: created } = card();
-    expect(kanban.card(created.id)?.notes).toEqual([]);
+  it("starts with no notes", async () => {
+    const { kanban, card: created } = await card();
+    expect((await kanban.card(created.id))?.notes).toEqual([]);
   });
 
-  it("adds a note with a document link", () => {
-    const { kanban, card: created } = card();
-    const { card: updated } = kanban.addNote(
+  it("adds a note with a document link", async () => {
+    const { kanban, card: created } = await card();
+    const { card: updated } = await kanban.addNote(
       created.id,
       { text: "design doc", url: "docs/design.md" },
       human,
@@ -1359,121 +1430,123 @@ describe("notes", () => {
     expect(note?.id).toBeGreaterThan(0);
   });
 
-  it("keeps notes in order and bumps the revision", () => {
-    const { kanban, card: created } = card();
-    kanban.edit(created.id, { assignee: "claude-code" }, human);
-    const before = kanban.card(created.id)?.revision ?? 0;
-    kanban.addNote(created.id, { text: "first" }, human);
-    const second = kanban.addNote(created.id, { text: "second" }, agent).card;
+  it("keeps notes in order and bumps the revision", async () => {
+    const { kanban, card: created } = await card();
+    await kanban.edit(created.id, { assignee: "claude-code" }, human);
+    const before = (await kanban.card(created.id))?.revision ?? 0;
+    await kanban.addNote(created.id, { text: "first" }, human);
+    const second = (await kanban.addNote(created.id, { text: "second" }, agent))
+      .card;
     expect(second.notes.map((note) => note.text)).toEqual(["first", "second"]);
     expect(second.revision).toBe(before + 2);
   });
 
-  it("edits a note's text and link", () => {
-    const { kanban, card: created } = card();
-    const added = kanban.addNote(created.id, { text: "draft" }, human).card;
+  it("edits a note's text and link", async () => {
+    const { kanban, card: created } = await card();
+    const added = (await kanban.addNote(created.id, { text: "draft" }, human))
+      .card;
     const noteId = added.notes[0]?.id ?? 0;
 
-    const updated = kanban.updateNote(
-      created.id,
-      noteId,
-      { text: "design doc", url: "https://example.com/doc" },
-      human,
+    const updated = (
+      await kanban.updateNote(
+        created.id,
+        noteId,
+        { text: "design doc", url: "https://example.com/doc" },
+        human,
+      )
     ).card;
     expect(updated.notes[0]?.text).toBe("design doc");
     expect(updated.notes[0]?.url).toBe("https://example.com/doc");
 
     // a null url clears the link without touching the text
-    const cleared = kanban.updateNote(
-      created.id,
-      noteId,
-      { url: null },
-      human,
+    const cleared = (
+      await kanban.updateNote(created.id, noteId, { url: null }, human)
     ).card;
     expect(cleared.notes[0]?.url).toBeNull();
     expect(cleared.notes[0]?.text).toBe("design doc");
   });
 
-  it("removes a note by id", () => {
-    const { kanban, card: created } = card();
-    const added = kanban.addNote(created.id, { text: "keep" }, human).card;
+  it("removes a note by id", async () => {
+    const { kanban, card: created } = await card();
+    const added = (await kanban.addNote(created.id, { text: "keep" }, human))
+      .card;
     const noteId = added.notes[0]?.id ?? 0;
-    kanban.addNote(created.id, { text: "drop" }, human);
+    await kanban.addNote(created.id, { text: "drop" }, human);
 
-    const removed = kanban.removeNote(created.id, noteId, human).card;
+    const removed = (await kanban.removeNote(created.id, noteId, human)).card;
     expect(removed.notes.map((note) => note.text)).toEqual(["drop"]);
   });
 
-  it("rejects an unknown note id, an empty note, and strangers", () => {
-    const { kanban, card: created } = card();
-    expectKanbanError(
-      () => kanban.removeNote(created.id, 99, human),
+  it("rejects an unknown note id, an empty note, and strangers", async () => {
+    const { kanban, card: created } = await card();
+    await expectKanbanError(
+      async () => await kanban.removeNote(created.id, 99, human),
       "card_not_found",
     );
-    expectKanbanError(
-      () => kanban.addNote(created.id, { text: "   " }, human),
+    await expectKanbanError(
+      async () => await kanban.addNote(created.id, { text: "   " }, human),
       "invalid_input",
     );
-    expectKanbanError(
-      () => kanban.addNote(created.id, { text: "hi" }, otherAgent),
+    await expectKanbanError(
+      async () => await kanban.addNote(created.id, { text: "hi" }, otherAgent),
       "forbidden",
     );
   });
 
-  it("is creator-or-assignee, like every other edit", () => {
-    const { kanban, card: created } = card();
-    kanban.edit(created.id, { assignee: "claude-code" }, human);
-    const by = kanban.addNote(
-      created.id,
-      { text: "from the assignee" },
-      agent,
+  it("is creator-or-assignee, like every other edit", async () => {
+    const { kanban, card: created } = await card();
+    await kanban.edit(created.id, { assignee: "claude-code" }, human);
+    const by = (
+      await kanban.addNote(created.id, { text: "from the assignee" }, agent)
     ).card;
     expect(by.notes[0]?.createdBy).toBe("claude-code");
   });
 
-  it("honours expectedRevision", () => {
-    const { kanban, card: created } = card();
-    expectKanbanError(
-      () =>
-        kanban.addNote(created.id, { text: "x" }, human, "cli", {
+  it("honours expectedRevision", async () => {
+    const { kanban, card: created } = await card();
+    await expectKanbanError(
+      async () =>
+        await kanban.addNote(created.id, { text: "x" }, human, "cli", {
           expectedRevision: 99,
         }),
       "revision_conflict",
     );
   });
 
-  it("survives a replay of the log", () => {
+  it("survives a replay of the log", async () => {
     const log = new MemoryEventLog();
     const kanban = new Kanban({ log });
-    const created = kanban.add({ title: "notes" }, human).card;
-    const added = kanban.addNote(
-      created.id,
-      { text: "design", url: "docs/design.md" },
-      human,
+    const created = (await kanban.add({ title: "notes" }, human)).card;
+    const added = (
+      await kanban.addNote(
+        created.id,
+        { text: "design", url: "docs/design.md" },
+        human,
+      )
     ).card;
-    kanban.updateNote(
+    await kanban.updateNote(
       created.id,
       added.notes[0]?.id ?? 0,
       { text: "design v2" },
       human,
     );
-    kanban.removeNote(created.id, added.notes[0]?.id ?? 0, human);
-    const other = kanban.add({ title: "other" }, human).card;
-    kanban.relate(created.id, other.id, "downstream", human);
+    await kanban.removeNote(created.id, added.notes[0]?.id ?? 0, human);
+    const other = (await kanban.add({ title: "other" }, human)).card;
+    await kanban.relate(created.id, other.id, "downstream", human);
 
     const replayed = new Projection();
-    for (const event of log.since(0)) replayed.apply(event);
+    for (const event of await log.since(0)) replayed.apply(event);
     expect(replayed.card(created.id)?.notes).toEqual(
-      kanban.card(created.id)?.notes,
+      (await kanban.card(created.id))?.notes,
     );
-    expect(replayed.board()).toEqual(kanban.board());
+    expect(replayed.board()).toEqual(await kanban.board());
   });
 });
 
 describe("project and subproject", () => {
-  it("keeps a direction under its repository", () => {
+  it("keeps a direction under its repository", async () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    const { card } = kanban.add(
+    const { card } = await kanban.add(
       { title: "OAuth callback", project: "web", subproject: "auth" },
       human,
     );
@@ -1481,73 +1554,73 @@ describe("project and subproject", () => {
     expect(card.subproject).toBe("auth");
 
     const replayed = new Projection();
-    for (const event of kanban.events()) replayed.apply(event);
+    for (const event of await kanban.events()) replayed.apply(event);
     expect(replayed.card(card.id)?.subproject).toBe("auth");
   });
 
-  it("refuses a subproject without a project", () => {
+  it("refuses a subproject without a project", async () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    expect(() =>
+    await expect(
       kanban.add({ title: "orphan direction", subproject: "auth" }, human),
-    ).toThrowError(/subproject needs a project/);
+    ).rejects.toThrowError(/subproject needs a project/);
   });
 
-  it("clears the direction when the project is cleared", () => {
+  it("clears the direction when the project is cleared", async () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    const { card } = kanban.add(
+    const { card } = await kanban.add(
       { title: "OAuth callback", project: "web", subproject: "auth" },
       human,
     );
-    const cleared = kanban.edit(card.id, { project: null }, human).card;
+    const cleared = (await kanban.edit(card.id, { project: null }, human)).card;
     expect(cleared.project).toBeNull();
     expect(cleared.subproject).toBeNull();
   });
 
-  it("drops the direction when the card moves to another repository", () => {
+  it("drops the direction when the card moves to another repository", async () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    const { card } = kanban.add(
+    const { card } = await kanban.add(
       { title: "OAuth callback", project: "web", subproject: "auth" },
       human,
     );
-    const moved = kanban.edit(card.id, { project: "api" }, human).card;
+    const moved = (await kanban.edit(card.id, { project: "api" }, human)).card;
     expect(moved.project).toBe("api");
     expect(moved.subproject).toBeNull();
 
     // An explicit direction in the same edit is the caller's choice.
-    const both = kanban.edit(
-      card.id,
-      { project: "api", subproject: "auth" },
-      human,
+    const both = (
+      await kanban.edit(card.id, { project: "api", subproject: "auth" }, human)
     ).card;
     expect(both.subproject).toBe("auth");
   });
 
-  it("refuses to add a direction to a card with no project", () => {
+  it("refuses to add a direction to a card with no project", async () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    const { card } = kanban.add({ title: "loose work" }, human);
-    expect(() =>
+    const { card } = await kanban.add({ title: "loose work" }, human);
+    await expect(
       kanban.edit(card.id, { subproject: "auth" }, human),
-    ).toThrowError(/subproject needs a project/);
+    ).rejects.toThrowError(/subproject needs a project/);
   });
 
-  it("filters the board by project and direction", () => {
+  it("filters the board by project and direction", async () => {
     const kanban = new Kanban({ log: new MemoryEventLog() });
-    const auth = kanban.add(
-      { title: "OAuth", project: "web", subproject: "auth" },
-      human,
+    const auth = (
+      await kanban.add(
+        { title: "OAuth", project: "web", subproject: "auth" },
+        human,
+      )
     ).card;
-    kanban.add(
+    await kanban.add(
       { title: "Billing", project: "web", subproject: "billing" },
       human,
     );
-    kanban.add(
+    await kanban.add(
       { title: "Other repo", project: "api", subproject: "auth" },
       human,
     );
 
-    const web = kanban.board("web");
+    const web = await kanban.board("web");
     expect(web.todo).toHaveLength(2);
-    const authOnly = kanban.board("web", "auth");
+    const authOnly = await kanban.board("web", "auth");
     expect(authOnly.todo.map((card) => card.id)).toEqual([auth.id]);
   });
 });

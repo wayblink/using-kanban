@@ -26,12 +26,12 @@ afterAll(() => {
 });
 
 describe("the ukb executable", () => {
-  it("drains more than 64 KiB of piped stdout before exiting", () => {
+  it("drains more than 64 KiB of piped stdout before exiting", async () => {
     const dir = mkdtempSync(join(tmpdir(), "ukb-bin-test-"));
     tempDirs.push(dir);
     const kanban = openKanban({ dir, storage: "jsonl" });
     for (let index = 0; index < 40; index += 1) {
-      kanban.add(
+      await kanban.add(
         {
           title: `large card ${index}`,
           body: `body-${index}-` + "x".repeat(2_500),

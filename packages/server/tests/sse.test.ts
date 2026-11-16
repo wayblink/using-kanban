@@ -114,17 +114,17 @@ describe("SSE event stream", () => {
     // sharing the same store — exactly how the CLI behaves.
     await new Promise((resolve) => setTimeout(resolve, 150));
     const cli = openKanban({ dir: currentDir });
-    cli.add(
+    await cli.add(
       { title: "created by the CLI" },
       { type: "human", name: "jyxc" },
       "cli",
     );
-    const { card } = cli.add(
+    const { card } = await cli.add(
       { title: "claimed by the CLI" },
       { type: "human", name: "jyxc" },
       "cli",
     );
-    cli.claim(card.id, { type: "agent", name: "claude-code" }, "mcp");
+    await cli.claim(card.id, { type: "agent", name: "claude-code" }, "mcp");
     cli.close();
 
     const events = await stream;
@@ -139,14 +139,14 @@ describe("SSE event stream", () => {
 
   it("honours the since cursor for late joiners", async () => {
     const cli = openKanban({ dir: currentDir });
-    cli.add({ title: "old" }, { type: "human", name: "jyxc" });
+    await cli.add({ title: "old" }, { type: "human", name: "jyxc" });
     cli.close();
 
     const stream = readSseEvents(`/api/events?token=${TOKEN}&since=1`, 1);
     await new Promise((resolve) => setTimeout(resolve, 150));
 
     const writer = openKanban({ dir: currentDir });
-    writer.add({ title: "new" }, { type: "human", name: "jyxc" });
+    await writer.add({ title: "new" }, { type: "human", name: "jyxc" });
     writer.close();
 
     const events = await stream;
