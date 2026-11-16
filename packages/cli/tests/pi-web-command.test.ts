@@ -12,6 +12,7 @@ import {
   WEB_DETACH_DELAY_MS,
   extractServerUrl,
   launchWebServer,
+  openRemoteWeb,
   parseWebCommand,
   type WebChildProcess,
 } from "../../pi/extensions/using-kanban/web-command.js";
@@ -248,5 +249,66 @@ describe("launchWebServer", () => {
     await launch.server.stop();
     expect(child.killed).toEqual(["SIGTERM", "SIGKILL"]);
     expect(launch.server.exited).toBe(true);
+  });
+});
+
+describe("openRemoteWeb", () => {
+  it("opens the configured address without forwarding the machine token", async () => {
+    const exec = vi.fn(async () => ({ code: 0 }));
+    await expect(
+      openRemoteWeb(
+        [],
+        {
+          env: { UKB_TOKEN: "secret" },
+          config: { server: "https://board.example.com/" },
+        },
+        exec,
+        "darwin",
+      ),
+    ).resolves.toBe("https://board.example.com");
+    expect(exec).toHaveBeenCalledWith("open", ["https://board.example.com"], {
+      timeout: 5000,
+    });
+  });
+
+  it("uses the environment override and prints the URL with --no-open", async () => {
+    const exec = vi.fn(async () => ({ code: 0 }));
+    await expect(
+      openRemoteWeb(
+        ["--no-open"],
+        {
+          env: { UKB_SERVER: "https://remote.example.com/kanban" },
+          config: { server: "https://default.example.com" },
+        },
+        exec,
+        "linux",
+      ),
+    ).resolves.toBe("https://remote.example.com/kanban");
+    expect(exec).not.toHaveBeenCalled();
+  });
+
+  it("leaves local-mode flags to the local launcher", async () => {
+    const exec = vi.fn(async () => ({ code: 0 }));
+    await expect(
+      openRemoteWeb(["--port", "2222"], { env: {} }, exec),
+    ).resolves.toBeNull();
+    expect(exec).not.toHaveBeenCalled();
+  });
+
+  it("provides the URL when the system browser cannot be opened", async () => {
+    const exec = vi.fn(async () => ({ code: 1 }));
+    await expect(
+      openRemoteWeb(
+        [],
+        { env: { UKB_SERVER: "https://board.example.com" } },
+        exec,
+        "win32",
+      ),
+    ).rejects.toThrow(/open.*https:\/\/board\.example\.com/i);
+    expect(exec).toHaveBeenCalledWith(
+      "rundll32.exe",
+      ["url.dll,FileProtocolHandler", "https://board.example.com"],
+      { timeout: 5000 },
+    );
   });
 });

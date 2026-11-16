@@ -21,6 +21,7 @@
  */
 
 import { spawn } from "node:child_process";
+import { resolveTransport, type TransportSources } from "./config.js";
 
 /** The one verb that serves until signalled instead of exiting. */
 export const WEB_VERB = "web";
@@ -93,6 +94,46 @@ export function parseWebCommand(tokens: readonly string[]): WebCommand {
  * a chunk boundary would otherwise be reported as a working address.
  */
 const URL_PATTERN = /https?:\/\/[^\s]+(?=\s)/;
+
+type BrowserExec = (
+  command: string,
+  args: string[],
+  options: { timeout: number },
+) => Promise<{ code: number }>;
+
+/** Open the configured remote UI, or leave local flags to the server launcher. */
+export async function openRemoteWeb(
+  args: readonly string[],
+  sources: TransportSources,
+  exec: BrowserExec,
+  platform = process.platform,
+): Promise<string | null> {
+  const { server } = resolveTransport(sources);
+  if (server === null) return null;
+  if (args.includes("--help") || args.includes("-h")) {
+    return "/ukb web [--no-open] — open the configured remote board or print its URL";
+  }
+  if (args.some((arg) => arg !== "--no-open")) {
+    throw new Error("remote web usage: /ukb web [--no-open]");
+  }
+  if (args.includes("--no-open")) return server;
+
+  const command =
+    platform === "darwin"
+      ? "open"
+      : platform === "win32"
+        ? "rundll32.exe"
+        : "xdg-open";
+  const browserArgs =
+    platform === "win32" ? ["url.dll,FileProtocolHandler", server] : [server];
+  try {
+    const result = await exec(command, browserArgs, { timeout: 5_000 });
+    if (result.code === 0) return server;
+  } catch {
+    // The URL is still useful when the browser is unavailable on this host.
+  }
+  throw new Error(`could not open the browser. Open ${server} manually.`);
+}
 
 /** The URL out of the CLI's banner — `using-kanban — http://…/?token=…`. */
 export function extractServerUrl(text: string): string | null {

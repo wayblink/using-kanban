@@ -1384,7 +1384,7 @@ const DOCS_EN = [
       },
       {
         t: "p",
-        text: "`ukb init --for pi` adds the local extension and skill to `~/.pi/agent/settings.json` and writes project guidance to `AGENTS.md`. The extension registers an `ukb` tool and `/ukb` command. Its default agent identity is `pi`. `/ukb gui show` opens the panel for the current Git project, `/ukb gui split` adds a second pane, and `/ukb gui help` lists options. `/ukb web` and `/ukb web stop` manage the local Web UI in the background.",
+        text: "`ukb init --for pi` adds the local extension and skill to `~/.pi/agent/settings.json` and writes project guidance to `AGENTS.md`. The extension registers an `ukb` tool and `/ukb` command. Its default agent identity is `pi`. `/ukb gui show` opens the panel for the current Git project, `/ukb gui split` adds a second pane, and `/ukb gui help` lists options. `/ukb web` opens the Web UI. For a remote board, it opens the configured server in your browser. For a local board, it starts the Web UI in the background and `/ukb web stop` stops it.",
       },
       {
         t: "h",
@@ -1464,7 +1464,7 @@ const DOCS_EN = [
       },
       {
         t: "p",
-        text: "The MCP process uses the same settings. Pi and DeepSeek Harness send board operations through the CLI. Run `ukb init` before setting the remote default and give the harness process access to the config and credentials. `web`, `init`, `doctor`, `user`, and `migrate` require local mode.",
+        text: "The MCP process, Pi, and DeepSeek Harness use the same settings. Run `ukb init` before setting the remote default and give the harness process access to the config and credentials. The CLI commands `ukb web`, `ukb init`, `ukb doctor`, `ukb user`, and `ukb migrate` require local mode.",
       },
       {
         t: "h",
@@ -1745,7 +1745,7 @@ const DOCS_ZH = [
       },
       {
         t: "p",
-        text: "`ukb init --for pi` 把本地扩展和 skill 注册到 `~/.pi/agent/settings.json`，并把项目工作流程写进 `AGENTS.md`。扩展提供 `ukb` 工具和 `/ukb` 命令，默认的智能体身份是 `pi`。通过 `/ukb gui show` 打开当前 Git 项目的面板，`/ukb gui split` 启用第二栏，`/ukb gui help` 查看选项。`/ukb web` 和 `/ukb web stop` 在后台启动和停止本地 Web 界面。",
+        text: "`ukb init --for pi` 把本地扩展和 skill 注册到 `~/.pi/agent/settings.json`，并把项目工作流程写进 `AGENTS.md`。扩展提供 `ukb` 工具和 `/ukb` 命令，默认的智能体身份是 `pi`。通过 `/ukb gui show` 打开当前 Git 项目的面板，`/ukb gui split` 启用第二栏，`/ukb gui help` 查看选项。配置远程看板时，`/ukb web` 会在默认浏览器中打开远程地址。使用本地看板时，`/ukb web` 在后台启动 Web 界面，`/ukb web stop` 停止它。",
       },
       {
         t: "h",
@@ -1825,7 +1825,7 @@ const DOCS_ZH = [
       },
       {
         t: "p",
-        text: "MCP 进程读取同一套配置。Pi 和 DeepSeek Harness 通过 CLI 操作看板。在设置远程默认地址前运行 `ukb init`，并让宿主进程能读取配置与凭据。`web`、`init`、`doctor`、`user` 和 `migrate` 需要在本地模式下运行。",
+        text: "MCP 进程、Pi 和 DeepSeek Harness 使用同一套配置。在设置远程默认地址前运行 `ukb init`，并让宿主进程能读取配置与凭据。命令行中的 `ukb web`、`ukb init`、`ukb doctor`、`ukb user` 和 `ukb migrate` 需要在本地模式下运行。",
       },
       {
         t: "h",

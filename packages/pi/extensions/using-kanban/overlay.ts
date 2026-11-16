@@ -7,10 +7,8 @@
  * cards, repaints on refresh, and unregisters on hide or when nothing visible
  * remains. All layout lives in the pure `overlay-render.ts`.
  *
- * Refreshing shells out to `ukb board --json` rather than reading the board
- * in-process: the CLI is the one front door that owns storage resolution, and
- * loading the board's native sqlite dependency into the Pi process is not worth
- * the convenience. Refresh is trigger-driven, never a poll — session start, the
+ * Local reads use the CLI to keep the native SQLite dependency out of Pi.
+ * Remote reads use the board summary. Refresh is trigger-driven — session start, the
  * end of a `ukb` tool call, the start of each turn, and any `/ukb` slash command
  * that changed the board.
  *
@@ -30,6 +28,7 @@ import {
   visibleWidth,
 } from "@earendil-works/pi-tui";
 import { COLLAPSE_KEY_OFF } from "./overlay-config.js";
+import type { BoardRead } from "./overlay-refresh.js";
 import {
   type BoardSnapshot,
   type OverlayView,
@@ -44,22 +43,10 @@ import {
   visibleCardCount,
 } from "./overlay-render.js";
 
-/** Runs `ukb board --json` and returns its stdout, or why it did not. */
+/** Returns a board snapshot as JSON, or why it could not be read. */
 export type BoardFetcher = () => Promise<BoardRead>;
 
-/**
- * What a board read produced.
- *
- * The `error` is not for the caller to handle — it exists so a hidden widget
- * can say why it is hidden. A widget that fails silently is indistinguishable
- * from a widget that was never installed, which is precisely the bug that cost
- * an evening: `catch {}` keeps the session alive and leaves the user with
- * nothing to report.
- */
-export interface BoardRead {
-  readonly stdout: string | null;
-  readonly error: string | null;
-}
+export type { BoardRead } from "./overlay-refresh.js";
 
 export interface BoardOverlayOptions {
   /** Resolved collapse key spec, or the `off` sentinel. */
@@ -134,6 +121,7 @@ export class BoardOverlay {
 
   /** Re-read the board and repaint. A failed read hides the widget. */
   async refresh(): Promise<void> {
+    const hadSnapshot = this.snapshot !== undefined;
     const read = await this.fetchBoard();
     const parsed = read.stdout === null ? null : parseBoardJson(read.stdout);
     this.rawSnapshot = parsed ?? undefined;
@@ -141,10 +129,21 @@ export class BoardOverlay {
     this.lastError =
       read.error ??
       (read.stdout !== null && parsed === null
-        ? "ukb board --json returned malformed JSON"
+        ? "board response is not a valid snapshot"
         : null);
     this.update();
     this.reportUnreadable(this.lastError);
+    if (
+      !hadSnapshot &&
+      parsed !== null &&
+      this.visible &&
+      !this.widgetRegistered
+    ) {
+      this.uiCtx?.notify(
+        `ukb gui: no cards to display (${this.scopeLabel})`,
+        "info",
+      );
+    }
   }
 
   status(): BoardOverlayStatus {
@@ -198,7 +197,7 @@ export class BoardOverlay {
       this.reported = false;
       return;
     }
-    if (this.reported || this.snapshot !== undefined) return;
+    if (!this.visible || this.reported || this.snapshot !== undefined) return;
     this.reported = true;
     try {
       this.uiCtx?.notify(`ukb gui: ${error}`, "warning");

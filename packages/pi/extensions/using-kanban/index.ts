@@ -8,10 +8,15 @@ import type {
   ExtensionAPI,
   ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
-import { loadConfig } from "./config.js";
+import { loadConfig, resolveTransport } from "./config.js";
 import { resolveGuidance } from "./guidance.js";
 import { OVERLAY_LINES_STEP, parseOverlayCommand } from "./overlay-command.js";
-import { shouldRefreshAfterCommand } from "./overlay-refresh.js";
+import {
+  OVERLAY_READ_TIMEOUT_MS,
+  createOverlayRefreshScheduler,
+  readRemoteOverlayBoard,
+  shouldRefreshAfterCommand,
+} from "./overlay-refresh.js";
 import {
   COLLAPSE_KEY_OFF,
   MIN_MAX_LINES,
@@ -32,6 +37,7 @@ import {
   WEB_VERB,
   createDetachedWebSpawner,
   launchWebServer,
+  openRemoteWeb,
   parseWebCommand,
   type WebServer,
 } from "./web-command.js";
@@ -475,6 +481,24 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
       return;
     }
 
+    try {
+      const remote = await openRemoteWeb(
+        command.args,
+        { config: loadConfig() },
+        (browser, args, options) => pi.exec(browser, args, options),
+      );
+      if (remote !== null) {
+        ctx.ui.notify(`ukb web: ${remote}`, "info");
+        return;
+      }
+    } catch (error) {
+      ctx.ui.notify(
+        `ukb web: ${error instanceof Error ? error.message : String(error)}`,
+        "warning",
+      );
+      return;
+    }
+
     // A second server would only fail on the first one's port. Say where the
     // first one is instead — the URL is the thing the reader wanted.
     if (webServer !== null && !webServer.exited) {
@@ -521,9 +545,8 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
 
   /* -------------------------------- panel --------------------------------- */
 
-  // The board, above the editor. Read through the CLI's own `--json` door so
-  // storage resolution stays in one place, and refreshed on triggers — session
-  // start, the end of a `ukb` call, the start of each turn — never polled.
+  // The board, above the editor. Refresh on session/turn start and after a
+  // `ukb` call. Local reads use the CLI; remote reads use the Web board summary.
   const overlayEnabled = !isOverlayDisabled(process.env, CONFIG);
   const configuredProject = resolveOverlayProject(process.env, CONFIG);
   const overlayDisplay = resolveOverlayDisplay(process.env, CONFIG);
@@ -571,19 +594,20 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
 
   const overlay = new BoardOverlay(
     async () => {
-      if (!ready) {
-        return {
-          stdout: null,
-          error: `ukb CLI not built at ${bin} — run \`pnpm -r build\` in the using-kanban repo`,
-        };
-      }
       try {
-        const result = await pi.exec(process.execPath, [
-          bin,
-          "board",
-          "--json",
-          "--brief",
-        ]);
+        const { server, token } = resolveTransport({ config: loadConfig() });
+        if (server !== null) return await readRemoteOverlayBoard(server, token);
+        if (!ready) {
+          return {
+            stdout: null,
+            error: `ukb CLI not built at ${bin} — run \`pnpm -r build\` in the using-kanban repo`,
+          };
+        }
+        const result = await pi.exec(
+          process.execPath,
+          [bin, "board", "--json", "--brief"],
+          { timeout: OVERLAY_READ_TIMEOUT_MS },
+        );
         if (result.code !== 0) {
           const detail = result.stderr.trim().slice(0, 300);
           return {
@@ -595,7 +619,7 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
       } catch (error) {
         return {
           stdout: null,
-          error: `could not run the CLI — ${error instanceof Error ? error.message : String(error)}`,
+          error: `could not read the board — ${error instanceof Error ? error.message : String(error)}`,
         };
       }
     },
@@ -612,9 +636,10 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
    * point of the diagnostics work was that a stale panel and a missing panel
    * look identical from the outside.
    */
-  const refreshOverlay = async (): Promise<void> => {
+  const refreshOverlay = createOverlayRefreshScheduler(async () => {
     if (!overlayEnabled) return;
     try {
+      if (!overlay.status().visible) return;
       await overlay.refresh();
       overlayRefreshFailed = false;
     } catch (error) {
@@ -629,7 +654,7 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
         }
       }
     }
-  };
+  });
 
   if (overlayEnabled) {
     pi.on("session_start", async (_event, ctx) => {
@@ -644,15 +669,12 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
         };
         overlay.setView(overlayView);
       }
-      if (overlayDisplay === "always") await refreshOverlay();
+      if (overlayDisplay === "always") refreshOverlay();
     });
-    pi.on("tool_execution_end", async (event) => {
-      if (event.toolName !== TOOL_NAME || !overlay.status().visible) return;
-      await refreshOverlay();
+    pi.on("tool_execution_end", (event) => {
+      if (event.toolName === TOOL_NAME) refreshOverlay();
     });
-    pi.on("turn_start", async () => {
-      if (overlay.status().visible) await refreshOverlay();
-    });
+    pi.on("turn_start", refreshOverlay);
     pi.on("session_shutdown", async () => {
       // Teardown touches a possibly-stale UI ctx (disposal can race a session
       // replacement); a failed unhook must not reject the shutdown handler.
@@ -767,16 +789,18 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
       overlay.hide();
     } else {
       overlay.show();
-      await refreshOverlay();
       if (command.action === "collapse") overlay.collapse();
       if (command.action === "expand") overlay.expand();
+      refreshOverlay();
     }
 
     const status = overlay.status();
     const counts = status.counts;
     const board = counts
       ? `${counts.doing} doing · ${counts.todo} todo · ${counts.review} review · ${counts.someday} someday · ${counts.done} done`
-      : "board unreadable";
+      : status.visible
+        ? "refreshing board…"
+        : "board hidden";
     const state = !status.visible
       ? "hidden"
       : status.registered
@@ -784,10 +808,9 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
           ? "registered, collapsed"
           : "registered, expanded"
         : "not registered";
-    const shelf =
-      status.split
-        ? `; split=on${status.rightCount === null ? " (shelf empty)" : ` (shelf ${status.rightCount})`}`
-        : "; split=off";
+    const shelf = status.split
+      ? `; split=on${status.rightCount === null ? " (shelf empty)" : ` (shelf ${status.rightCount})`}`
+      : "; split=off";
     const detail = status.error ? ` — ${status.error}` : "";
     ctx.ui.notify(
       `ukb gui: ${state}; scope=${status.scopeLabel || status.scope}; group=${status.groupBy}; lines=${status.maxLines}; ui=${status.uiBound ? "bound" : "missing"}${shelf}; ${board}${detail}`,
@@ -938,7 +961,7 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
         // this the panel kept showing the pre-`done` board until the next agent
         // turn, which reads exactly like a broken panel.
         if (shouldRefreshAfterCommand(argv, code)) {
-          await refreshOverlay();
+          refreshOverlay();
         }
       } catch (error) {
         ctx.ui.notify(

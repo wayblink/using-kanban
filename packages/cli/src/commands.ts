@@ -248,9 +248,9 @@ setup:
                                      reads open, writes still need the token
                                      (never for the internet)
   ukb web --doc-root <dir>[,<dir>]  let card notes link docs from there
-                                     in Pi, /ukb web runs this in the background
-                                     so the session keeps going; /ukb web stop
-                                     winds it down again
+                                     in Pi, /ukb web opens the configured remote
+                                     board or runs the local server in the
+                                     background; /ukb web stop stops the local server
   ukb init --for <framework> [--browser]
                                      wire this project into an agent framework
                                      (--browser also adds the Playwright MCP server)

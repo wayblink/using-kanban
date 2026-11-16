@@ -89,7 +89,7 @@ Use one connection per session, either the desktop plugin or the MCP entry. A st
 
 ### Pi
 
-The native `ukb` tool and skill teach the agent the workflow. The default agent identity is `pi`. `/ukb` lists your cards, and `/ukb gui show` opens a terminal panel scoped to the current Git project by default. Use `/ukb gui split` for a second pane, `/ukb gui help` for display options, or `/ukb web` and `/ukb web stop` to manage a local Web UI in the background.
+The native `ukb` tool and skill teach the agent the workflow. The default agent identity is `pi`. `/ukb` lists your cards, and `/ukb gui show` opens a terminal panel scoped to the current Git project by default. Use `/ukb gui split` for a second pane, `/ukb gui help` for display options, or `/ukb web` to open the Web UI. With a remote board, it opens the configured server in your default browser. For a local board, it starts the Web UI in the background and `/ukb web stop` stops it.
 
 ### DeepSeek Harness
 
@@ -129,7 +129,7 @@ ukb login --server https://board.example.com --token 'ukb_…'
 ukb --server https://board.example.com board --project web
 ```
 
-The MCP server reads the same settings. Pi and DeepSeek Harness pass board operations through the CLI. Run `ukb init` before setting a remote default, then give the harness process access to the same config and credentials. The `web`, `init`, `doctor`, `user`, and `migrate` commands require local mode.
+The MCP server, Pi, and DeepSeek Harness use the same settings. Run `ukb init` before setting a remote default, then give the harness process access to the same config and credentials. The CLI commands `ukb web`, `ukb init`, `ukb doctor`, `ukb user`, and `ukb migrate` require local mode.
 
 ### Migrate an existing board
 
