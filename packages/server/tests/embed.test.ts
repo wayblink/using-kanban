@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { createKanbanHandler } from "../src/handler.js";
-import { authorizeRequest, resolveActor } from "../src/auth.js";
+import { AccountStore } from "@wayblink/using-kanban-core";
+import { LoginThrottle, authorizeRequest, resolveActor } from "../src/auth.js";
 import { resolveServerOptions } from "../src/options.js";
 
 const tempDirs: string[] = [];
@@ -92,6 +93,8 @@ describe("embedding the handler", () => {
 });
 
 describe("authorization rules", () => {
+  const accounts = new AccountStore("/nonexistent/ukb-test/accounts.json");
+  const throttle = new LoginThrottle();
   const options = resolveServerOptions({ host: "127.0.0.1", token: "known" });
   const remoteOptions = resolveServerOptions({
     host: "0.0.0.0",
@@ -110,33 +113,57 @@ describe("authorization rules", () => {
     return new URL(`/${search}`, "http://localhost");
   }
 
-  it("lets loopback reads through without a token", () => {
-    expect(authorizeRequest(fakeReq(), urlFor(""), options, false).ok).toBe(
-      true,
-    );
+  it("lets loopback reads through without a token", async () => {
+    expect(
+      (
+        await authorizeRequest(
+          fakeReq(),
+          urlFor(""),
+          options,
+          accounts,
+          false,
+          "127.0.0.1",
+          throttle,
+        )
+      ).ok,
+    ).toBe(true);
   });
 
-  it("always requires a token for mutations", () => {
-    const result = authorizeRequest(fakeReq(), urlFor(""), options, true);
+  it("always requires a token for mutations", async () => {
+    const result = await authorizeRequest(
+      fakeReq(),
+      urlFor(""),
+      options,
+      accounts,
+      true,
+      "127.0.0.1",
+      throttle,
+    );
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.status).toBe(401);
   });
 
-  it("requires a token for reads once bound off loopback", () => {
-    const result = authorizeRequest(
+  it("requires a token for reads once bound off loopback", async () => {
+    const result = await authorizeRequest(
       fakeReq(),
       urlFor(""),
       remoteOptions,
+      accounts,
       false,
+      "127.0.0.1",
+      throttle,
     );
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.status).toBe(401);
 
-    const withToken = authorizeRequest(
+    const withToken = await authorizeRequest(
       fakeReq({ authorization: "Bearer known" }),
       urlFor(""),
       remoteOptions,
+      accounts,
       false,
+      "127.0.0.1",
+      throttle,
     );
     expect(withToken.ok).toBe(true);
   });

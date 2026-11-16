@@ -1,6 +1,16 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { openKanban, type Kanban } from "@wayblink/using-kanban-core";
-import { authorizeRequest, resolveActor, resolveSource } from "./auth.js";
+import {
+  AccountStore,
+  openKanban,
+  type AccountIdentity,
+  type Kanban,
+} from "@wayblink/using-kanban-core";
+import {
+  LoginThrottle,
+  authorizeRequest,
+  resolveActor,
+  resolveSource,
+} from "./auth.js";
 import { EventBroker } from "./broker.js";
 import {
   HttpError,
@@ -10,6 +20,7 @@ import {
   setCorsHeaders,
 } from "./http.js";
 import {
+  assertBindPolicy,
   resolveServerOptions,
   type ResolvedServerOptions,
   type ServerOptions,
@@ -186,6 +197,8 @@ export interface KanbanHandler {
   (req: IncomingMessage, res: ServerResponse): void;
   readonly kanban: Kanban;
   readonly broker: EventBroker;
+  /** The account file this server enforces, empty when the board stays local. */
+  readonly accounts: AccountStore;
   readonly options: ResolvedServerOptions;
   /** URL of the UI, token included, ready to open in a browser. */
   readonly url: string;
@@ -201,6 +214,9 @@ export function createKanbanHandler(
   options: ServerOptions = {},
 ): KanbanHandler {
   const resolved = resolveServerOptions(options);
+  const accounts = AccountStore.inStoreDir(resolved.dir);
+  assertBindPolicy(resolved, accounts.hasUsers());
+  const throttle = new LoginThrottle();
   const kanban = openKanban({
     dir: resolved.dir,
     storage: resolved.storage,
@@ -209,17 +225,24 @@ export function createKanbanHandler(
   const broker = new EventBroker(kanban, resolved.ssePollMs);
 
   const handler = (req: IncomingMessage, res: ServerResponse): void => {
-    void handleRequest(req, res, kanban, broker, resolved).catch(
-      (error: unknown) => {
-        sendFailure(res, error);
-      },
-    );
+    void handleRequest(
+      req,
+      res,
+      kanban,
+      broker,
+      resolved,
+      accounts,
+      throttle,
+    ).catch((error: unknown) => {
+      sendFailure(res, error);
+    });
   };
 
   const bound = handler as KanbanHandler;
   Object.defineProperties(bound, {
     kanban: { value: kanban, enumerable: true },
     broker: { value: broker, enumerable: true },
+    accounts: { value: accounts, enumerable: true },
     options: { value: resolved, enumerable: true },
     url: { value: buildUrl(resolved), enumerable: true },
     close: {
@@ -239,6 +262,8 @@ async function handleRequest(
   kanban: Kanban,
   broker: EventBroker,
   options: ResolvedServerOptions,
+  accounts: AccountStore,
+  throttle: LoginThrottle,
 ): Promise<void> {
   setCorsHeaders(res, options.corsOrigin);
 
@@ -253,6 +278,29 @@ async function handleRequest(
     `http://${req.headers.host ?? "localhost"}`,
   );
   const pathname = url.pathname;
+  const match = matchRoute(ROUTES, req.method ?? "GET", pathname);
+
+  // Health stays anonymous for probes; everything else — including the static
+  // UI — goes through the credential check before a byte of the board leaks.
+  let identity: AccountIdentity | null = null;
+  if (pathname !== "/healthz") {
+    const auth = await authorizeRequest(
+      req,
+      url,
+      options,
+      accounts,
+      match.kind === "match" ? match.route.mutation : false,
+      req.socket.remoteAddress ?? "unknown",
+      throttle,
+    );
+    if (!auth.ok) {
+      if (auth.challenge) {
+        res.setHeader("WWW-Authenticate", 'Basic realm="ukb", charset="UTF-8"');
+      }
+      throw new HttpError(auth.status, auth.code, auth.message);
+    }
+    identity = auth.identity;
+  }
 
   if (pathname === "/" || pathname === "/index.html") {
     if (options.uiDir && serveStaticUi(res, options.uiDir, pathname)) return;
@@ -268,7 +316,6 @@ async function handleRequest(
     return;
   }
 
-  const match = matchRoute(ROUTES, req.method ?? "GET", pathname);
   if (match.kind === "not-found") {
     if (options.uiDir && serveStaticUi(res, options.uiDir, pathname)) return;
     throw new HttpError(
@@ -285,11 +332,6 @@ async function handleRequest(
     );
   }
 
-  const auth = authorizeRequest(req, url, options, match.route.mutation);
-  if (!auth.ok) {
-    throw new HttpError(auth.status, auth.code, auth.message);
-  }
-
   const body = await readJsonBody(req);
   const ctx: RequestContext = {
     req,
@@ -298,8 +340,15 @@ async function handleRequest(
     params: match.params,
     query: url.searchParams,
     body,
-    actor: resolveActor(req, url, options.actor),
+    actor: resolveActor(
+      req,
+      url,
+      identity === null
+        ? options.actor
+        : { type: "human", name: identity.name },
+    ),
     source: resolveSource(req),
+    identity,
     kanban,
     broker,
     options,

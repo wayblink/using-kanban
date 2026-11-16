@@ -35,6 +35,7 @@ import {
 } from "./render.js";
 import { runInit } from "./init.js";
 import { runDoctor } from "./doctor.js";
+import { runUserCommand } from "./user.js";
 
 /**
  * Each intent verb reports itself in its own words.
@@ -147,6 +148,7 @@ const COMMANDS = [
   "web",
   "init",
   "doctor",
+  "user",
   "help",
 ] as const;
 
@@ -228,7 +230,11 @@ gui (the Pi panel — /ukb gui, not a CLI verb):
                                      names its own. Off by default.
 
 setup:
-  ukb web [--port N] [--no-open]    start the API + Web UI
+  ukb web [--host H] [--port N] [--no-open]
+                                     start the API + Web UI (--host 0.0.0.0
+                                     needs an account, see \`ukb user\`)
+  ukb web --allow-anonymous         bind a trusted network with no accounts
+                                     (bearer token only; not for the internet)
   ukb web --doc-root <dir>[,<dir>]  let card notes link docs from there
                                      in Pi, /ukb web runs this in the background
                                      so the session keeps going; /ukb web stop
@@ -279,6 +285,13 @@ config: ~/.config/ukb/config.json — one file for the CLI, the MCP server,
   you are acting as.
 
 frameworks for init: claude-code, codex, opencode (anything else gets the generic setup)
+
+accounts:
+  ukb user add <name> [--role admin|member] [--password-stdin]
+  ukb user list | passwd <name> | remove <name>
+  ukb user token add <name> [--label <text>] | list | revoke <id>
+
+The first account is an admin; machine tokens are shown once.
 `;
 
 /** Runs one command. Returns the process exit code. */
@@ -327,6 +340,8 @@ export async function runCommand(
       );
     case "doctor":
       return runDoctor(parsed.flags, io, dir, storage);
+    case "user":
+      return runUserCommand(parsed.positionals, parsed.flags, io, dir);
     default:
       break;
   }
@@ -667,6 +682,7 @@ async function runWeb(
       ? Number(flagString(flags, "port"))
       : undefined,
     token: flagString(flags, "token"),
+    allowAnonymous: flagBoolean(flags, "allow-anonymous"),
     uiDir,
     owner,
     actor: { type: "human", name: owner },

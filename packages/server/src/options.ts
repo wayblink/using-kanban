@@ -1,8 +1,12 @@
 import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { z } from "zod";
-import { ActorSchema, type StorageKind } from "@wayblink/using-kanban-core";
+import {
+  ACCOUNTS_FILE_NAME,
+  ActorSchema,
+  type StorageKind,
+} from "@wayblink/using-kanban-core";
 import { machineName } from "@wayblink/using-kanban-config";
 
 export const DEFAULT_HOST = "127.0.0.1";
@@ -18,6 +22,12 @@ export const ServerOptionsSchema = z.object({
   port: z.number().int().min(0).max(65535).default(0),
   /** Bearer token for mutations. Generated when omitted. */
   token: z.string().min(1).optional(),
+  /**
+   * Allow binding beyond loopback without any account. Off by default: a board
+   * that leaves the machine must say who may read it. `--allow-anonymous` is the
+   * explicit escape hatch for a trusted LAN.
+   */
+  allowAnonymous: z.boolean().default(false),
   /**
    * The machine's human name (`config.owner`) — the permission escape hatch,
    * and the default actor of the Web UI. Defaults to the machine's name.
@@ -46,6 +56,9 @@ export interface ResolvedServerOptions {
   host: string;
   port: number;
   token: string;
+  /** Where the account file lives (`<dir>/.ukb/accounts.json`). */
+  accountsPath: string;
+  allowAnonymous: boolean;
   owner: string;
   actor: z.infer<typeof ActorSchema>;
   uiDir?: string | undefined;
@@ -81,6 +94,26 @@ export function resolveServerOptions(
     owner,
     actor: parsed.actor ?? { type: "human", name: owner },
     token: parsed.token ?? generateToken(),
+    accountsPath: join(parsed.dir, ".ukb", ACCOUNTS_FILE_NAME),
     docRoots: parsed.docRoots.map((root) => resolve(root)),
   };
+}
+
+/**
+ * The one policy that keeps a personal board from becoming a public one:
+ * binding beyond loopback needs an account (or an explicit opt-in).
+ *
+ * Refusing here, at startup, means the failure is a sentence in the operator's
+ * terminal — not a silent exposure discovered later.
+ */
+export function assertBindPolicy(
+  options: Pick<ResolvedServerOptions, "host" | "allowAnonymous">,
+  hasAccounts: boolean,
+): void {
+  if (isLoopbackHost(options.host) || options.allowAnonymous || hasAccounts) {
+    return;
+  }
+  throw new Error(
+    `refusing to bind ${options.host} without accounts: create one with \`ukb user add <name>\` in the board directory, or pass --allow-anonymous for a trusted network`,
+  );
 }

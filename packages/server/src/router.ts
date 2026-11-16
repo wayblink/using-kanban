@@ -1,5 +1,10 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { Actor, EventSource, Kanban } from "@wayblink/using-kanban-core";
+import type {
+  AccountIdentity,
+  Actor,
+  EventSource,
+  Kanban,
+} from "@wayblink/using-kanban-core";
 import type { EventBroker } from "./broker.js";
 import type { ResolvedServerOptions } from "./options.js";
 
@@ -13,6 +18,8 @@ export interface RequestContext {
   body: unknown;
   actor: Actor;
   source: EventSource;
+  /** The authenticated account, when the request presented one. */
+  identity: AccountIdentity | null;
   kanban: Kanban;
   broker: EventBroker;
   options: ResolvedServerOptions;

@@ -26,6 +26,7 @@ const BOOLEAN_FLAGS = new Set([
   "force",
   "json",
   "brief",
+  "password-stdin",
 ]);
 
 /**

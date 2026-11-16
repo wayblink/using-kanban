@@ -529,7 +529,7 @@ describe("the pi extension stays in step with the CLI", () => {
 
   it("exposes every board verb the CLI has, and nothing it does not", () => {
     // setup verbs are not the agent's business
-    const notForTheTool = new Set(["web", "init", "doctor", "help"]);
+    const notForTheTool = new Set(["web", "init", "doctor", "user", "help"]);
     const cliVerbs = CLI_COMMANDS.filter((verb) => !notForTheTool.has(verb));
     expect(actions().sort()).toEqual([...cliVerbs].sort());
   });

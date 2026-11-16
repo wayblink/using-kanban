@@ -1,7 +1,7 @@
 # using-kanban
 
 > A kanban for agents and the operator who steers them.
-> One board per machine, four doors: a CLI, an MCP server, an HTTP API and a Web UI.
+> One board, on this machine or a server you control: a CLI, an MCP server, an HTTP API and a Web UI.
 
 An operator and several agents (Claude Code, Codex, opencode, Pi, DeepSeek Harness, …) share one
 board. The operator sets the work and reviews it; the agents claim cards, do
@@ -234,6 +234,42 @@ the UI in the background — it is the CLI's `ukb web`, detached, because that
 verb serves until it is signalled and awaiting it would park the session — and
 prints the URL to open. Flags pass straight through (`/ukb web --port 4000`,
 `/ukb web --no-open`), and `/ukb web stop` winds the session's server down.
+
+## Sharing one board (server + accounts)
+
+A board is one store directory. To use the same board from several machines,
+run the server on one of them and open it from the others:
+
+```bash
+# on the server
+ukb user add alice              # the first account is an admin
+ukb web --host 0.0.0.0 --port 8787
+```
+
+`ukb web` refuses to bind beyond loopback until an account exists, so a
+mistaken `--host 0.0.0.0` cannot publish the board silently. (For a trusted LAN
+you can opt out with `--allow-anonymous`; the bearer token still guards
+mutations.)
+
+With an account configured, every request needs HTTP Basic credentials — the
+browser asks once and remembers — or a machine token for scripts:
+
+```bash
+ukb user add bob --role member
+ukb user token add alice --label laptop   # printed once; store it
+curl -u alice https://board.example.com/api/board
+curl -H "Authorization: Bearer ukb_…" https://board.example.com/api/board
+```
+
+Accounts and tokens live in `<dir>/.ukb/accounts.json` (0600; passwords are
+scrypt-hashed, tokens only as hashes). Health stays open at `/healthz` for
+probes. Basic auth carries a password on every request, so put TLS in front
+(Caddy or Nginx) and never publish plain HTTP; the deployment runbook is in
+[`docs/shared-board-accounts.md`](docs/shared-board-accounts.md).
+
+The CLI and MCP server still open the local store; pointing them at a remote
+server is the next step (tracked on the board), so for now remote access from
+other machines is through the Web UI and the HTTP API.
 
 ## Storage, identity and config
 

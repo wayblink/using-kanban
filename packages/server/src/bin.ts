@@ -36,6 +36,9 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
       case "--token":
         options.token = next();
         break;
+      case "--allow-anonymous":
+        options.allowAnonymous = true;
+        break;
       case "--owner":
         options.owner = next();
         break;
@@ -84,7 +87,8 @@ function printHelp(): void {
       "  --storage <kind>    sqlite (default) | jsonl | memory",
       "  --host <addr>       bind address (default 127.0.0.1)",
       "  --port <n>          port (default: random free port)",
-      "  --token <token>     bearer token for mutations (default: generated)",
+      "  --token <token>     machine token for scripts (default: generated)",
+      "  --allow-anonymous   allow a non-loopback bind with no accounts (trusted LAN only)",
       "  --owner <name>      the human on this machine (default: the config",
       "                      owner, else the machine name)",
       "  --actor <name>      default actor name (default: the owner)",
