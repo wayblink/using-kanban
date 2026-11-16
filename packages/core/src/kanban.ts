@@ -1,6 +1,10 @@
 import type { z } from "zod";
 import { KanbanError } from "./errors.js";
-import type { EventLog } from "./event-log.js";
+import type {
+  EventLog,
+  ImportEventsOptions,
+  ImportSummary,
+} from "./event-log.js";
 import { Projection } from "./projection.js";
 import {
   AddCardInputSchema,
@@ -900,6 +904,19 @@ export class Kanban {
    * rather than rewritten. `ukb doctor` prints them; the fix is one move of the
    * end the message names.
    */
+  /**
+   * Imports a log from another board (same event ids and card ids) and syncs
+   * the projection. The target must be empty unless `force`.
+   */
+  async importEvents(
+    events: readonly Event[],
+    options: ImportEventsOptions = {},
+  ): Promise<ImportSummary> {
+    const summary = await this.log.importEvents(events, options);
+    await this.projection.sync(this.log);
+    return summary;
+  }
+
   async hierarchyViolations(): Promise<{ card: Card; reason: string }[]> {
     await this.projection.sync(this.log);
     return this.projection.hierarchyViolations();

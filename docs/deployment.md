@@ -162,6 +162,32 @@ docker compose up -d
 non-empty target unless `--force`, and `--dry-run` reports the event count
 first. Keep the SQLite file until the Postgres board has been verified.
 
+## 9b. Migrating another machine's board over HTTP
+
+The server can accept a one-shot event-log upload, which is the way to move a
+board from a laptop without copying files or opening SSH. It is off by default
+and admin-only.
+
+On the server, enable it for the migration window and restart the board:
+
+```bash
+echo 'UKB_ALLOW_IMPORT=1' >> .env
+docker compose up -d ukb
+docker compose run --rm -T ukb ukb user token add alice --label migration
+```
+
+The token is printed once. On the machine that owns the old board:
+
+```bash
+ukb migrate --to https://board.example.com --token ukb_… --dry-run
+ukb migrate --to https://board.example.com --token ukb_…
+```
+
+The upload keeps event ids, card ids, timestamps, actors and the history of
+deleted cards; it refuses a non-empty target unless `--force`. When it is done,
+remove `UKB_ALLOW_IMPORT=1` from `.env` and `docker compose up -d ukb` again —
+the endpoint answers 404 while disabled.
+
 ## 10. Backups
 
 The database and the accounts file are separate, and both are needed.

@@ -21,6 +21,7 @@ const STATUS_BY_CODE: Record<KanbanErrorCode, number> = {
   board_not_found: 404,
   invalid_state: 409,
   claim_conflict: 409,
+  conflict: 409,
   forbidden: 403,
   revision_conflict: 409,
   internal_error: 500,
@@ -70,7 +71,10 @@ export function sendFailure(res: ServerResponse, error: unknown): void {
 
 const MAX_BODY_BYTES = 1_000_000;
 
-export async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+export async function readJsonBody(
+  req: IncomingMessage,
+  maxBytes: number = MAX_BODY_BYTES,
+): Promise<unknown> {
   if (req.method === "GET" || req.method === "HEAD") return undefined;
 
   const chunks: Buffer[] = [];
@@ -78,11 +82,11 @@ export async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   for await (const chunk of req) {
     const buffer = chunk as Buffer;
     size += buffer.length;
-    if (size > MAX_BODY_BYTES) {
+    if (size > maxBytes) {
       throw new HttpError(
         413,
         "payload_too_large",
-        `body exceeds ${MAX_BODY_BYTES} bytes`,
+        `body exceeds ${maxBytes} bytes`,
       );
     }
     chunks.push(buffer);

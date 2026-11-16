@@ -116,6 +116,9 @@ async function main(): Promise<void> {
   const owner = options.owner ?? resolveOwnerName({ env: process.env, config });
   const running = await startServer({
     ...options,
+    allowImport:
+      options.allowImport ??
+      /^(1|true|yes)$/iu.test(process.env.UKB_ALLOW_IMPORT ?? ""),
     postgresUrl:
       options.postgresUrl ?? process.env.UKB_PG_URL ?? process.env.DATABASE_URL,
     owner,

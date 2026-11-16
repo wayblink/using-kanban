@@ -40,6 +40,8 @@ services:
       UKB_PORT: "8787"
       UKB_DIR: /data
       UKB_STORAGE: postgres
+      # Only for a one-shot migration over HTTP; turn it off afterwards.
+      UKB_ALLOW_IMPORT: ${UKB_ALLOW_IMPORT:-0}
       UKB_PG_URL: ${UKB_PG_URL:-postgres://${POSTGRES_USER:-ukb}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-ukb}}
     volumes:
       - ukb-data:/data

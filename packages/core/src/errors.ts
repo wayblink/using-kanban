@@ -5,6 +5,7 @@ export type KanbanErrorCode =
   | "board_not_found"
   | "invalid_state"
   | "claim_conflict"
+  | "conflict"
   | "forbidden"
   | "revision_conflict"
   | "internal_error";

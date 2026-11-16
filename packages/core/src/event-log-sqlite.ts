@@ -1,7 +1,13 @@
 import Database from "better-sqlite3";
 import { EventRowSchema, StoredEventSchema } from "./schemas.js";
 import type { Event, EventType, NewEvent } from "./types.js";
-import type { EventLog } from "./event-log.js";
+import {
+  assertImportable,
+  importBlockedByTarget,
+  type EventLog,
+  type ImportEventsOptions,
+  type ImportSummary,
+} from "./event-log.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS events (
@@ -118,6 +124,73 @@ export class SqliteEventLog implements EventLog {
 
   async byCard(cardId: number): Promise<Event[]> {
     return this.byCardStatement.all(cardId).map((row) => this.toEvent(row));
+  }
+
+  async importEvents(
+    events: readonly Event[],
+    options: ImportEventsOptions = {},
+  ): Promise<ImportSummary> {
+    assertImportable(events);
+    const existing = this.db
+      .prepare(`SELECT COUNT(*) AS n FROM events`)
+      .get() as { n: number };
+    if (existing.n > 0 && options.force !== true) {
+      importBlockedByTarget(existing.n);
+    }
+    const insert = this.db.prepare(
+      `INSERT OR IGNORE INTO events (id, ts, actor_type, actor_name, source, type, card_id, payload)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    const importAll = this.db.transaction((list: readonly Event[]) => {
+      for (const event of list) {
+        insert.run(
+          event.id,
+          event.ts,
+          event.actor.type,
+          event.actor.name,
+          event.source,
+          event.type,
+          event.cardId,
+          JSON.stringify(event.payload),
+        );
+      }
+      // Explicit ids do not advance AUTOINCREMENT on their own in every case;
+      // pin both sequences to the imported maxima.
+      this.db
+        .prepare(
+          `UPDATE sqlite_sequence SET seq = (SELECT COALESCE(MAX(id), 0) FROM events) WHERE name = 'events'`,
+        )
+        .run();
+      this.db
+        .prepare(
+          `INSERT INTO card_seq (id)
+           SELECT m.max_card FROM (SELECT COALESCE(MAX(card_id), 0) AS max_card FROM events) m
+           WHERE NOT EXISTS (SELECT 1 FROM card_seq)
+              OR (SELECT COALESCE(MAX(id), 0) FROM card_seq) < m.max_card`,
+        )
+        .run();
+      this.db
+        .prepare(
+          `UPDATE sqlite_sequence SET seq = (SELECT COALESCE(MAX(id), 0) FROM card_seq) WHERE name = 'card_seq'`,
+        )
+        .run();
+    });
+    importAll(events);
+    return this.importSummary();
+  }
+
+  private importSummary(): ImportSummary {
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS n, COALESCE(MAX(id), 0) AS max_event,
+                COALESCE(MAX(card_id), 0) AS max_card FROM events`,
+      )
+      .get() as { n: number; max_event: number; max_card: number };
+    return {
+      events: row.n,
+      maxEventId: row.max_event,
+      maxCardId: row.max_card,
+    };
   }
 
   async maxId(): Promise<number> {

@@ -4,11 +4,18 @@ import {
   mkdirSync,
   readFileSync,
   statSync,
+  writeFileSync,
 } from "node:fs";
 import { dirname } from "node:path";
 import { StoredEventSchema } from "./schemas.js";
 import type { Event, NewEvent } from "./types.js";
-import type { EventLog } from "./event-log.js";
+import {
+  assertImportable,
+  importBlockedByTarget,
+  type EventLog,
+  type ImportEventsOptions,
+  type ImportSummary,
+} from "./event-log.js";
 
 /**
  * Append-only JSONL event log — zero native dependencies, human-readable, and
@@ -69,6 +76,33 @@ export class JsonlEventLog implements EventLog {
   async byCard(cardId: number): Promise<Event[]> {
     this.refresh();
     return this.events.filter((event) => event.cardId === cardId);
+  }
+
+  async importEvents(
+    events: readonly Event[],
+    options: ImportEventsOptions = {},
+  ): Promise<ImportSummary> {
+    assertImportable(events);
+    if (this.events.length > 0 && options.force !== true) {
+      importBlockedByTarget(this.events.length);
+    }
+    const byId = new Map(this.events.map((event) => [event.id, event]));
+    for (const event of events) byId.set(event.id, event);
+    const merged = [...byId.values()].sort((a, b) => a.id - b.id);
+    mkdirSync(dirname(this.filePath), { recursive: true });
+    writeFileSync(
+      this.filePath,
+      merged.map((event) => JSON.stringify(event)).join("\n") + "\n",
+    );
+    this.events = merged;
+    this.nextId = (merged.at(-1)?.id ?? 0) + 1;
+    this.nextCardId =
+      merged.reduce((max, event) => Math.max(max, event.cardId), 0) + 1;
+    return {
+      events: merged.length,
+      maxEventId: merged.at(-1)?.id ?? 0,
+      maxCardId: merged.reduce((max, event) => Math.max(max, event.cardId), 0),
+    };
   }
 
   async maxId(): Promise<number> {

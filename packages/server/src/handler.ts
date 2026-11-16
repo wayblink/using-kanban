@@ -52,11 +52,19 @@ import {
 import { getDoc } from "./routes/docs.js";
 import { listEvents, streamEvents } from "./routes/events.js";
 import { getInsights } from "./routes/insights.js";
+import { importEvents } from "./routes/import.js";
 import { health, me, openapi } from "./routes/meta.js";
 import { serveStaticUi } from "./static.js";
 
 const ROUTES: readonly Route[] = [
   { method: "GET", path: "/healthz", mutation: false, handler: health },
+  {
+    method: "POST",
+    path: "/api/import/events",
+    mutation: true,
+    maxBodyBytes: 16_000_000,
+    handler: importEvents,
+  },
   { method: "GET", path: "/api/me", mutation: false, handler: me },
   { method: "GET", path: "/openapi.json", mutation: false, handler: openapi },
   { method: "GET", path: "/api/board", mutation: false, handler: getBoard },
@@ -333,7 +341,7 @@ async function handleRequest(
     );
   }
 
-  const body = await readJsonBody(req);
+  const body = await readJsonBody(req, match.route.maxBodyBytes);
   const ctx: RequestContext = {
     req,
     res,

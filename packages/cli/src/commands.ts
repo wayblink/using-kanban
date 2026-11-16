@@ -255,9 +255,9 @@ setup:
                                      (--browser also adds the Playwright MCP server)
                                      pi registers the extension + skill package
   ukb doctor                        check the environment
-  ukb migrate --to postgres [--pg-url URL] [--from <sqlite>] [--force]
-                                     copy the local SQLite log into Postgres,
-                                     keeping event and card ids
+  ukb migrate --to <url> [--token T] [--from <sqlite>] [--force] [--dry-run]
+                                     upload the local log over HTTP, keeping
+                                     event and card ids (or --to postgres)
 
 priority:
   high | normal | low   normal is the default. Rows sort high → normal → low

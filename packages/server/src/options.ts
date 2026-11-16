@@ -50,6 +50,8 @@ export const ServerOptionsSchema = z.object({
   corsOrigin: z.string().default("*"),
   /** How often the SSE broker polls the event log. */
   ssePollMs: z.number().int().positive().default(250),
+  /** Expose POST /api/import/events (admin-only migration endpoint). */
+  allowImport: z.boolean().default(false),
 });
 export type ServerOptions = z.input<typeof ServerOptionsSchema>;
 
@@ -70,6 +72,7 @@ export interface ResolvedServerOptions {
   corsOrigin: string;
   ssePollMs: number;
   docRoots: string[];
+  allowImport: boolean;
 }
 
 export function generateToken(): string {

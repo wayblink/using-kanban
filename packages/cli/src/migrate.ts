@@ -8,6 +8,10 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { PgEventLog, SqliteEventLog } from "@wayblink/using-kanban-core";
+import {
+  credentialFor,
+  normalizeServerUrl,
+} from "@wayblink/using-kanban-config";
 import { flagBoolean, flagString, UsageError } from "./argv.js";
 import type { Io } from "./commands.js";
 
@@ -18,9 +22,15 @@ export async function runMigrate(
   postgresUrl: string | undefined,
 ): Promise<number> {
   const to = flagString(flags, "to");
-  if (to !== "postgres") {
+  if (to === undefined) {
     throw new UsageError(
-      "ukb migrate needs --to postgres (the only supported target right now)",
+      "ukb migrate needs --to <url> (HTTP import) or --to postgres (same-machine DB)",
+    );
+  }
+  const remote = /^https?:\/\//iu.test(to) ? normalizeServerUrl(to) : null;
+  if (to !== "postgres" && remote === null) {
+    throw new UsageError(
+      `--to expects an http(s) URL or "postgres" (got "${to}")`,
     );
   }
 
@@ -43,6 +53,56 @@ export async function runMigrate(
       io.stdout("dry run — nothing written");
       return 0;
     }
+    if (remote !== null) {
+      const token =
+        flagString(flags, "token") ??
+        io.env.UKB_TOKEN ??
+        credentialFor(io.env, remote);
+      if (token === null || token === undefined || token.trim() === "") {
+        throw new UsageError(
+          `no token for ${remote} — pass --token or run ukb login first`,
+        );
+      }
+      io.stdout(`uploading ${events.length} events to ${remote} …`);
+      const response = await fetch(`${remote}/api/import/events`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${token.trim()}`,
+        },
+        body: JSON.stringify({
+          events,
+          force: flagBoolean(flags, "force"),
+        }),
+        signal: AbortSignal.timeout(300_000),
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        let message = text.slice(0, 500);
+        try {
+          const parsed = JSON.parse(text) as {
+            error?: { message?: unknown };
+          };
+          if (typeof parsed.error?.message === "string") {
+            message = parsed.error.message;
+          }
+        } catch {
+          // keep the raw body
+        }
+        io.stderr(`import failed (${response.status}): ${message}`);
+        return 1;
+      }
+      const summary = JSON.parse(text) as {
+        events: number;
+        maxEventId: number;
+        maxCardId: number;
+      };
+      io.stdout(
+        `imported: ${summary.events} events, max event ${summary.maxEventId}, max card ${summary.maxCardId}`,
+      );
+      return 0;
+    }
+
     if (postgresUrl === undefined) {
       throw new UsageError(
         "postgres needs a connection URL: --pg-url, UKB_PG_URL or DATABASE_URL",

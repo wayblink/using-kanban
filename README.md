@@ -302,8 +302,10 @@ server never reads would be a quiet lie.
 - **Storage**: SQLite (default, WAL — safe appends from several processes),
   `--storage jsonl` (zero deps, git-friendly), `memory` (tests), or
   `--storage postgres` for a shared server (`--pg-url`, `UKB_PG_URL` or
-  `DATABASE_URL`). `ukb migrate --to postgres` copies the local SQLite log,
-  keeping event ids and card handles intact.
+  `DATABASE_URL`). `ukb migrate --to postgres` copies the local SQLite log
+  into a same-machine database; `ukb migrate --to https://board.example.com
+--token ukb_…` uploads it over the admin import endpoint, keeping event ids
+  and card handles intact as well.
 - **Ids**: a card id counts cards, an event id counts events. They are separate
   sequences, so `add, edit, add` gives you `#1` and `#2` rather than `#1` and
   `#3` — the number you type is never inflated by a board's edit history. Ids

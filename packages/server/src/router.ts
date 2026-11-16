@@ -32,6 +32,8 @@ export interface Route {
   path: string;
   /** Mutations require the token even on loopback. */
   mutation: boolean;
+  /** Larger body limit for bulk endpoints; defaults to the global 1 MB. */
+  maxBodyBytes?: number;
   handler: RouteHandler;
 }
 
