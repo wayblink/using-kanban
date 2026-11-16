@@ -7,12 +7,12 @@ import {
   CARD_PRIORITIES,
   KanbanError,
   describeMutation,
-  openKanban,
+  openBoard,
   type Actor,
+  type BoardService,
   type Card,
   type CardPriority,
   type CardState,
-  type Kanban,
 } from "@wayblink/using-kanban-core";
 import {
   flagBoolean,
@@ -24,7 +24,12 @@ import {
   UsageError,
 } from "./argv.js";
 import { resolveActor, resolveOwner } from "./identity.js";
-import { loadConfig } from "@wayblink/using-kanban-config";
+import {
+  loadConfig,
+  removeCredential,
+  resolveTransport,
+  saveCredential,
+} from "@wayblink/using-kanban-config";
 import {
   formatBoard,
   formatCard,
@@ -35,7 +40,7 @@ import {
 } from "./render.js";
 import { runInit } from "./init.js";
 import { runDoctor } from "./doctor.js";
-import { runUserCommand } from "./user.js";
+import { readPipedLine, runUserCommand } from "./user.js";
 
 /**
  * Each intent verb reports itself in its own words.
@@ -46,22 +51,22 @@ import { runUserCommand } from "./user.js";
 const TRANSITION_VERBS = {
   claim: {
     verb: "claimed",
-    run: (kanban: Kanban, id: number, actor: Actor) =>
+    run: async (kanban: BoardService, id: number, actor: Actor) =>
       kanban.claim(id, actor, "cli"),
   },
   review: {
     verb: "moved to review",
-    run: (kanban: Kanban, id: number, actor: Actor) =>
+    run: async (kanban: BoardService, id: number, actor: Actor) =>
       kanban.review(id, actor, "cli"),
   },
   done: {
     verb: "done",
-    run: (kanban: Kanban, id: number, actor: Actor) =>
+    run: async (kanban: BoardService, id: number, actor: Actor) =>
       kanban.done(id, actor, "cli"),
   },
   reopen: {
     verb: "reopened",
-    run: (kanban: Kanban, id: number, actor: Actor) =>
+    run: async (kanban: BoardService, id: number, actor: Actor) =>
       kanban.reopen(id, actor, "cli"),
   },
 } as const;
@@ -149,6 +154,8 @@ const COMMANDS = [
   "init",
   "doctor",
   "user",
+  "login",
+  "logout",
   "help",
 ] as const;
 
@@ -286,6 +293,15 @@ config: ~/.config/ukb/config.json — one file for the CLI, the MCP server,
 
 frameworks for init: claude-code, codex, opencode (anything else gets the generic setup)
 
+remote:
+  ukb --server <url> <command>      run against a shared board instead of the
+                                     local store (or UKB_SERVER / server in
+                                     ~/.config/ukb/config.json)
+  ukb login --server <url> [--token T]
+                                     store a machine token for that server
+                                     (otherwise reads it from stdin)
+  ukb logout --server <url>         forget that token
+
 accounts:
   ukb user add <name> [--role admin|member] [--password-stdin]
   ukb user list | passwd <name> | remove <name>
@@ -324,6 +340,33 @@ export async function runCommand(
 
   const dir = resolveDir(parsed.flags, io.env);
   const storage = resolveStorage(parsed.flags, io.env);
+  const config = loadConfig(io.env);
+
+  if (command === "login") {
+    return runLogin(parsed.flags, io, config);
+  }
+  if (command === "logout") {
+    return runLogout(parsed.flags, io, config);
+  }
+
+  const transport = resolveTransport({
+    ...(flagString(parsed.flags, "server") === undefined
+      ? {}
+      : { server: flagString(parsed.flags, "server") }),
+    ...(flagString(parsed.flags, "token") === undefined
+      ? {}
+      : { token: flagString(parsed.flags, "token") }),
+    env: io.env,
+    config,
+  });
+  // Setup verbs talk to the store on this machine; a remote door must not
+  // silently edit a local file that the server will never read.
+  const LOCAL_ONLY = new Set(["web", "init", "doctor", "user"]);
+  if (transport.server !== null && LOCAL_ONLY.has(command)) {
+    throw new UsageError(
+      `ukb ${command} runs on the machine that owns the store; this CLI is pointed at ${transport.server}. Run it there, or unset --server/UKB_SERVER.`,
+    );
+  }
 
   switch (command) {
     case "web":
@@ -346,34 +389,35 @@ export async function runCommand(
       break;
   }
 
-  const config = loadConfig(io.env);
   const actor = resolveActor(parsed.flags, io.env, config);
   // Reads must not conjure a board: `ukb board` in the wrong directory should
   // say so, not report an empty one.
-  const kanban = openKanban({
+  const kanban = openBoard({
     dir,
     storage,
     create: !READ_ONLY_COMMANDS.has(command),
     owner: resolveOwner(io.env, config),
+    server: transport.server,
+    token: transport.token,
   });
   try {
     switch (command) {
       case "mine": {
         io.stdout(
           formatMine(
-            kanban.mine(
+            await kanban.mine(
               actor.name,
               flagString(parsed.flags, "project"),
               flagString(parsed.flags, "subproject"),
             ),
             actor.name,
-            new Map(kanban.cards().map((card) => [card.id, card])),
+            new Map((await kanban.cards()).map((card) => [card.id, card])),
           ),
         );
         return 0;
       }
       case "list": {
-        const summaries = kanban.projectSummary();
+        const summaries = await kanban.projectSummary();
         if (flagBoolean(parsed.flags, "json")) {
           io.stdout(JSON.stringify({ projects: summaries }));
           return 0;
@@ -382,7 +426,7 @@ export async function runCommand(
         return 0;
       }
       case "board": {
-        const board = kanban.board(
+        const board = await kanban.board(
           flagString(parsed.flags, "project"),
           flagString(parsed.flags, "subproject"),
         );
@@ -400,30 +444,31 @@ export async function runCommand(
               }
             : board;
           io.stdout(
-            JSON.stringify({ ...snapshot, projects: kanban.projects() }),
+            JSON.stringify({ ...snapshot, projects: await kanban.projects() }),
           );
           return 0;
         }
         io.stdout(
           formatBoard(
             board,
-            kanban.projects(),
+            await kanban.projects(),
             // Full index: a project slice must still count children in other
             // projects, or an umbrella's `▸done/total` would undercount.
-            new Map(kanban.cards().map((card) => [card.id, card])),
+            new Map((await kanban.cards()).map((card) => [card.id, card])),
           ),
         );
         return 0;
       }
       case "show": {
         const id = requireId(parsed.positionals[0], command);
-        const card = kanban.card(id);
+        const card = await kanban.card(id);
         if (!card)
           throw new KanbanError("card_not_found", `card ${id} not found`);
         io.stdout(
-          formatCard(card, kanban.history(id), {
-            parent: card.parent === null ? null : kanban.card(card.parent),
-            children: kanban.childrenOf(id),
+          formatCard(card, await kanban.history(id), {
+            parent:
+              card.parent === null ? null : await kanban.card(card.parent),
+            children: await kanban.childrenOf(id),
           }),
         );
         return 0;
@@ -434,7 +479,7 @@ export async function runCommand(
           throw new UsageError(
             'ukb add needs a title: ukb add "fix the flaky test"',
           );
-        const { card } = kanban.add(
+        const { card } = await kanban.add(
           {
             title,
             body: flagString(parsed.flags, "body") ?? null,
@@ -453,7 +498,7 @@ export async function runCommand(
       }
       case "edit": {
         const id = requireId(parsed.positionals[0], command);
-        const { card } = kanban.edit(
+        const { card } = await kanban.edit(
           id,
           {
             title: flagString(parsed.flags, "title"),
@@ -480,7 +525,7 @@ export async function runCommand(
           );
         }
         const id = requireId(parsed.positionals[0], command);
-        const result = TRANSITION_VERBS[command].run(kanban, id, actor);
+        const result = await TRANSITION_VERBS[command].run(kanban, id, actor);
         io.stdout(
           describeMutation(
             formatCardBrief(result.card),
@@ -499,7 +544,7 @@ export async function runCommand(
         // everything applied before the stop has already been printed.
         const ids = requireIds(parsed.positionals, command);
         for (const id of ids) {
-          const result = TRANSITION_VERBS[command].run(kanban, id, actor);
+          const result = await TRANSITION_VERBS[command].run(kanban, id, actor);
           io.stdout(
             describeMutation(
               formatCardBrief(result.card),
@@ -521,7 +566,7 @@ export async function runCommand(
             "ukb move needs a column: ukb move <id> <someday|todo|doing|review|done>",
           );
         }
-        const result = kanban.move(id, to as CardState, actor, "cli");
+        const result = await kanban.move(id, to as CardState, actor, "cli");
         io.stdout(
           describeMutation(
             formatCardBrief(result.card),
@@ -535,7 +580,7 @@ export async function runCommand(
         // Batch, like the transition verbs above.
         const ids = requireIds(parsed.positionals, command);
         for (const id of ids) {
-          kanban.remove(id, actor, "cli");
+          await kanban.remove(id, actor, "cli");
           io.stdout(`deleted #${id}`);
         }
         return 0;
@@ -549,8 +594,8 @@ export async function runCommand(
         }
         const { card } =
           command === "block"
-            ? kanban.block(id, by, actor, "cli")
-            : kanban.unblock(id, by, actor, "cli");
+            ? await kanban.block(id, by, actor, "cli")
+            : await kanban.unblock(id, by, actor, "cli");
         io.stdout(
           formatMutation(
             card,
@@ -563,7 +608,7 @@ export async function runCommand(
       case "unparent": {
         const id = requireId(parsed.positionals[0], command);
         if (command === "unparent") {
-          const { card } = kanban.unparent(id, actor, "cli");
+          const { card } = await kanban.unparent(id, actor, "cli");
           io.stdout(formatMutation(card, "now top-level"));
           return 0;
         }
@@ -571,7 +616,7 @@ export async function runCommand(
         if (!Number.isInteger(of) || of <= 0) {
           throw new UsageError("ukb parent needs --of <card id>");
         }
-        const { card } = kanban.parent(id, of, actor, "cli");
+        const { card } = await kanban.parent(id, of, actor, "cli");
         io.stdout(formatMutation(card, `child of #${of}`));
         return 0;
       }
@@ -583,7 +628,7 @@ export async function runCommand(
           throw new UsageError(`ukb ${command} needs --with <card id>`);
         }
         if (command === "unrelate") {
-          const { card } = kanban.unrelate(id, withId, actor, "cli");
+          const { card } = await kanban.unrelate(id, withId, actor, "cli");
           io.stdout(formatMutation(card, `unrelated from #${withId}`));
           return 0;
         }
@@ -593,7 +638,7 @@ export async function runCommand(
             "ukb relate --as expects upstream (default) or downstream",
           );
         }
-        const { card } = kanban.relate(id, withId, as, actor, "cli");
+        const { card } = await kanban.relate(id, withId, as, actor, "cli");
         const waiting = as === "upstream" ? id : withId;
         const waitedOn = as === "upstream" ? withId : id;
         io.stdout(
@@ -609,7 +654,7 @@ export async function runCommand(
             'ukb note needs text: ukb note 4 "design doc" --url docs/design.md',
           );
         }
-        const { card } = kanban.addNote(
+        const { card } = await kanban.addNote(
           id,
           { text, url: flagString(parsed.flags, "url") ?? null },
           actor,
@@ -632,7 +677,7 @@ export async function runCommand(
         if (!text && url === undefined) {
           throw new UsageError("ukb note-edit needs text and/or --url");
         }
-        const { card } = kanban.updateNote(
+        const { card } = await kanban.updateNote(
           id,
           noteId,
           {
@@ -648,7 +693,7 @@ export async function runCommand(
       case "note-remove": {
         const id = requireId(parsed.positionals[0], command);
         const noteId = requireId(parsed.positionals[1], command);
-        const { card } = kanban.removeNote(id, noteId, actor, "cli");
+        const { card } = await kanban.removeNote(id, noteId, actor, "cli");
         io.stdout(formatMutation(card, `removed note #${noteId}`));
         return 0;
       }
@@ -658,6 +703,52 @@ export async function runCommand(
   } finally {
     kanban.close();
   }
+}
+
+async function runLogin(
+  flags: Record<string, string | true>,
+  io: Io,
+  config: { readonly server?: string },
+): Promise<number> {
+  const server =
+    flagString(flags, "server") ?? io.env.UKB_SERVER ?? config.server;
+  if (server === undefined || server.trim() === "") {
+    throw new UsageError(
+      "ukb login needs --server <url> (or UKB_SERVER / server in ~/.config/ukb/config.json)",
+    );
+  }
+  const token =
+    flagString(flags, "token") ??
+    io.env.UKB_TOKEN ??
+    (await readPipedLine()).trim();
+  if (token.trim() === "") {
+    throw new UsageError(
+      "ukb login needs a token: pass --token, set UKB_TOKEN, or pipe it on stdin",
+    );
+  }
+  const path = saveCredential(io.env, server, token);
+  io.stdout(`signed in to ${server}`);
+  io.stdout(`  token stored at ${path} (0600)`);
+  return 0;
+}
+
+async function runLogout(
+  flags: Record<string, string | true>,
+  io: Io,
+  config: { readonly server?: string },
+): Promise<number> {
+  const server =
+    flagString(flags, "server") ?? io.env.UKB_SERVER ?? config.server;
+  if (server === undefined || server.trim() === "") {
+    throw new UsageError(
+      "ukb logout needs --server <url> (or UKB_SERVER / server in ~/.config/ukb/config.json)",
+    );
+  }
+  const removed = removeCredential(io.env, server);
+  io.stdout(
+    removed ? `signed out of ${server}` : `no stored token for ${server}`,
+  );
+  return 0;
 }
 
 async function runWeb(

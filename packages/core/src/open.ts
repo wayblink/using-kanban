@@ -6,6 +6,8 @@ import { MemoryEventLog } from "./event-log.js";
 import { SqliteEventLog } from "./event-log-sqlite.js";
 import { KanbanError } from "./errors.js";
 import { Kanban } from "./kanban.js";
+import { RemoteBoard } from "./remote.js";
+import { LocalBoardService, type BoardService } from "./service.js";
 
 export type StorageKind = "sqlite" | "jsonl" | "memory";
 
@@ -94,4 +96,26 @@ export function openKanban(options: OpenKanbanOptions = {}): Kanban {
     log,
     ...(options.owner !== undefined ? { owner: options.owner } : {}),
   });
+}
+
+/** Local store or remote server; see {@link openBoard}. */
+export interface OpenBoardOptions extends OpenKanbanOptions {
+  /** Server origin. When set, the board lives there and no local SQLite opens. */
+  readonly server?: string | null | undefined;
+  /** Bearer token for that server. */
+  readonly token?: string | null | undefined;
+}
+
+/**
+ * Opens the board wherever configuration says it lives.
+ *
+ * `server` wins: a remote URL means the local store is not touched at all, not
+ * even created. Without it the local store behaves exactly as before.
+ */
+export function openBoard(options: OpenBoardOptions = {}): BoardService {
+  const server = options.server?.trim();
+  if (server !== undefined && server !== "") {
+    return new RemoteBoard({ baseUrl: server, token: options.token ?? null });
+  }
+  return new LocalBoardService(openKanban(options));
 }

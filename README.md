@@ -267,9 +267,25 @@ probes. Basic auth carries a password on every request, so put TLS in front
 (Caddy or Nginx) and never publish plain HTTP; the deployment runbook is in
 [`docs/shared-board-accounts.md`](docs/shared-board-accounts.md).
 
-The CLI and MCP server still open the local store; pointing them at a remote
-server is the next step (tracked on the board), so for now remote access from
-other machines is through the Web UI and the HTTP API.
+### Pointing a CLI or MCP server at the shared board
+
+Any door can use a remote board instead of the local store: pass `--server`,
+set `UKB_SERVER`, or put `"server": "https://board.example.com"` in
+`~/.config/ukb/config.json`. The token comes from `--token`, `UKB_TOKEN`, or
+`ukb login` (stored 0600 in `credentials.json`, per server, never printed):
+
+```bash
+ukb login --server https://board.example.com --token ukb_…   # or pipe it
+UKB_SERVER=https://board.example.com ukb board
+ukb --server https://board.example.com claim 42
+```
+
+The MCP server reads the same settings, so a framework's MCP entry only needs
+`UKB_SERVER` and `UKB_TOKEN` in its environment (or the config file's `server`).
+
+`web`, `init`, `doctor` and `user` keep working on the store's machine and
+refuse when the CLI is pointed at a server — editing a local accounts file the
+server never reads would be a quiet lie.
 
 ## Storage, identity and config
 

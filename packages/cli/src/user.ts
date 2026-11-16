@@ -177,24 +177,28 @@ export async function runUserCommand(
   }
 }
 
+/** One line from a pipe; shared by `--password-stdin` and `ukb login`. */
+export function readPipedLine(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (process.stdin.isTTY) {
+      reject(new UsageError("expected a piped line on stdin"));
+      return;
+    }
+    let data = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.once("data", (chunk: string) => {
+      data += chunk;
+      const newline = data.indexOf("\n");
+      resolve(newline === -1 ? data : data.slice(0, newline));
+      process.stdin.pause();
+    });
+  });
+}
+
 /** The real terminal: muted password prompts, one stdin line for pipes. */
 function defaultPrompts(): UserPrompts {
   return {
-    readLine: () =>
-      new Promise((resolve, reject) => {
-        if (process.stdin.isTTY) {
-          reject(new UsageError("--password-stdin expects a piped password"));
-          return;
-        }
-        let data = "";
-        process.stdin.setEncoding("utf8");
-        process.stdin.once("data", (chunk: string) => {
-          data += chunk;
-          const newline = data.indexOf("\n");
-          resolve(newline === -1 ? data : data.slice(0, newline));
-          process.stdin.pause();
-        });
-      }),
+    readLine: readPipedLine,
     readPassword: (prompt) =>
       new Promise((resolve) => {
         // readline's terminal mode echoes; muting `_writeToOutput` keeps the

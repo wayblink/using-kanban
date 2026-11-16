@@ -5,10 +5,10 @@ import {
   CARD_STATES,
   KanbanError,
   describeMutation,
-  openKanban,
+  openBoard,
   type Actor,
+  type BoardService,
   type Card,
-  type Kanban,
 } from "@wayblink/using-kanban-core";
 import { z } from "zod";
 
@@ -87,21 +87,23 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
    * Once opened it is cached — the server is long-lived and every tool after
    * the first shares one handle.
    */
-  let opened: Kanban | undefined;
-  const kanbanFor = (create: boolean): Kanban => {
+  let opened: BoardService | undefined;
+  const kanbanFor = (create: boolean): BoardService => {
     if (opened) return opened;
-    opened = openKanban({
+    opened = openBoard({
       dir: options.dir,
       storage: options.storage,
       create,
       owner: options.owner,
+      server: options.server,
+      token: options.token,
     });
     return opened;
   };
   /** Read-only tools: never create the store. */
-  const read = (): Kanban => kanbanFor(false);
+  const read = (): BoardService => kanbanFor(false);
   /** Mutating tools: the store is created if this is the first card ever. */
-  const write = (): Kanban => kanbanFor(true);
+  const write = (): BoardService => kanbanFor(true);
 
   const server = new McpServer(
     { name: "using-kanban", version: "0.1.0" },
@@ -128,14 +130,14 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    safe(({ project, subproject }) => {
+    safe(async ({ project, subproject }) => {
       const kanban = read();
       // Full index: a project slice must still count children in other
       // projects, or an umbrella's `▸done/total` would undercount.
       return text(
         formatBoard(
-          kanban.board(project, subproject),
-          new Map(kanban.cards().map((card) => [card.id, card])),
+          await kanban.board(project, subproject),
+          new Map((await kanban.cards()).map((card) => [card.id, card])),
         ),
       );
     }),
@@ -152,10 +154,10 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    safe(({ project, subproject }) =>
+    safe(async ({ project, subproject }) =>
       text(
         formatCards(
-          read().mine(actor.name, project, subproject),
+          await read().mine(actor.name, project, subproject),
           "No open cards assigned to you.",
         ),
       ),
@@ -178,9 +180,9 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    safe(({ agent, project, subproject }) => {
+    safe(async ({ agent, project, subproject }) => {
       const name = agent ?? actor.name;
-      const cards = read().reviewQueue(name, project, subproject);
+      const cards = await read().reviewQueue(name, project, subproject);
       return text(formatCards(cards, `Nothing waiting for ${name} to review.`));
     }),
   );
@@ -193,8 +195,8 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
         "Every project on this board with its card counts. Call this before filtering by project so you use a name that exists.",
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    safe(() => {
-      const summaries = read().projectSummary();
+    safe(async () => {
+      const summaries = await read().projectSummary();
       return text(formatProjects(summaries));
     }),
   );
@@ -208,13 +210,13 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
       inputSchema: { id: cardIdSchema },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    safe(({ id }) => {
+    safe(async ({ id }) => {
       const kanban = read();
-      const card = requireCard(kanban.card(id), id);
+      const card = requireCard(await kanban.card(id), id);
       return text(
-        formatCard(card, kanban.history(id), {
-          parent: card.parent === null ? null : kanban.card(card.parent),
-          children: kanban.childrenOf(id),
+        formatCard(card, await kanban.history(id), {
+          parent: card.parent === null ? null : await kanban.card(card.parent),
+          children: await kanban.childrenOf(id),
         }),
       );
     }),
@@ -251,8 +253,8 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
         priority: prioritySchemaOptional(),
       },
     },
-    safe((input) => {
-      const { card } = write().add(
+    safe(async (input) => {
+      const { card } = await write().add(
         {
           title: input.title,
           body: input.body,
@@ -286,8 +288,8 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
         priority: prioritySchemaOptional(),
       },
     },
-    safe((input) => {
-      const { card } = write().edit(
+    safe(async (input) => {
+      const { card } = await write().edit(
         input.id,
         {
           title: input.title,
@@ -316,8 +318,8 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
       ].join(" "),
       inputSchema: { id: cardIdSchema },
     },
-    safe(({ id }) => {
-      const result = write().claim(id, actor, "mcp");
+    safe(async ({ id }) => {
+      const result = await write().claim(id, actor, "mcp");
       return text(
         describeMutation(formatCardBrief(result.card), result, "claimed"),
       );
@@ -332,8 +334,8 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
         "Move a card to review when your work is ready for its reviewer. Read the body first so you finish what the card actually asks for.",
       inputSchema: { id: cardIdSchema },
     },
-    safe(({ id }) => {
-      const result = write().review(id, actor, "mcp");
+    safe(async ({ id }) => {
+      const result = await write().review(id, actor, "mcp");
       return text(
         describeMutation(
           formatCardBrief(result.card),
@@ -352,8 +354,8 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
         "Mark a card done (idempotent). As the reviewer, use this to approve work you have actually reviewed.",
       inputSchema: { id: cardIdSchema },
     },
-    safe(({ id }) => {
-      const result = write().done(id, actor, "mcp");
+    safe(async ({ id }) => {
+      const result = await write().done(id, actor, "mcp");
       return text(
         describeMutation(formatCardBrief(result.card), result, "done"),
       );
@@ -367,8 +369,8 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
       description: "Send a card back to todo for rework.",
       inputSchema: { id: cardIdSchema },
     },
-    safe(({ id }) => {
-      const result = write().reopen(id, actor, "mcp");
+    safe(async ({ id }) => {
+      const result = await write().reopen(id, actor, "mcp");
       return text(
         describeMutation(formatCardBrief(result.card), result, "reopened"),
       );
@@ -386,8 +388,8 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
         to: z.enum(CARD_STATES),
       },
     },
-    safe(({ id, to }) => {
-      const result = write().move(id, to, actor, "mcp");
+    safe(async ({ id, to }) => {
+      const result = await write().move(id, to, actor, "mcp");
       return text(
         describeMutation(
           formatCardBrief(result.card),
@@ -406,8 +408,8 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
       inputSchema: { id: cardIdSchema },
       annotations: { destructiveHint: true, openWorldHint: false },
     },
-    safe(({ id }) => {
-      write().remove(id, actor, "mcp");
+    safe(async ({ id }) => {
+      await write().remove(id, actor, "mcp");
       return text(`deleted #${id}`);
     }),
   );
@@ -420,8 +422,8 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
         "Make card `id` wait on card `blockedBy` — the upstream spelling of a relation. Prefer kanban_relate when you want to name the direction. Cycles and self-blocks are rejected.",
       inputSchema: { id: cardIdSchema, blockedBy: z.number().int().positive() },
     },
-    safe(({ id, blockedBy }) => {
-      const { card } = write().block(id, blockedBy, actor, "mcp");
+    safe(async ({ id, blockedBy }) => {
+      const { card } = await write().block(id, blockedBy, actor, "mcp");
       return text(`blocked ${formatCardBrief(card)}`);
     }),
   );
@@ -434,8 +436,8 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
         "Remove a dependency between card `id` and card `blockedBy`. kanban_unrelate removes it from either side.",
       inputSchema: { id: cardIdSchema, blockedBy: z.number().int().positive() },
     },
-    safe(({ id, blockedBy }) => {
-      const { card } = write().unblock(id, blockedBy, actor, "mcp");
+    safe(async ({ id, blockedBy }) => {
+      const { card } = await write().unblock(id, blockedBy, actor, "mcp");
       return text(`unblocked ${formatCardBrief(card)}`);
     }),
   );
@@ -457,8 +459,8 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
         direction: z.enum(["upstream", "downstream"]),
       },
     },
-    safe(({ id, other, direction }) => {
-      const { card } = write().relate(id, other, direction, actor, "mcp");
+    safe(async ({ id, other, direction }) => {
+      const { card } = await write().relate(id, other, direction, actor, "mcp");
       // The card that changes is always the one that ends up waiting: `id`
       // when the other card is upstream, the other card when it is downstream.
       const waiting = direction === "upstream" ? id : other;
@@ -477,8 +479,8 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
         "Remove the relation between two cards, whichever way round it runs. A no-op when they are unrelated.",
       inputSchema: { id: cardIdSchema, other: cardIdSchema },
     },
-    safe(({ id, other }) => {
-      const { card } = write().unrelate(id, other, actor, "mcp");
+    safe(async ({ id, other }) => {
+      const { card } = await write().unrelate(id, other, actor, "mcp");
       return text(`unrelated ${formatCardBrief(card)} from #${other}`);
     }),
   );
@@ -494,8 +496,8 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
         parent: cardIdSchema.describe("The umbrella card it belongs to"),
       },
     },
-    safe(({ id, parent }) => {
-      const { card } = write().parent(id, parent, actor, "mcp");
+    safe(async ({ id, parent }) => {
+      const { card } = await write().parent(id, parent, actor, "mcp");
       return text(`child of #${parent} — ${formatCardBrief(card)}`);
     }),
   );
@@ -508,8 +510,8 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
         "Make card `id` a top-level card again. A no-op when it has no parent.",
       inputSchema: { id: cardIdSchema },
     },
-    safe(({ id }) => {
-      const { card } = write().unparent(id, actor, "mcp");
+    safe(async ({ id }) => {
+      const { card } = await write().unparent(id, actor, "mcp");
       return text(`now top-level — ${formatCardBrief(card)}`);
     }),
   );
@@ -531,8 +533,8 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
           .describe("Document link: https://… or a path to a local file"),
       },
     },
-    safe(({ id, text: noteText, url }) => {
-      const { card } = write().addNote(
+    safe(async ({ id, text: noteText, url }) => {
+      const { card } = await write().addNote(
         id,
         { text: noteText, url },
         actor,
@@ -559,8 +561,8 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
         url: z.string().nullish(),
       },
     },
-    safe(({ id, noteId, text: noteText, url }) => {
-      const { card } = write().updateNote(
+    safe(async ({ id, noteId, text: noteText, url }) => {
+      const { card } = await write().updateNote(
         id,
         noteId,
         { text: noteText, url },
@@ -579,8 +581,8 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
         "Remove a note from a card. The note id is shown by kanban_show.",
       inputSchema: { id: cardIdSchema, noteId: z.number().int().positive() },
     },
-    safe(({ id, noteId }) => {
-      const { card } = write().removeNote(id, noteId, actor, "mcp");
+    safe(async ({ id, noteId }) => {
+      const { card } = await write().removeNote(id, noteId, actor, "mcp");
       return text(`removed note #${noteId} from ${formatCardBrief(card)}`);
     }),
   );
@@ -595,12 +597,12 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
       description: "The full board as JSON (someday/todo/doing/review/done).",
       mimeType: "application/json",
     },
-    (uri) => ({
+    async (uri) => ({
       contents: [
         {
           uri: uri.href,
           mimeType: "application/json",
-          text: JSON.stringify(read().board(), null, 2),
+          text: JSON.stringify(await read().board(), null, 2),
         },
       ],
     }),
@@ -613,11 +615,11 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
 
 /** Turns thrown domain errors into `code: message` tool errors. */
 function safe<Args>(
-  handler: (args: Args) => CallToolResult,
-): (args: Args) => CallToolResult {
-  return (args: Args): CallToolResult => {
+  handler: (args: Args) => CallToolResult | Promise<CallToolResult>,
+): (args: Args) => Promise<CallToolResult> {
+  return async (args: Args): Promise<CallToolResult> => {
     try {
-      return handler(args);
+      return await handler(args);
     } catch (error) {
       if (error instanceof KanbanError) {
         return {

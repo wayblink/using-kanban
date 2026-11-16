@@ -12,9 +12,9 @@ const config: UkbConfig = { owner: "jyxc", agent: "pi" };
 
 describe("resolveMcpOptions", () => {
   it("takes the agent name from a flag, then the environment, then the file", () => {
-    expect(
-      resolveMcpOptions(["--agent", "codex"], {}, config).actor.name,
-    ).toBe("codex");
+    expect(resolveMcpOptions(["--agent", "codex"], {}, config).actor.name).toBe(
+      "codex",
+    );
     expect(
       resolveMcpOptions([], { UKB_AGENT: "opencode" }, config).actor.name,
     ).toBe("opencode");
@@ -27,9 +27,9 @@ describe("resolveMcpOptions", () => {
     // "agent", which tells the reader nothing about who did the work.
     expect(resolveMcpOptions([], {}, {}).usedDefaultAgent).toBe(true);
     expect(resolveMcpOptions([], {}, config).usedDefaultAgent).toBe(false);
-    expect(
-      resolveMcpOptions(["--agent", "x"], {}, {}).usedDefaultAgent,
-    ).toBe(false);
+    expect(resolveMcpOptions(["--agent", "x"], {}, {}).usedDefaultAgent).toBe(
+      false,
+    );
   });
 
   it("resolves the owner from the file, and defaults to the machine", () => {
@@ -56,5 +56,40 @@ describe("resolveMcpOptions", () => {
     expect(options.dir).toBe("/tmp/board");
     expect(options.storage).toBe("jsonl");
     expect(options.actor.type).toBe("agent");
+  });
+});
+
+describe("remote transport", () => {
+  it("takes the server and token from flags, then environment, then the file", () => {
+    const env = {
+      UKB_SERVER: "https://env.example.com",
+      UKB_TOKEN: "env-token",
+    };
+    const fromEnv = resolveMcpOptions([], env, {});
+    expect(fromEnv.server).toBe("https://env.example.com");
+    expect(fromEnv.token).toBe("env-token");
+
+    const fromFlags = resolveMcpOptions(
+      ["--server", "https://flag.example.com", "--token", "flag-token"],
+      env,
+      {},
+    );
+    expect(fromFlags.server).toBe("https://flag.example.com");
+    expect(fromFlags.token).toBe("flag-token");
+
+    const fromFile = resolveMcpOptions(
+      [],
+      {},
+      {
+        server: "https://file.example.com",
+      },
+    );
+    expect(fromFile.server).toBe("https://file.example.com");
+  });
+
+  it("stays local when nothing names a server", () => {
+    const options = resolveMcpOptions([], {}, {});
+    expect(options.server).toBeNull();
+    expect(options.token).toBeNull();
   });
 });

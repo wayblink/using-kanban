@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { ActorSchema, StorageKind } from "@wayblink/using-kanban-core";
 import {
   resolveOwnerName,
+  resolveTransport,
   type UkbConfig,
 } from "@wayblink/using-kanban-config";
 
@@ -13,6 +14,10 @@ export const McpOptionsSchema = z.object({
   /** Actor name this server acts as (what `mine` and `claim` resolve to). */
   agent: z.string().min(1).optional(),
   agentType: z.enum(["human", "agent"]).optional(),
+  /** Remote board server; when set, the local store is not opened. */
+  server: z.string().min(1).optional(),
+  /** Bearer token for that server. */
+  token: z.string().min(1).optional(),
 });
 export type McpOptions = z.input<typeof McpOptionsSchema>;
 
@@ -24,6 +29,10 @@ export interface ResolvedMcpOptions {
   owner: string;
   /** True when no agent name was supplied and a generic default was used. */
   usedDefaultAgent: boolean;
+  /** Remote origin, or null for the local store. */
+  server: string | null;
+  /** Token for that origin, when one was resolved. */
+  token: string | null;
 }
 
 const DEFAULT_AGENT_NAME = "agent";
@@ -56,11 +65,20 @@ export function resolveMcpOptions(
   const agentType = (parsed.agentType ??
     (env.UKB_AGENT_TYPE === "human" ? "human" : "agent")) as "human" | "agent";
 
+  const transport = resolveTransport({
+    ...(parsed.server === undefined ? {} : { server: parsed.server }),
+    ...(parsed.token === undefined ? {} : { token: parsed.token }),
+    env,
+    config,
+  });
+
   return {
     dir,
     storage,
     actor: { type: agentType, name: agent },
     owner: resolveOwnerName({ env, config }),
+    server: transport.server,
+    token: transport.token,
     usedDefaultAgent:
       parsed.agent === undefined &&
       env.UKB_AGENT === undefined &&
@@ -96,6 +114,12 @@ function parseArgv(argv: readonly string[]): McpOptions {
         break;
       case "--agent-type":
         options.agentType = next();
+        break;
+      case "--server":
+        options.server = next();
+        break;
+      case "--token":
+        options.token = next();
         break;
       case "--help":
       case "-h":

@@ -132,6 +132,12 @@ export interface UkbConfig {
   readonly agent?: string;
   readonly guidance?: UkbGuidanceConfig;
   readonly overlay?: UkbOverlayConfig;
+  /**
+   * The board server this machine talks to, e.g. `https://board.example.com`.
+   * When set, the CLI and MCP server use it instead of the local store. A per
+   * machine credential lives in `credentials.json` beside this file.
+   */
+  readonly server?: string;
 }
 
 /* ------------------------------ file location ------------------------------ */
@@ -368,6 +374,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): UkbConfig {
     agent?: string;
     guidance?: UkbGuidanceConfig;
     overlay?: UkbOverlayConfig;
+    server?: string;
   } = {};
 
   const owner = nonEmptyString(document.owner);
@@ -381,6 +388,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): UkbConfig {
 
   const overlay = validateOverlay(document.overlay);
   if (overlay !== undefined) config.overlay = overlay;
+
+  const server = nonEmptyString(document.server);
+  if (server !== undefined) config.server = server;
 
   return config;
 }
@@ -433,3 +443,5 @@ export function resolveOwnerName(sources: OwnerSources = {}): string {
   if (fromFile !== undefined) return fromFile;
   return machineName(env, sources.hostname);
 }
+
+export * from "./credentials.js";

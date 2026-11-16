@@ -1,6 +1,6 @@
 # Sharing one board: server access and accounts
 
-Status: implemented for the HTTP/Web door; remote CLI/MCP is the next card.
+Status: implemented for the HTTP/Web door and for remote CLI/MCP.
 Last updated: 2026-11-16
 
 ## Goal
@@ -130,12 +130,37 @@ The server does not terminate TLS. Basic auth without TLS exposes the password
 on every request. The deployment runbook (container, proxy example, backups,
 upgrades) is the next card.
 
+## Remote CLI and MCP
+
+Both doors open a `BoardService`: local SQLite or the HTTP transport, chosen
+once at startup. The transport is `--server` → `UKB_SERVER` → the config file's
+`server`; the credential is `--token` → `UKB_TOKEN` → the stored token for that
+server. No server means the local store, untouched. A remote URL means the
+local store is never opened or created — a read cannot conjure a board that the
+server will never see.
+
+`ukb login --server <url> [--token <token>]` stores the token for that origin
+(0600, one entry per server); `ukb logout` forgets it. The token is never
+printed back and never accepted as a config value.
+
+Setup verbs (`web`, `init`, `doctor`, `user`) stay on the store's machine and
+refuse when a server is configured: they edit local files or bind a local port,
+and doing that against a remote board would be a quiet lie.
+
+Reads are derived from `GET /api/cards` with the same rules as the local
+projection, so `ukb mine`, `ukb list`, umbrella children and progress agree with
+a local board. The Pi and DSH plugins spawn the same CLI, so they inherit the
+same choice — a machine pointed at the server gives its agents the shared board
+with no plugin change. Mutations use the endpoints the Web UI already calls; a 401
+becomes an instruction to run `ukb login`, not a bare status code.
+
 ## What this does not do
 
 - No per-card or per-project permissions; accounts gate the whole board.
 - No sessions or single sign-on; a browser caches Basic credentials until it is
   closed or the credentials change.
-- No remote CLI/MCP yet: those still open the local store.
+- No offline cache: a remote door fails when the server is unreachable instead of
+  serving a stale board.
 - No audit trail for sign-ins; mutations already carry the actor name in the
   event log.
 - No per-actor enforcement: a signed-in caller may still set `X-Actor-Name` to
@@ -153,7 +178,10 @@ upgrades) is the next card.
 0.0.0.0` gets an error that tells them to create an account, rather than a
    board on the internet.
 4. **Keep the generated bearer token** — it is how scripts and the printed
-   `ukb web` URL already work; accounts add humans without breaking that.
+   `ukb web` URL already works; accounts add humans without breaking that.
+5. **One switch, two implementations** — `BoardService` keeps every call site
+   unaware of the transport; the choice is resolved once at startup so a command
+   can never read locally and write remotely.
 
 ## Open questions
 
