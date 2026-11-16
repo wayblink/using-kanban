@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { flagBoolean, flagString } from "./argv.js";
 import type { Io } from "./commands.js";
@@ -112,7 +112,7 @@ function hereUrl(): string | undefined {
 const GENERIC_DOCS_SNIPPET = `${DOCS_START}
 ## Kanban — using-kanban
 
-This project shares a kanban board (\`.ukb/\`) between you and the human.
+This project shares one board with everything else on this machine: the store is \`~/.ukb/\`, so the directory you run \`ukb\` from does not matter. Projects are separated by the card's \`project\` field.
 
 - Start every turn with \`ukb\` — it lists your open cards. Treat it as work to do, not a status report.
 - Before working a card, read it: \`ukb show <id>\` (the body holds the target files and acceptance criteria).
@@ -392,7 +392,31 @@ function registerPiPackage(home: string, dryRun: boolean): void {
         "Run it from a source checkout, or add the package to ~/.pi/agent/settings.json by hand.",
     );
   }
-  if (!existing.includes(target)) settings.packages = [...existing, target];
+
+  // Compare resolved paths, not spellings. The same checkout has been written
+  // by hand as `../../yard/…/packages/pi` (relative to this settings file) and
+  // by this installer as an absolute path; a raw `includes()` sees two strings,
+  // so Pi loads the board twice and registers every tool and slash command
+  // twice. Pi resolves a relative entry against the settings file's directory,
+  // which is what `resolve` here does too.
+  const agentDir = dirname(settingsPath);
+  const isSamePackage = (entry: string): boolean =>
+    !entry.startsWith("npm:") && resolve(agentDir, entry) === resolve(target);
+
+  const strings = existing.filter(
+    (entry): entry is string => typeof entry === "string",
+  );
+  const kept = strings.filter(
+    (entry, index) =>
+      // Keep the first spelling of the package — the one already there is the
+      // one the human wrote — and drop later duplicates of the same path.
+      !isSamePackage(entry) || strings.findIndex(isSamePackage) === index,
+  );
+  const others = existing.filter((entry) => typeof entry !== "string");
+  settings.packages = kept.some(isSamePackage) ? kept : [...kept, target];
+  if (others.length > 0)
+    settings.packages = [...(settings.packages as unknown[]), ...others];
+
   writeText(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, dryRun);
 }
 

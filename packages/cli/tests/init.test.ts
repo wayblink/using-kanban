@@ -7,7 +7,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 import { CLI_COMMANDS, runCommand, type Io } from "../src/commands.js";
@@ -297,6 +297,29 @@ describe("ukb init --local", () => {
   });
 });
 
+describe("the workflow snippet the installer writes", () => {
+  it("names the centralised store, not a per-project .ukb/", async () => {
+    const { project } = await init("pi");
+    const docs = readFileSync(join(project, "AGENTS.md"), "utf8");
+    // One board per machine. A snippet pointing at `<project>/.ukb/` sends the
+    // reader looking for a directory that never exists, and contradicts the
+    // skill's "the directory you run ukb from does not matter".
+    expect(docs).toContain("`~/.ukb/`");
+    expect(docs).not.toContain("(`.ukb/`)");
+  });
+
+  it("stays idempotent — a re-run replaces the block instead of stacking it", async () => {
+    const first = await init("claude-code");
+    const written = readFileSync(join(first.project, "CLAUDE.md"), "utf8");
+    const second = await init("claude-code", {
+      files: { "CLAUDE.md": written },
+    });
+    const docs = readFileSync(join(second.project, "CLAUDE.md"), "utf8");
+    expect(docs.split("<!-- using-kanban:start -->")).toHaveLength(2);
+    expect(docs.split("<!-- using-kanban:end -->")).toHaveLength(2);
+  });
+});
+
 describe("ukb init --browser", () => {
   it("adds the Playwright MCP server next to the board for Claude Code", async () => {
     const { project, out } = await init("claude-code", { browser: true });
@@ -378,6 +401,31 @@ describe("ukb init --for pi", () => {
     expect(existsSync(join(settings.packages[0], "package.json"))).toBe(true);
     // AGENTS.md is still written, for harnesses that read it
     expect(existsSync(join(project, "AGENTS.md"))).toBe(true);
+  });
+
+  it("does not add a second entry for the same package spelled differently", async () => {
+    // The real machine had the relative form written by hand and the installer
+    // writes an absolute one. Both point at the same checkout, so Pi would load
+    // the board twice — and `includes()` on the raw string never notices.
+    const absolute = readSettings((await init("pi")).home)
+      .packages[0] as string;
+
+    const home = tempDir();
+    const relativeEntry = relative(join(home, ".pi", "agent"), absolute);
+    expect(relativeEntry.startsWith("/")).toBe(false);
+
+    const installed = await init("pi", {
+      homeFiles: {
+        ".pi/agent/settings.json": JSON.stringify({
+          packages: [relativeEntry],
+        }),
+      },
+    });
+    const packages = readSettings(installed.home).packages as string[];
+    const usingKanban = packages.filter((entry) =>
+      entry.includes("using-kanban"),
+    );
+    expect(usingKanban).toEqual([relativeEntry]);
   });
 
   it("is idempotent and preserves other packages", async () => {

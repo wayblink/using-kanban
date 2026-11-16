@@ -1,5 +1,12 @@
-import { accessSync, constants, existsSync, mkdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import {
+  accessSync,
+  constants,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+} from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { openKanban } from "@wayblink/using-kanban-core";
@@ -18,6 +25,7 @@ export async function runDoctor(
   dir: string,
   storage: "sqlite" | "jsonl" | "memory" | "postgres",
   postgresUrl?: string | undefined,
+  home: string = homedir(),
 ): Promise<number> {
   const checks: { ok: boolean; label: string; detail: string }[] = [];
   // One config file, four front doors. Doctor is where a reader finds out which
@@ -132,6 +140,12 @@ export async function runDoctor(
       existsSync(configPath) ? "found" : "absent — every default applies"
     })`,
   });
+  // 7. the Pi front door. Unlike every other harness, Pi is wired through a
+  //    package path in ~/.pi/agent/settings.json, and a path that moved or was
+  //    never written produces no error at all: no tool, no guidance, no board.
+  //    That silence is the whole reason this check exists.
+  const pi = checkPiPackage(home);
+  checks.push({ ok: pi.ok, label: "pi", detail: pi.detail });
 
   checks.push({
     ok: true,
@@ -178,11 +192,124 @@ export async function runDoctor(
   return failures === 0 ? 0 : 1;
 }
 
+/** The package Pi loads for the board: one extension and one skill. */
+const PI_PACKAGE_NAME = "@wayblink/using-kanban-pi";
+
+/**
+ * Whether Pi can actually reach the board from this machine.
+ *
+ * Pi reads its extensions from the `packages` array in
+ * `~/.pi/agent/settings.json`; `ukb init --for pi` adds one entry, an absolute
+ * path to `packages/pi` in a checkout. Nothing re-validates that entry later, so
+ * a repository that moved, or a settings file written by hand with a typo, is
+ * indistinguishable from a working install until somebody notices the agent
+ * stopped touching the board.
+ *
+ * Three outcomes are worth telling apart:
+ *
+ * - no settings file: Pi has never run here, so there is nothing to wire and
+ *   nothing to complain about;
+ * - settings without the package: the install step was skipped;
+ * - settings naming a path that is not there: the install worked once and the
+ *   checkout moved, which is the silent failure.
+ */
+export function checkPiPackage(home: string): {
+  ok: boolean;
+  detail: string;
+} {
+  const settingsPath = join(home, ".pi", "agent", "settings.json");
+  if (!existsSync(settingsPath)) {
+    return {
+      ok: true,
+      detail: `no ${settingsPath} — Pi never ran here, nothing to wire`,
+    };
+  }
+
+  let settings: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(readFileSync(settingsPath, "utf8")) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      settings = parsed as Record<string, unknown>;
+    }
+  } catch {
+    return {
+      ok: false,
+      detail: `${settingsPath} is not valid JSON — fix it and re-run`,
+    };
+  }
+
+  const entries = Array.isArray(settings.packages)
+    ? settings.packages.filter(
+        (entry): entry is string => typeof entry === "string",
+      )
+    : [];
+
+  // The published spelling. Nothing writes it yet — the npm release is still
+  // ahead — but a reader who installed it by hand should not be told off.
+  if (entries.some((entry) => entry.startsWith(`npm:${PI_PACKAGE_NAME}`))) {
+    return { ok: true, detail: `npm:${PI_PACKAGE_NAME} (registered)` };
+  }
+
+  // Relative entries resolve against the settings file's own directory, which
+  // is how Pi resolves them.
+  const agentDir = dirname(settingsPath);
+  const paths = entries
+    .filter((entry) => !entry.startsWith("npm:"))
+    .map((entry) => resolve(agentDir, entry));
+
+  if (paths.length === 0) {
+    return {
+      ok: false,
+      detail: `no package registered in ${settingsPath} — run: ukb init --for pi`,
+    };
+  }
+
+  for (const path of paths) {
+    const manifest = join(path, "package.json");
+    if (!existsSync(manifest)) continue;
+    let name: unknown;
+    let extensionPaths: string[] = [];
+    try {
+      const parsed = JSON.parse(readFileSync(manifest, "utf8")) as {
+        name?: unknown;
+        pi?: { extensions?: unknown };
+      };
+      name = parsed.name;
+      const declared = parsed.pi?.extensions;
+      if (Array.isArray(declared)) {
+        extensionPaths = declared.filter(
+          (entry): entry is string => typeof entry === "string",
+        );
+      }
+    } catch {
+      continue;
+    }
+    if (name !== PI_PACKAGE_NAME) continue;
+    const missing = extensionPaths.filter(
+      (entry) => !existsSync(resolve(path, entry)),
+    );
+    if (missing.length > 0) {
+      return {
+        ok: false,
+        detail: `${path} is registered but ${missing.join(", ")} is missing — rebuild or re-run: ukb init --for pi`,
+      };
+    }
+    return { ok: true, detail: `${path} (registered, ukb tool in context)` };
+  }
+
+  const onDisk = paths.some((path) => existsSync(join(path, "package.json")));
+  return {
+    ok: false,
+    detail: onDisk
+      ? `no ${PI_PACKAGE_NAME} among the registered packages — run: ukb init --for pi`
+      : `${paths.join(", ")} is in settings.json but not on disk — re-run: ukb init --for pi`,
+  };
+}
+
 /**
  * `require.resolve` from this file. `import.meta.url` is undefined in the
  * bundled binary (esbuild), so fall back to the invoked script path.
- */
-function resolveFromHere(specifier: string): string | undefined {
+ */ function resolveFromHere(specifier: string): string | undefined {
   const url = hereUrl();
   if (!url) return undefined;
   return createRequire(url).resolve(specifier);

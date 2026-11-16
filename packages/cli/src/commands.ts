@@ -393,7 +393,14 @@ export async function runCommand(
         io.home ?? homedir(),
       );
     case "doctor":
-      return runDoctor(parsed.flags, io, dir, storage, postgresUrl);
+      return runDoctor(
+        parsed.flags,
+        io,
+        dir,
+        storage,
+        postgresUrl,
+        io.home ?? homedir(),
+      );
     case "user":
       return runUserCommand(parsed.positionals, parsed.flags, io, dir);
     case "migrate":

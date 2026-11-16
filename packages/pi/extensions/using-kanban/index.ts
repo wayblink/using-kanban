@@ -32,7 +32,8 @@ import {
   resolveOverlayStates,
 } from "./overlay-config.js";
 import { BoardOverlay } from "./overlay.js";
-import type { OverlayView } from "./overlay-render.js";
+import { buildBoardDigest, isDigestDisabled } from "./board-digest.js";
+import { parseBoardJson, type OverlayView } from "./overlay-render.js";
 import {
   WEB_VERB,
   createDetachedWebSpawner,
@@ -592,43 +593,52 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
    */
   let overlayRefreshFailed = false;
 
-  const overlay = new BoardOverlay(
-    async () => {
-      try {
-        const { server, token } = resolveTransport({ config: loadConfig() });
-        if (server !== null) return await readRemoteOverlayBoard(server, token);
-        if (!ready) {
-          return {
-            stdout: null,
-            error: `ukb CLI not built at ${bin} — run \`pnpm -r build\` in the using-kanban repo`,
-          };
-        }
-        const result = await pi.exec(
-          process.execPath,
-          [bin, "board", "--json", "--brief"],
-          { timeout: OVERLAY_READ_TIMEOUT_MS },
-        );
-        if (result.code !== 0) {
-          const detail = result.stderr.trim().slice(0, 300);
-          return {
-            stdout: null,
-            error: `ukb board --json --brief exited ${result.code}${detail ? `: ${detail}` : " (no stderr)"}`,
-          };
-        }
-        return { stdout: result.stdout, error: null };
-      } catch (error) {
+  /**
+   * Read the board, once, for both consumers: the panel above the editor and
+   * the per-run digest. Local boards go through the CLI's own `--json` door so
+   * storage resolution stays in one place; a board on a server is read from the
+   * Web summary instead, which is the read that stays responsive when the CLI's
+   * full board is not.
+   */
+  const readBoard = async (): Promise<{
+    stdout: string | null;
+    error: string | null;
+  }> => {
+    try {
+      const { server, token } = resolveTransport({ config: loadConfig() });
+      if (server !== null) return await readRemoteOverlayBoard(server, token);
+      if (!ready) {
         return {
           stdout: null,
-          error: `could not read the board — ${error instanceof Error ? error.message : String(error)}`,
+          error: `ukb CLI not built at ${bin} — run \`pnpm -r build\` in the using-kanban repo`,
         };
       }
-    },
-    {
-      collapseKey: resolveCollapseKey(process.env, CONFIG),
-      view: overlayView,
-      initiallyVisible: overlayDisplay === "always",
-    },
-  );
+      const result = await pi.exec(
+        process.execPath,
+        [bin, "board", "--json", "--brief"],
+        { timeout: OVERLAY_READ_TIMEOUT_MS },
+      );
+      if (result.code !== 0) {
+        const detail = result.stderr.trim().slice(0, 300);
+        return {
+          stdout: null,
+          error: `ukb board --json --brief exited ${result.code}${detail ? `: ${detail}` : " (no stderr)"}`,
+        };
+      }
+      return { stdout: result.stdout, error: null };
+    } catch (error) {
+      return {
+        stdout: null,
+        error: `could not read the board — ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+  };
+
+  const overlay = new BoardOverlay(readBoard, {
+    collapseKey: resolveCollapseKey(process.env, CONFIG),
+    view: overlayView,
+    initiallyVisible: overlayDisplay === "always",
+  });
 
   /**
    * Repaint the overlay. A refresh must never take the session down — the
@@ -701,6 +711,78 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
       }
     }
   }
+
+  /* -------------------------------- digest --------------------------------- */
+
+  /**
+   * `UKB_DIGEST=off` silences the per-run line.
+   *
+   * Kept separate from the panel's switch: the panel is a display for the human,
+   * the digest is a reminder for the model, and someone may reasonably want one
+   * without the other.
+   */
+  const digestEnabled = !isDigestDisabled(process.env);
+
+  /**
+   * The per-run line: three counts, the card I am holding, one clause.
+   *
+   * Why a message and not another guideline: `promptGuidelines` are injected
+   * once, when the tool is registered, and a rule that has been in front of the
+   * model for forty turns is scenery. The measured behaviour when this was
+   * missing: sessions kept calling `mine` at the start and stopped doing the
+   * maintenance — `add`, `claim`, `review` — partway in. So the reminder is a
+   * fact about *this* run, which is worth reading again every time.
+   *
+   * `before_agent_start` fires once per run rather than once per model request,
+   * so this costs one board read per user turn, not one per tool call.
+   */
+  pi.on("before_agent_start", async (event, ctx) => {
+    if (!digestEnabled) return;
+    // `custom` runs are Pi starting work of its own (or another extension
+    // handing the model a message); those did not come with a human's turn and
+    // injected context there reads as an unrelated interruption.
+    if (event.messageType !== "user") return;
+    // Only speak to a model that can act on it: a restricted subagent with no
+    // `ukb` tool would read this as an order it has no way to follow.
+    const active =
+      typeof pi.getActiveTools === "function" ? pi.getActiveTools() : null;
+    if (active !== null && !active.includes(TOOL_NAME)) return;
+
+    try {
+      // The same read the panel uses: the CLI for a local board, the Web summary
+      // for one on a server. Shelling out to the CLI here would have been a
+      // second, slower source of truth for the same rows.
+      const { stdout } = await readBoard();
+      if (stdout === null) return;
+      const board = parseBoardJson(stdout);
+      if (board === null) return;
+      // The digest follows the panel's scope so the line and the rows above the
+      // editor cannot disagree. `all` and `mine` are already agent-wide, so both
+      // resolve to no project filter.
+      const project =
+        overlayView.scope === "current-project"
+          ? (overlayView.project ?? (await inferCurrentProject(ctx.cwd)))
+          : null;
+      const digest = buildBoardDigest({ board, agent: AGENT, project });
+      // Nothing actionable: say nothing. A line that shows up when the board is
+      // empty is noise on every turn that follows, and noise is how the previous
+      // version of this instruction stopped working.
+      if (digest === null) return;
+      return {
+        message: {
+          customType: "ukb-board-digest",
+          content: digest.text,
+          // The human already has the panel above the editor; the digest is for
+          // the model, and repeating it in the transcript is clutter.
+          display: false,
+        },
+      };
+    } catch {
+      // A reminder that cannot be built must not fail the run it was meant to
+      // help. Silence here is the same outcome as an empty board.
+      return;
+    }
+  });
 
   const overlayHelp = [
     "ukb gui — the on-demand board panel",
@@ -897,6 +979,7 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
     }),
 
     async execute(_toolCallId, params, signal) {
+      const typed = params as UkbParams;
       if (!ready) {
         return {
           isError: true,
@@ -906,9 +989,12 @@ export default function usingKanbanExtension(pi: ExtensionAPI): void {
               text: `ukb CLI not built at ${bin} — run \`pnpm -r build\`.`,
             },
           ],
+          // `details` is required by AgentToolResult, not optional: the early
+          // return used to omit it, which type-checked nowhere because this file
+          // had no typecheck (see the card). Keep every return the same shape.
+          details: { action: typed.action, code: 1 },
         };
       }
-      const typed = params as UkbParams;
       const { code, output } = await run(
         [...IDENTITY, ...buildArgs(typed)],
         signal,
