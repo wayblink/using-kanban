@@ -229,6 +229,7 @@ export function createKanbanHandler(
     dir: resolved.dir,
     storage: resolved.storage,
     owner: resolved.owner,
+    openAccess: resolved.openAccess,
     postgresUrl: resolved.postgresUrl,
   });
   const broker = new EventBroker(kanban, resolved.ssePollMs);

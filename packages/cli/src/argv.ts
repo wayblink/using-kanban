@@ -145,6 +145,16 @@ export function resolveDir(
   return flagString(flags, "dir") ?? env.UKB_DIR ?? homedir();
 }
 
+/** `--open-access` (or UKB_OPEN_ACCESS) turns off the per-card guard. */
+export function resolveOpenAccess(
+  flags: Record<string, string | true>,
+  env: NodeJS.ProcessEnv,
+): boolean {
+  const flag = flags["open-access"];
+  if (flag !== undefined) return true;
+  return /^(1|true|yes)$/iu.test(env.UKB_OPEN_ACCESS ?? "");
+}
+
 /** Connection URL for `--storage postgres`: flag → environment. */
 export function resolvePostgresUrl(
   flags: Record<string, string | true>,

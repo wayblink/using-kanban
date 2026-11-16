@@ -99,22 +99,22 @@ open in a tab.
 
 Talks to the core in-process: same board, same events, no daemon and no server.
 
-| Command                                                                                                     | Does                                  |
-| ----------------------------------------------------------------------------------------------------------- | ------------------------------------- |
-| `ukb` / `ukb mine`                                                                                          | your open cards — a call to act       |
-| `ukb board [--project p] [--json]`                                                                          | the board, or a project's slice       |
-| `ukb show <id>`                                                                                             | detail, history, relations, children  |
-| `ukb add "<title>" [--assignee X] [--reviewer Y] [--project p] [--priority high\|normal\|low] [--body "…"]` | create a card                         |
-| `ukb claim` / `review` / `done` / `reopen` `<id> [<id> …]`                                                  | move with intent                      |
-| `ukb move <id> <someday\|todo\|doing\|review\|done>`                                                        | move anywhere                         |
-| `ukb edit <id> [--title/--body/--assignee/--reviewer/--project/--priority]`                                 | change fields                         |
-| `ukb block <id> --by <id>` / `ukb unblock`                                                                  | dependency                            |
-| `ukb parent <id> --of <id>` / `ukb unparent <id>`                                                           | umbrella ↔ parts                      |
-| `ukb relate <id> --with <id> --as upstream\|downstream` / `ukb unrelate`                                    | dependency, named direction           |
-| `ukb note <id> "…" [--url …]` / `ukb note-edit` / `ukb note-remove`                                         | remarks and document links            |
-| `ukb list`                                                                                                  | every project and its counts          |
-| `ukb delete <id> [<id> …]`                                                                                  | creator only                          |
-| `ukb web` / `ukb init --for <framework>` / `ukb doctor`                                                     | UI / wire a harness / check the setup |
+| Command                                                                                                     | Does                                       |
+| ----------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| `ukb` / `ukb mine`                                                                                          | your open cards — a call to act            |
+| `ukb board [--project p] [--json]`                                                                          | the board, or a project's slice            |
+| `ukb show <id>`                                                                                             | detail, history, relations, children       |
+| `ukb add "<title>" [--assignee X] [--reviewer Y] [--project p] [--priority high\|normal\|low] [--body "…"]` | create a card                              |
+| `ukb claim` / `review` / `done` / `reopen` `<id> [<id> …]`                                                  | move with intent                           |
+| `ukb move <id> <someday\|todo\|doing\|review\|done>`                                                        | move anywhere                              |
+| `ukb edit <id> [--title/--body/--assignee/--reviewer/--project/--priority]`                                 | change fields                              |
+| `ukb block <id> --by <id>` / `ukb unblock`                                                                  | dependency                                 |
+| `ukb parent <id> --of <id>` / `ukb unparent <id>`                                                           | umbrella ↔ parts                           |
+| `ukb relate <id> --with <id> --as upstream\|downstream` / `ukb unrelate`                                    | dependency, named direction                |
+| `ukb note <id> "…" [--url …]` / `ukb note-edit` / `ukb note-remove`                                         | remarks and document links                 |
+| `ukb list`                                                                                                  | every project and its counts               |
+| `ukb delete <id> [<id> …]`                                                                                  | creator or owner (anyone with open access) |
+| `ukb web` / `ukb init --for <framework>` / `ukb doctor`                                                     | UI / wire a harness / check the setup      |
 
 `done`, `review`, `reopen` and `delete` take several ids; the run stops at the
 first card the board refuses, so what you saw is what was applied.
@@ -327,6 +327,10 @@ human|agent` (or `UKB_AGENT` / `UKB_AGENT_TYPE`). An agent that names nobody
   browser are one person — and the owner may edit or delete **any** card, which
   is what keeps a solo board usable while agents claim work under their own
   names. Everyone else still has to be the card's creator or assignee.
+- **Open access** (`--open-access`, `UKB_OPEN_ACCESS=1`): turns off the
+  creator/assignee guard, so every signed-in caller may edit and delete any
+  card. This is for a personal board; login and tokens still apply. Leave it
+  off for a genuinely shared/multi-user board.
 - **Config**: one file, `~/.config/ukb/config.json` (or
   `$XDG_CONFIG_HOME/ukb/config.json`), read by all four front doors — the CLI,
   the MCP server agents connect through, `ukb web`, and the Pi extension. It

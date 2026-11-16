@@ -108,6 +108,25 @@ static UI files:
 - Unknown names run the same scrypt work as known ones, so timing does not
   reveal which accounts exist.
 
+## The per-card permission guard
+
+Authentication answers "who are you"; a second, cooperative guard answers
+"may you change this card". By default `edit`/`block` allow the card's creator,
+its assignee, or the server's `owner`; `delete` allows the creator or owner.
+This exists so one person's agents do not lock that person out of their own
+board, and so a shared board has _some_ separation.
+
+A personal board can switch the guard off entirely with
+`UKB_OPEN_ACCESS=1` (or `--open-access` on `ukb web` / `ukb-server`). Every
+signed-in user may then edit and delete any card; login, tokens and roles are
+unchanged. Do not use it for a board shared by people who should not be able
+to change each other's cards.
+
+The usual cause of "only the creator can delete" on a personal board is that
+the browser is signed in as `admin` while the server's `owner` is the machine
+name. Either set `UKB_OWNER=admin` (keeps the guard, makes that account the
+owner) or enable open access.
+
 ## Operating it
 
 ```bash

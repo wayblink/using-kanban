@@ -55,6 +55,12 @@ export interface KanbanOptions {
    * allowed to modify and delete, whoever created the card.
    */
   readonly owner?: string | undefined;
+  /**
+   * Turn off the cooperative creator/assignee guard: every caller may edit,
+   * block and delete any card. Authentication is separate and still applies.
+   * Defaults to false — shared boards need the guard.
+   */
+  readonly openAccess?: boolean | undefined;
 }
 
 /**
@@ -65,7 +71,8 @@ export interface KanbanOptions {
  *
  * Permissions are cooperative, not cryptographic: actions carry an actor name
  * and `delete` is creator-or-owner, `edit`/`block` are creator, assignee or
- * owner.
+ * owner. `openAccess: true` disables that guard for a personal board; login
+ * and tokens are a separate layer and still apply.
  */
 export class Kanban {
   private readonly projection = new Projection();
@@ -426,7 +433,11 @@ export class Kanban {
   ): Promise<MutationResult> {
     await this.projection.sync(this.log);
     const card = this.mustCard(id);
-    if (card.createdBy !== actor.name && !this.isOwner(actor)) {
+    if (
+      this.options.openAccess !== true &&
+      card.createdBy !== actor.name &&
+      !this.isOwner(actor)
+    ) {
       throw new KanbanError(
         "forbidden",
         `only the creator (${card.createdBy}) can delete card ${id}`,
@@ -971,6 +982,7 @@ export class Kanban {
   }
 
   private assertCanModify(card: Card, actor: Actor): void {
+    if (this.options.openAccess === true) return;
     if (card.createdBy === actor.name || card.assignee === actor.name) return;
     if (this.isOwner(actor)) return;
     throw new KanbanError(

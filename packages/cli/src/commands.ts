@@ -20,6 +20,7 @@ import {
   flagString,
   parseArgv,
   resolveDir,
+  resolveOpenAccess,
   resolvePostgresUrl,
   resolveStorage,
   UsageError,
@@ -349,6 +350,7 @@ export async function runCommand(
   const dir = resolveDir(parsed.flags, io.env);
   const storage = resolveStorage(parsed.flags, io.env);
   const postgresUrl = resolvePostgresUrl(parsed.flags, io.env);
+  const openAccess = resolveOpenAccess(parsed.flags, io.env);
   const config = loadConfig(io.env);
 
   if (command === "login") {
@@ -379,7 +381,7 @@ export async function runCommand(
 
   switch (command) {
     case "web":
-      return runWeb(parsed.flags, io, dir, storage, postgresUrl);
+      return runWeb(parsed.flags, io, dir, storage, postgresUrl, openAccess);
     case "init":
       // Onboarding a framework is about the project you are standing in, which
       // is no longer the board directory now that the store is centralised.
@@ -411,6 +413,7 @@ export async function runCommand(
     server: transport.server,
     token: transport.token,
     postgresUrl,
+    openAccess,
   });
   try {
     switch (command) {
@@ -769,6 +772,7 @@ async function runWeb(
   dir: string,
   storage: "sqlite" | "jsonl" | "memory" | "postgres",
   postgresUrl: string | undefined,
+  openAccess: boolean,
 ): Promise<number> {
   const { startServer } = await import("@wayblink/using-kanban-server");
   const uiDir = flagString(flags, "ui") ?? (await resolveDefaultUiDir());
@@ -782,6 +786,7 @@ async function runWeb(
     dir,
     storage,
     postgresUrl,
+    openAccess,
     host: flagString(flags, "host"),
     port: flagString(flags, "port")
       ? Number(flagString(flags, "port"))

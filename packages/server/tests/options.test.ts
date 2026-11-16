@@ -66,3 +66,13 @@ describe("the non-loopback bind policy", () => {
     expect(failure.exitCode).toBe(78);
   });
 });
+
+describe("open access", () => {
+  it("defaults to the creator/assignee guard and honors the flag", () => {
+    const dir = tempDir();
+    expect(resolveServerOptions({ dir }).openAccess).toBe(false);
+    expect(resolveServerOptions({ dir, openAccess: true }).openAccess).toBe(
+      true,
+    );
+  });
+});

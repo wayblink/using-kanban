@@ -1624,3 +1624,28 @@ describe("project and subproject", () => {
     expect(authOnly.todo.map((card) => card.id)).toEqual([auth.id]);
   });
 });
+
+describe("open access", () => {
+  it("lets another actor edit and delete a card when enabled", async () => {
+    const kanban = new Kanban({
+      log: new MemoryEventLog(),
+      openAccess: true,
+    });
+    const { card } = await kanban.add({ title: "personal" }, human);
+    const edited = await kanban.edit(card.id, { body: "changed" }, otherAgent);
+    expect(edited.card.body).toBe("changed");
+    await kanban.remove(card.id, otherAgent);
+    expect(await kanban.card(card.id)).toBeNull();
+  });
+
+  it("keeps the creator/assignee guard by default", async () => {
+    const kanban = makeKanban();
+    const { card } = await kanban.add({ title: "shared" }, human);
+    await expect(
+      kanban.edit(card.id, { body: "nope" }, otherAgent),
+    ).rejects.toMatchObject({ code: "forbidden" });
+    await expect(kanban.remove(card.id, otherAgent)).rejects.toMatchObject({
+      code: "forbidden",
+    });
+  });
+});

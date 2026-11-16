@@ -39,6 +39,9 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
       case "--token":
         options.token = next();
         break;
+      case "--open-access":
+        options.openAccess = true;
+        break;
       case "--allow-anonymous":
         options.allowAnonymous = true;
         break;
@@ -116,6 +119,9 @@ async function main(): Promise<void> {
   const owner = options.owner ?? resolveOwnerName({ env: process.env, config });
   const running = await startServer({
     ...options,
+    openAccess:
+      options.openAccess ??
+      /^(1|true|yes)$/iu.test(process.env.UKB_OPEN_ACCESS ?? ""),
     allowImport:
       options.allowImport ??
       /^(1|true|yes)$/iu.test(process.env.UKB_ALLOW_IMPORT ?? ""),

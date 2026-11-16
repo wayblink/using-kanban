@@ -63,6 +63,10 @@ editor .env      # BOARD_DOMAIN=board.example.com and POSTGRES_PASSWORD=…
 `BOARD_DOMAIN` is the hostname Caddy serves; `POSTGRES_PASSWORD` is the database
 password. Both are required. `POSTGRES_USER`/`POSTGRES_DB` default to `ukb`.
 
+For a personal, single-user board you may also set `UKB_OPEN_ACCESS=1`: any
+signed-in account can then edit/delete any card (login is still required).
+Leave it unset for a board shared by several people.
+
 ## 4. Build
 
 ```bash
@@ -255,6 +259,8 @@ docker compose run --rm ukb ukb user token revoke <id>
 - [ ] Backups are copied off the server periodically.
 - [ ] Tokens can be revoked per machine (`ukb user token revoke`).
 - [ ] One `ukb` replica per board.
+- [ ] `UKB_OPEN_ACCESS` is only set for a personal board; shared boards keep
+      the creator/assignee guard.
 
 ## Troubleshooting
 

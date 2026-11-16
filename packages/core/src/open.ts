@@ -44,6 +44,11 @@ export interface OpenKanbanOptions {
    * Required for that storage; ignored otherwise.
    */
   readonly postgresUrl?: string | undefined;
+  /**
+   * Disable the cooperative creator/assignee guard. For a personal board;
+   * accounts/tokens are a separate layer and still apply.
+   */
+  readonly openAccess?: boolean | undefined;
 }
 
 /** Per-project store directory, created on first open. */
@@ -75,12 +80,18 @@ export function openKanban(options: OpenKanbanOptions = {}): Kanban {
     return new Kanban({
       log: new PgEventLog({ connectionString: options.postgresUrl }),
       ...(options.owner !== undefined ? { owner: options.owner } : {}),
+      ...(options.openAccess !== undefined
+        ? { openAccess: options.openAccess }
+        : {}),
     });
   }
   if (storage === "memory") {
     return new Kanban({
       log: new MemoryEventLog(),
       ...(options.owner !== undefined ? { owner: options.owner } : {}),
+      ...(options.openAccess !== undefined
+        ? { openAccess: options.openAccess }
+        : {}),
     });
   }
 
@@ -120,6 +131,9 @@ export function openKanban(options: OpenKanbanOptions = {}): Kanban {
   return new Kanban({
     log,
     ...(options.owner !== undefined ? { owner: options.owner } : {}),
+    ...(options.openAccess !== undefined
+      ? { openAccess: options.openAccess }
+      : {}),
   });
 }
 

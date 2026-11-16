@@ -32,6 +32,11 @@ export const ServerOptionsSchema = z.object({
    */
   allowAnonymous: z.boolean().default(false),
   /**
+   * Turn off the cooperative creator/assignee guard: every authenticated
+   * caller may edit and delete any card. Authentication still applies.
+   */
+  openAccess: z.boolean().default(false),
+  /**
    * The machine's human name (`config.owner`) — the permission escape hatch,
    * and the default actor of the Web UI. Defaults to the machine's name.
    */
@@ -66,6 +71,7 @@ export interface ResolvedServerOptions {
   /** Postgres DSN, present only for `storage: postgres`. */
   postgresUrl?: string | undefined;
   allowAnonymous: boolean;
+  openAccess: boolean;
   owner: string;
   actor: z.infer<typeof ActorSchema>;
   uiDir?: string | undefined;

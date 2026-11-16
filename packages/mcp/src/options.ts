@@ -20,6 +20,8 @@ export const McpOptionsSchema = z.object({
   token: z.string().min(1).optional(),
   /** Postgres DSN for `storage: "postgres"` (or UKB_PG_URL / DATABASE_URL). */
   pgUrl: z.string().min(1).optional(),
+  /** Turn off the per-card creator/assignee guard (personal board). */
+  openAccess: z.boolean().optional(),
 });
 export type McpOptions = z.input<typeof McpOptionsSchema>;
 
@@ -37,6 +39,8 @@ export interface ResolvedMcpOptions {
   token: string | null;
   /** Postgres DSN for the local `storage: postgres` mode. */
   postgresUrl: string | undefined;
+  /** Disable the per-card permission guard (personal board). */
+  openAccess: boolean;
 }
 
 const DEFAULT_AGENT_NAME = "agent";
@@ -85,6 +89,8 @@ export function resolveMcpOptions(
     token: transport.token,
     postgresUrl:
       parsed.pgUrl ?? env.UKB_PG_URL ?? env.DATABASE_URL ?? undefined,
+    openAccess:
+      parsed.openAccess ?? /^(1|true|yes)$/iu.test(env.UKB_OPEN_ACCESS ?? ""),
     usedDefaultAgent:
       parsed.agent === undefined &&
       env.UKB_AGENT === undefined &&
@@ -129,6 +135,9 @@ function parseArgv(argv: readonly string[]): McpOptions {
         break;
       case "--pg-url":
         options.pgUrl = next();
+        break;
+      case "--open-access":
+        options.openAccess = true;
         break;
       case "--help":
       case "-h":

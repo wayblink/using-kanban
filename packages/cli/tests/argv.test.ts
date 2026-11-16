@@ -6,6 +6,7 @@ import {
   flagString,
   parseArgv,
   resolveDir,
+  resolveOpenAccess,
   resolveStorage,
   UsageError,
 } from "../src/argv.js";
@@ -71,6 +72,12 @@ describe("storage and dir resolution", () => {
     expect(resolveStorage({ storage: "jsonl" }, {})).toBe("jsonl");
     expect(resolveStorage({}, { UKB_STORAGE: "jsonl" })).toBe("jsonl");
     expect(resolveStorage({}, {})).toBe("sqlite");
+  });
+
+  it("resolves open access from the flag or environment", () => {
+    expect(resolveOpenAccess({}, {})).toBe(false);
+    expect(resolveOpenAccess({}, { UKB_OPEN_ACCESS: "1" })).toBe(true);
+    expect(resolveOpenAccess({ "open-access": true }, {})).toBe(true);
   });
 
   it("accepts postgres and rejects unknown storage kinds", () => {

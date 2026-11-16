@@ -98,6 +98,7 @@ export function createMcpServer(options: ResolvedMcpOptions): McpServer {
       server: options.server,
       token: options.token,
       postgresUrl: options.postgresUrl,
+      openAccess: options.openAccess,
     });
     return opened;
   };
