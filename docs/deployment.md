@@ -1,39 +1,44 @@
 # Deploying a shared board
 
 Status: the container stack is in this repository (`Dockerfile`, `docker-compose.yml`,
-`docker/Caddyfile`, `docker/backup.mjs`). Last updated: 2026-11-16.
+`docker/Caddyfile`, `docker/backup-pg.sh`). Last updated: 2026-11-16.
 
 This runbook puts one board and its Web UI behind HTTPS on a server, with
-accounts as the only way in. It is the operational counterpart of
-[`shared-board-accounts.md`](shared-board-accounts.md): that document explains
-the auth model, this one is the ten steps from a fresh server to a board your
-machines can point at.
+Postgres as the store and accounts as the only way in. It is the operational
+counterpart of [`shared-board-accounts.md`](shared-board-accounts.md): that
+document explains the auth model, this one is the steps from a fresh server to a
+board your machines can point at.
 
 ## What the stack is
 
-| Piece             | Role                                                               |
-| ----------------- | ------------------------------------------------------------------ |
-| `ukb` container   | the board server + Web UI, one replica, SQLite on a volume         |
-| `caddy` container | TLS termination (automatic certificates) and reverse proxy         |
-| `ukb-data` volume | `/data`, holding `.ukb/board.db`, `.ukb/accounts.json`, `backups/` |
+| Piece                | Role                                                                   |
+| -------------------- | ---------------------------------------------------------------------- |
+| `postgres` container | the board's event log: durable, standard backups, not published        |
+| `ukb` container      | the server + Web UI, one replica, reads/writes Postgres                |
+| `caddy` container    | TLS termination (automatic certificates) and reverse proxy             |
+| `pg-data` volume     | Postgres data                                                          |
+| `ukb-data` volume    | `/data`: accounts (`accounts.json`) and backups made inside the volume |
 
 Constraints worth knowing before you start:
 
-- **Single writer.** SQLite is single-writer; run one `ukb` replica. Scaling out
-  means a different store, not more containers.
+- **One `ukb` replica.** The engine still assumes a single server process per
+  board; Postgres gives durability and standard backups, not multi-writer
+  coordination yet.
 - **HTTPS only.** The board uses HTTP Basic auth, which sends the password on
   every request. Caddy terminates TLS; never publish plain HTTP.
 - **The first account must exist before the container starts.** The server
   refuses a non-loopback bind with no accounts. That refusal is the safety net;
   create the account with `docker compose run` (below).
+- **Postgres is internal.** It has no published port; only the compose network
+  reaches it. Keep `POSTGRES_PASSWORD` URL-safe (letters/digits) or set
+  `UKB_PG_URL` explicitly with a properly encoded password.
 
 ## 1. Prerequisites
 
 - A Linux server with Docker Engine and the Compose plugin.
 - A DNS `A`/`AAAA` record for the board hostname pointing at the server.
-- Ports 80 and 443 reachable from the internet (Caddy uses 80 for the ACME
-  challenge and redirects, 443 for the board).
-- 1 GB RAM and a few GB of disk is plenty for a personal board.
+- Ports 80 and 443 reachable from the internet.
+- 2 GB RAM and a few GB of disk is plenty for a personal board.
 
 ## 2. Get the code
 
@@ -50,11 +55,11 @@ upgrade infrequently.
 
 ```bash
 cp .env.example .env
-editor .env      # BOARD_DOMAIN=board.example.com
+editor .env      # BOARD_DOMAIN=board.example.com and POSTGRES_PASSWORD=…
 ```
 
-`BOARD_DOMAIN` is the only required value. Caddy reads it from `.env` through
-the compose environment.
+`BOARD_DOMAIN` is the hostname Caddy serves; `POSTGRES_PASSWORD` is the database
+password. Both are required. `POSTGRES_USER`/`POSTGRES_DB` default to `ukb`.
 
 ## 4. Build
 
@@ -63,11 +68,8 @@ docker compose build
 ```
 
 The build stage compiles the workspace and produces a production-only runtime
-tree; the runtime image is the slim Node image, and backups use the bundled
-`better-sqlite3` (no extra package manager at runtime).
-
-Behind a restricted network, point the build at mirrors instead of editing the
-Dockerfile:
+tree; the runtime image is the slim Node image. Behind a restricted network,
+point the build at mirrors without editing the Dockerfile:
 
 ```bash
 NPM_REGISTRY=https://registry.npmmirror.com \
@@ -76,37 +78,35 @@ NODE_RUNTIME_IMAGE=registry.example.com/library/node:22-bookworm-slim \
 docker compose build
 ```
 
-The same three values can live in `.env` (see `.env.example`). The builder
-needs a full Node image because `better-sqlite3` is a native addon; the runtime
-does not. The image runs as the
-unprivileged `node` user.
+The same values can live in `.env`. The builder needs a full Node image (the
+CLI still ships SQLite for local use); the server runtime does not need a
+compiler.
 
-## 5. Create the first account (before starting)
+## 5. Create the first account (before starting the board)
+
+Start the database, not the board:
 
 ```bash
+docker compose up -d postgres
 printf 'a long password\n' | docker compose run --rm -T ukb ukb user add alice --password-stdin
 ```
 
-The first account becomes `admin`. Add more people the same way:
+The first account becomes `admin`. Add people the same way, and machine tokens
+for laptops, CI and agents (the token is printed once):
 
 ```bash
 printf 'another password\n' | docker compose run --rm -T ukb ukb user add bob --password-stdin
-```
-
-Create machine tokens for laptops, CI and agents — the token is printed once:
-
-```bash
 docker compose run --rm -T ukb ukb user token add alice --label laptop
 ```
 
-`docker compose run` uses the same image and data volume as the server, so the
-accounts land in the volume the server will read.
+`docker compose run` uses the same image and the `/data` volume as the server,
+so the accounts land where the server will read them.
 
 ## 6. Start
 
 ```bash
 docker compose up -d
-docker compose ps          # ukb healthy, caddy running
+docker compose ps          # postgres healthy, ukb healthy, caddy running
 docker compose logs -f caddy
 ```
 
@@ -120,10 +120,10 @@ are right this is the step that fails.
 curl -fsS https://board.example.com/healthz
 
 # the board asks for credentials
-curl -s -o /dev/null -w '%{http_code}\n' https://board.example.com/api/board          # 401
+curl -s -o /dev/null -w '%{http_code}\n' https://board.example.com/api/board   # 401
 
 # with the account's password
-curl -s -u alice https://board.example.com/api/board >/dev/null && echo ok            # 200
+curl -s -u alice https://board.example.com/api/board >/dev/null && echo ok    # 200
 
 # with a machine token
 curl -s -H "Authorization: Bearer ukb_…" https://board.example.com/api/board >/dev/null && echo ok
@@ -135,39 +135,55 @@ credentials, and shows the board.
 ## 8. Point machines at it
 
 ```bash
-ukb login --server https://board.example.com --token ukb_…   # or pipe the token
+ukb login --server https://board.example.com --token ukb_…
 UKB_SERVER=https://board.example.com ukb board
 ```
 
 Or put `"server": "https://board.example.com"` in `~/.config/ukb/config.json`.
 The MCP server and the Pi/DSH plugins inherit the same settings. Setup verbs
-(`web`, `init`, `doctor`, `user`) stay on the store's machine — on a client they
-refuse with an explanation.
+(`web`, `init`, `doctor`, `user`, `migrate`) stay on the store's machine — on a
+client they refuse with an explanation.
 
-## 9. Backups
+## 9. Migrating an existing SQLite board
 
-The backup is an online snapshot: better-sqlite3's `backup()` reads a consistent
-database without stopping the server, and the accounts file is copied beside it.
+If you already ran the SQLite version of this stack (the `ukb-data` volume has
+`.ukb/board.db`), copy it in once. Event ids and card handles are preserved.
 
 ```bash
-docker compose exec -T ukb node /app/backup.mjs
-docker compose exec -T ukb ls -lh /data/backups
+docker compose up -d postgres
+docker compose run --rm -T ukb \
+  ukb migrate --to postgres --from /data/.ukb/board.db --pg-url "$UKB_PG_URL"
+docker compose up -d
 ```
 
-The snapshot uses better-sqlite3's backup API, so it is safe while the server
-runs. Files are named `board-<UTC stamp>.db` and `accounts-<UTC stamp>.json` under
-`/data/backups`, pruned after 14 days (`UKB_BACKUP_KEEP_DAYS` overrides). Because
-`backups/` is inside the data volume, a volume snapshot or bind mount carries
-them too.
+`UKB_PG_URL` is already in the compose environment; the command refuses a
+non-empty target unless `--force`, and `--dry-run` reports the event count
+first. Keep the SQLite file until the Postgres board has been verified.
 
-### Restore (verify this on a throwaway volume once)
+## 10. Backups
+
+The database and the accounts file are separate, and both are needed.
+
+```bash
+./docker/backup-pg.sh
+ls -lh backups
+```
+
+`pg_dump` runs inside the database container, so the password never appears on
+the host command line; it writes `backups/board-<UTC>.dump` and
+`backups/accounts-<UTC>.json` (0600), pruned after 14 days
+(`BACKUP_KEEP_DAYS` overrides). Copy these off the box periodically.
+
+### Restore (verify this on a throwaway stack once)
 
 ```bash
 docker compose stop ukb
-docker compose run --rm -T ukb sh -c '
-  cp /data/backups/board-20260101T000000Z.db /data/.ukb/board.db &&
-  cp /data/backups/accounts-20260101T000000Z.json /data/.ukb/accounts.json &&
-  rm -f /data/.ukb/board.db-wal /data/.ukb/board.db-shm'
+docker compose exec -T postgres sh -c \
+  'pg_restore --clean --if-exists -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
+  < backups/board-20260101T000000Z.dump
+docker compose run --rm -T --no-deps ukb sh -c \
+  'cat > /data/.ukb/accounts.json && chmod 600 /data/.ukb/accounts.json' \
+  < backups/accounts-20260101T000000Z.json
 docker compose start ukb
 curl -fsS https://board.example.com/healthz
 ```
@@ -175,7 +191,7 @@ curl -fsS https://board.example.com/healthz
 Restoring the accounts file too matters: a board without accounts looks open
 until the server tries to bind and refuses.
 
-## 10. Upgrade
+## 11. Upgrade
 
 ```bash
 git fetch --tags && git checkout <new tag or main>
@@ -185,15 +201,17 @@ docker compose ps
 curl -fsS https://board.example.com/healthz
 ```
 
-The data volume survives rebuilds. Take a backup before upgrading; the schema
-is event-sourced and additive, but a restore is cheaper than a rollback.
+The `pg-data` and `ukb-data` volumes survive rebuilds. Take a backup before
+upgrading; a restore is cheaper than a rollback.
 
 ## Operations
 
 ```bash
-docker compose logs -f ukb        # server log (accounts, requests, errors)
+docker compose logs -f ukb        # server log
+docker compose logs -f postgres   # database log
 docker compose logs -f caddy      # TLS / proxy problems
 docker compose restart ukb
+docker compose exec -T postgres psql -U ukb -d ukb -c '\dt'
 docker compose run --rm ukb ukb user list
 docker compose run --rm ukb ukb user token revoke <id>
 ```
@@ -201,20 +219,23 @@ docker compose run --rm ukb ukb user token revoke <id>
 ## Security checklist
 
 - [ ] `.env` is not committed (only `.env.example` is).
-- [ ] Port 8787 is **not** published — only Caddy listens publicly.
+- [ ] Postgres has no published port; only the compose network reaches it.
+- [ ] Port 8787 is not published — only Caddy listens publicly.
 - [ ] At least one account exists; no `--allow-anonymous` on a public host.
 - [ ] HTTPS works; `http://` redirects to `https://`.
-- [ ] Data volume is not world-readable; backups copied off the box periodically.
+- [ ] Backups are copied off the server periodically.
 - [ ] Tokens can be revoked per machine (`ukb user token revoke`).
-- [ ] One replica: no second `ukb` service against the same SQLite file.
+- [ ] One `ukb` replica per board.
 
 ## Troubleshooting
 
-| Symptom                                                      | Cause                                              | Fix                                                      |
-| ------------------------------------------------------------ | -------------------------------------------------- | -------------------------------------------------------- |
-| container exits: `refusing to bind 0.0.0.0 without accounts` | no account yet                                     | step 5, then `docker compose up -d`                      |
-| browser keeps prompting                                      | wrong password, or a proxy in front not forwarding | check `docker compose logs ukb`; test with `curl -u`     |
-| `401` with a token                                           | token revoked or from another server               | mint a new one, `ukb login` again                        |
-| Caddy cannot get a certificate                               | DNS not pointing here, or 80/443 blocked           | `docker compose logs caddy`; check A record and firewall |
-| `EACCES` on `/data`                                          | bind mount ownership                               | `chown -R 1000:1000 <dir>` (the image runs as `node`)    |
-| writes slow or `database is locked`                          | second replica on the same volume                  | keep exactly one `ukb`                                   |
+| Symptom                                                     | Cause                                     | Fix                                                             |
+| ----------------------------------------------------------- | ----------------------------------------- | --------------------------------------------------------------- |
+| `ukb` restarts: `refusing to bind 0.0.0.0 without accounts` | no account yet                            | step 5, then `docker compose up -d`                             |
+| `ukb` restarts: Postgres connection refused                 | database not healthy                      | `docker compose logs postgres`; `docker compose up -d postgres` |
+| `password authentication failed`                            | password changed in `.env`, old volume    | keep the old password in `UKB_PG_URL`, or reset it in Postgres  |
+| browser keeps prompting                                     | wrong password, or a proxy not forwarding | `docker compose logs ukb`; test with `curl -u`                  |
+| `401` with a token                                          | token revoked or from another server      | mint a new one, `ukb login` again                               |
+| Caddy cannot get a certificate                              | DNS not pointing here, or 80/443 blocked  | `docker compose logs caddy`; check A record and firewall        |
+| `EACCES` on `/data`                                         | bind mount ownership                      | `chown -R 1000:1000 <dir>` (the image runs as `node`)           |
+| writes slow or `database is locked` (SQLite mode)           | second replica on the same file           | keep exactly one `ukb`                                          |

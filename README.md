@@ -267,8 +267,9 @@ probes. Basic auth carries a password on every request, so put TLS in front
 (Caddy or Nginx) and never publish plain HTTP.
 
 The repository ships a container stack for exactly that: `docker compose up`
-builds the board image, serves it behind Caddy's automatic TLS, keeps the store
-on a volume, and provides an online backup script. The runbook is
+builds the board image, serves it behind Caddy's automatic TLS, and runs the
+store in a Postgres container with its own volume and `pg_dump` backups (SQLite
+remains the default for local, single-machine use). The runbook is
 [`docs/deployment.md`](docs/deployment.md); the auth model is
 [`docs/shared-board-accounts.md`](docs/shared-board-accounts.md).
 

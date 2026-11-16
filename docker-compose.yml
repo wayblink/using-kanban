@@ -1,8 +1,28 @@
 # One board, one writer. SQLite is single-writer, so this stack is one `ukb`
-# replica behind one TLS proxy — not a horizontally scaled service.
+# replica behind one TLS proxy — now with Postgres as the store. The `ukb`
+# container still owns the accounts file; the database is its own service and
+# volume, so backups, upgrades and restarts are independent.
 name: using-kanban
 
 services:
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:16}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ukb}
+      # Keep this URL-safe (letters/digits) or set UKB_PG_URL yourself; an
+      # unencoded @/: inside the URI would change what the driver parses.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-ukb}
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    # Not published: only the compose network can reach the database.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   ukb:
     build:
       context: .
@@ -12,12 +32,15 @@ services:
         NODE_RUNTIME_IMAGE: ${NODE_RUNTIME_IMAGE:-node:22-bookworm-slim}
         NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
       UKB_HOST: 0.0.0.0
       UKB_PORT: "8787"
       UKB_DIR: /data
-      # Accounts live in the data volume; create the first one before `up`:
-      #   docker compose run --rm ukb ukb user add alice
+      UKB_STORAGE: postgres
+      UKB_PG_URL: ${UKB_PG_URL:-postgres://${POSTGRES_USER:-ukb}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-ukb}}
     volumes:
       - ukb-data:/data
     expose:
@@ -40,6 +63,7 @@ services:
       - caddy-config:/config
 
 volumes:
+  pg-data:
   ukb-data:
   caddy-data:
   caddy-config:

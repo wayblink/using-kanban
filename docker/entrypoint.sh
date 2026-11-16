@@ -14,8 +14,14 @@ if [ "$#" -gt 0 ]; then
   exec "$@"
 fi
 
-exec ukb-server \
+STORAGE="${UKB_STORAGE:-sqlite}"
+set -- ukb-server \
   --dir "$UKB_DIR" \
   --host "${UKB_HOST:-0.0.0.0}" \
   --port "${UKB_PORT:-8787}" \
-  --ui "${UKB_UI:-/app/web}"
+  --ui "${UKB_UI:-/app/web}" \
+  --storage "$STORAGE"
+if [ "$STORAGE" = "postgres" ] && [ -n "${UKB_PG_URL:-}" ]; then
+  set -- "$@" --pg-url "$UKB_PG_URL"
+fi
+exec "$@"
