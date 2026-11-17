@@ -342,12 +342,14 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * One row per card, children under their umbrella.
+     * One row per card, children under their umbrella when they share a column.
      *
-     * A part follows its umbrella at any depth, including across states: the
-     * umbrella's section owns the subtree, so a part is drawn once and never
-     * escapes the card that explains it — the rule the Pi panel already applies.
-     * A card whose umbrella is filtered out stays a root and wears `⤷#parent`.
+     * A part follows its umbrella at any depth *within the same state*. A part
+     * in another state (an umbrella still doing, a part already done or in
+     * review) is drawn at the top of its own column and wears `⤷#parent`: the
+     * columns and their counts must answer "what is in this state", not "what
+     * belongs to this umbrella". A card whose umbrella is filtered out stays a
+     * root too.
      */
     function rowsByState(board) {
       const sectionOf = new Map();
@@ -368,13 +370,19 @@ window.__ModuleLoader__.load({
       }
       const rows = new Map(STATES.map((state) => [state, []]));
       const seen = new Set();
-      const append = (card, depth, sectionKey) => {
+      const append = (card, depth, parentState) => {
         if (seen.has(card.id)) return;
         seen.add(card.id);
         const own = sectionOf.get(card.id) ?? card.state;
-        const bucket = rows.get(sectionKey) ?? rows.get(own);
-        bucket?.push({ card, depth, state: own });
-        for (const child of childrenOf.get(card.id) ?? []) append(child, depth + 1, sectionKey);
+        // A part in another state starts a new tree in its own column; the
+        // depth resets so the row is not indented under a card in the column
+        // above it.
+        const sameColumn = own === parentState;
+        const rowDepth = sameColumn ? depth : 0;
+        rows.get(own)?.push({ card, depth: rowDepth, state: own });
+        for (const child of childrenOf.get(card.id) ?? []) {
+          append(child, rowDepth + 1, own);
+        }
       };
       for (const root of roots) append(root, 0, sectionOf.get(root.id) ?? root.state);
       // A parent cycle leaves cards that are nobody's root; keep them visible.

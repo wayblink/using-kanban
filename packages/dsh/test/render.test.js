@@ -231,15 +231,15 @@ test("an umbrella row carries its children's progress", () => {
   assert.ok(text.includes("▸1/2"), "done/total comes from the whole board");
 });
 
-test("a part in another state stays under its umbrella and is drawn once", () => {
+test("a part in another state is drawn once, in its own column", () => {
   const state = boardOf({
     todo: [card(20, "Cross umbrella", "using-kanban", { children: [21] })],
     done: [card(21, "Done part", "using-kanban", { state: "done", parent: 20 })],
   });
   const text = JSON.stringify(renderPanel({ state, props: workspaceProps("/Users/x/yard/using-kanban") }));
   assert.equal(text.split('"data-card":21').length - 1, 1, "one card, one row");
-  assert.ok(text.indexOf('"data-card":21') > text.indexOf('"data-card":20'));
-  assert.ok(text.indexOf('"data-card":21') < text.indexOf("Doing"), "it sits under the umbrella, not in its own section");
+  assert.ok(text.indexOf('"data-card":21') > text.indexOf("Done"), "it sits in Done, not under the umbrella");
+  assert.ok(text.includes("⤷#20"), "the part still names its umbrella");
 });
 
 test("a card whose umbrella is filtered out keeps the parent marker", () => {
