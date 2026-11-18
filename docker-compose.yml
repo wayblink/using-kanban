@@ -24,6 +24,9 @@ services:
       retries: 20
 
   ukb:
+    # CD publishes this image on v* tags; `docker compose build` tags the local
+    # build with the same name, and `docker compose pull ukb` uses the release.
+    image: ${UKB_IMAGE:-ghcr.io/wayblink/using-kanban:latest}
     build:
       context: .
       dockerfile: Dockerfile

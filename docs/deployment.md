@@ -89,6 +89,21 @@ The same values can live in `.env`. The builder needs a full Node image (the
 CLI still ships SQLite for local use); the server runtime does not need a
 compiler.
 
+### Pulling the published image
+
+A `v*` tag (or a manual **Release** workflow run) publishes
+`ghcr.io/wayblink/using-kanban:<tag>` and `:latest`. If the package is private,
+sign in once with a GHCR token that can read packages:
+
+```bash
+echo "$GHCR_TOKEN" | docker login ghcr.io -u <github-user> --password-stdin
+UKB_IMAGE=ghcr.io/wayblink/using-kanban:latest docker compose pull ukb
+UKB_IMAGE=ghcr.io/wayblink/using-kanban:latest docker compose up -d
+```
+
+`docker compose build` still works and tags the local build with the same
+image name, so a server without registry access is unaffected.
+
 ## 5. Create the first account (before starting the board)
 
 Start the database, not the board:
