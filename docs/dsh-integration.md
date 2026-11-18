@@ -6,6 +6,8 @@ system prompt. It is the counterpart of the Pi extension, not a second board
 implementation — every call runs the `ukb` CLI, so validation, transitions,
 attribution and error codes stay in one place.
 
+![The DeepSeek Harness Kanban sidebar with a card expanded](dsh-kanban.png)
+
 ## Install
 
 ```bash
@@ -69,5 +71,5 @@ The chosen source is logged when the bundle loads (`[ukb] using …`).
 |---|---|---|
 | `ukb CLI not found` | no CLI in the checkout or on PATH | build `packages/cli`, or set `ukb_path` |
 | `better-sqlite3 … NODE_MODULE_VERSION` | the Electron Node loaded a native addon built for the system Node | set `UKB_NODE` to the Node you use for the CLI, or rebuild the addon |
-| `forbidden` on claim/edit | the card belongs to someone else | `show` the card; the owner may edit anything, an agent only its own |
+| `forbidden` on claim/edit | the card belongs to someone else | set `auth: false` for a personal board, or `show` the card and let its creator/assignee act |
 | Board JSON truncated | the tool result cap | use `board` without `json`, or a `--project` slice |

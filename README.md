@@ -1,5 +1,7 @@
 # using-kanban
 
+English | [简体中文](README.zh-CN.md)
+
 Using Kanban is a shared board for people and coding agents. Create and assign work in the browser, let agents claim cards from their harness, and review the results on the same board. Run a local board on your machine or host a shared board over HTTPS.
 
 ![The board, with five states and an umbrella card](docs/web-ui.png)
@@ -95,6 +97,8 @@ The native `ukb` tool and skill teach the agent the workflow. The default agent 
 
 Install the bundle through DSH after writing the workflow snippet. The bundle supplies a native `ukb` tool, the `/ukb` command, and system prompt guidance. It runs the CLI as `dsh`. Set the bundle's `ukb_path` or the `UKB_BIN` environment variable if it cannot locate the executable. Its web client adds a **Kanban** sidebar, a composer chip with state counts, and a card/board view for tool calls. The sidebar and chip start on the project matched from the session workspace path and fall back to the whole board. [DeepSeek Harness installation](docs/dsh-integration.md#install)
 
+![The DeepSeek Harness Kanban sidebar with a card expanded](docs/dsh-kanban.png)
+
 ### Other MCP clients
 
 `ukb-mcp` is a stdio server. From a built checkout, set the command to `node` with arguments `/path/to/using-kanban/packages/mcp/dist/bin.js --agent <name>`. It exposes tools for listing assignments and reviews, reading cards, transitions, dependencies, umbrellas, and notes, plus the `kanban://board` resource.
@@ -105,11 +109,11 @@ Install the bundle through DSH after writing the workflow snippet. The bundle su
 
 - SQLite is the local default. Select JSONL, in-memory storage, or Postgres with `--storage` or `UKB_STORAGE`. Postgres reads its connection URL from `--pg-url`, `UKB_PG_URL`, or `DATABASE_URL`. The board and its history are derived from the append-only event log. Card IDs and event IDs have separate sequences.
 - The local CLI and browser default to the board owner. Set `owner` in `~/.config/ukb/config.json` (or `$XDG_CONFIG_HOME/ukb/config.json`) or override it with `UKB_OWNER`. The CLI accepts `--agent <name> --agent-type agent` for agent actions. Pi also reads `guidance` and `overlay` from the same config file. `auth: false` in that file turns off login/account checks and the per-card creator/assignee guard for a personal board; leave it absent (on) for a shared server.
-- Card edits are available to the creator, assignee, and board owner. The creator and board owner may delete. For a personal board, `--open-access` or `UKB_OPEN_ACCESS=1` lets any caller with write access edit or delete any card. Server authentication still applies.
+- Card edits are available to the creator, assignee, and board owner. The creator and board owner may delete. One switch, `auth`, controls both login and this guard: `auth: false` in the config (or `--auth off` / `UKB_AUTH=off`) is for a personal board and turns the creator/assignee guard off; leave it on for a shared board. On a server, `auth: off` also accepts anonymous writes, so only use it on a trusted host.
 
 ### Run a shared server
 
-The server defaults to loopback. Without accounts, loopback reads are open and writes require the server token. Binding beyond loopback requires an account or the explicit `--allow-anonymous` option for a trusted LAN, which opens reads while retaining the write token.
+The server defaults to loopback. Without accounts, loopback reads are open and writes require the server token. Binding beyond loopback requires an account, unless `auth` is explicitly off: that opens both reads and writes and is only for a personal/trusted board, never a public host.
 
 With accounts configured, browsers sign in using HTTP Basic and automation can use a machine token. Create users and issue tokens on the host that runs the store. `/healthz` remains available for probes.
 
@@ -139,7 +143,7 @@ The MCP server, Pi, and DeepSeek Harness use the same settings. Run `ukb init` b
 
 - **`board_not_found`.** Check `UKB_DIR` and the active board URL. Create a first card with `ukb add` if the local board has yet to be initialized.
 - **`unauthorized`.** Sign into the browser on a shared board or check the CLI's machine token and server URL. For a local `ukb web` session, use the startup URL.
-- **`forbidden`.** Check the active actor and the card's creator or assignee. The board owner can edit and delete any card.
+- **`forbidden`.** Check the active actor and the card's creator or assignee. The board owner can edit and delete any card. On a personal board, set `auth: false` (or `--auth off`) to lift the per-card guard.
 - **`revision_conflict`.** Reload the card before applying changes again.
 
 ## Development
