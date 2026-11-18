@@ -97,7 +97,7 @@ codex plugin add using-kanban@using-kanban
 
 先写入工作流片段，再在 DSH 里安装 bundle。bundle 提供原生 `ukb` 工具、`/ukb` 命令和系统提示词说明，并以 `dsh` 身份运行 CLI。如果它找不到可执行文件，设置 bundle 的 `ukb_path` 或环境变量 `UKB_BIN`。Web 客户端会增加 **Kanban** 侧栏、带状态计数的 composer chip，以及工具调用的卡片/看板视图。侧栏和 chip 默认按会话工作区路径匹配项目，匹配不到时显示全板。[DeepSeek Harness 安装](docs/dsh-integration.md#install)
 
-![DeepSeek Harness 的 Kanban 侧栏：展开一张卡片查看正文与历史](docs/dsh-kanban.png)
+![DeepSeek Harness 的 Kanban 侧栏：按状态分列展示卡片](docs/dsh-kanban.png)
 
 ### 其他 MCP 客户端
 
