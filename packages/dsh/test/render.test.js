@@ -196,6 +196,13 @@ test("a host without the session hook still renders", () => {
   assert.ok(text.includes("Iceberg card"));
 });
 
+test("the scope and card id are wrapped as their own marks", () => {
+  const text = JSON.stringify(renderPanel());
+  assert.ok(text.includes('"data-scope":"using-kanban"'), "project badge");
+  assert.ok(text.includes('"data-card-id":1'), "card id badge");
+  assert.ok(text.includes('"title":"using-kanban"'), "project badge keeps a full-name tooltip");
+});
+
 test("cards render as one row each, not as a two-column grid", () => {
   const text = JSON.stringify(renderPanel());
   assert.ok(!text.includes("auto-fill"), "the card grid is gone");

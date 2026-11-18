@@ -532,13 +532,42 @@ window.__ModuleLoader__.load({
         scope !== null
           ? h(
               "span",
-              { style: { flex: "0 0 auto", font: "500 10px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace", color: T.text3 } },
+              {
+                "data-scope": scope,
+                title: scope,
+                style: {
+                  flex: "0 0 auto",
+                  maxWidth: 150,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  padding: "0 5px",
+                  borderRadius: 5,
+                  border: `1px solid ${T.border1}`,
+                  background: T.layer1,
+                  color: T.text2,
+                  font: "500 9.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace",
+                },
+              },
               scope,
             )
           : null,
         h(
           "span",
-          { style: { flex: "0 0 auto", font: "500 10px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace", color: T.text3 } },
+          {
+            "data-card-id": card.id,
+            title: `card #${card.id}`,
+            style: {
+              flex: "0 0 auto",
+              padding: "0 4px",
+              borderRadius: 5,
+              border: `1px solid color-mix(in srgb, ${accent} 26%, ${T.border1})`,
+              background: `color-mix(in srgb, ${accent} 8%, transparent)`,
+              color: T.text2,
+              font: "600 10px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace",
+              fontVariantNumeric: "tabular-nums",
+            },
+          },
           `#${card.id}`,
         ),
         h(
