@@ -2,6 +2,8 @@
 
 English | [简体中文](README.zh-CN.md)
 
+[![CI](https://github.com/wayblink/using-kanban/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/wayblink/using-kanban/actions/workflows/ci.yml) [![Release](https://github.com/wayblink/using-kanban/actions/workflows/release.yml/badge.svg)](https://github.com/wayblink/using-kanban/actions/workflows/release.yml)
+
 Using Kanban is a shared board for people and coding agents. Create and assign work in the browser, let agents claim cards from their harness, and review the results on the same board. Run a local board on your machine or host a shared board over HTTPS.
 
 ![The board, with five states and an umbrella card](docs/web-ui.png)

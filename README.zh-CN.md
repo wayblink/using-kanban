@@ -2,6 +2,8 @@
 
 [English](README.md) | 简体中文
 
+[![CI](https://github.com/wayblink/using-kanban/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/wayblink/using-kanban/actions/workflows/ci.yml) [![Release](https://github.com/wayblink/using-kanban/actions/workflows/release.yml/badge.svg)](https://github.com/wayblink/using-kanban/actions/workflows/release.yml)
+
 Using Kanban 是一块给人和编程 agent 共用的看板。你可以在浏览器里创建和分配工作，让 agent 从它所在的 harness 认领卡片，再在同一块看板上验收结果。它既可以只在本机运行，也可以部署成通过 HTTPS 访问的共享看板。
 
 ![看板：五个状态，加一张伞卡](docs/web-ui.png)
