@@ -368,26 +368,61 @@ window.__ModuleLoader__.load({
           }
         }
       }
-      const rows = new Map(STATES.map((state) => [state, []]));
+
+      const updatedMs = (card) => {
+        const parsed = Date.parse(card?.updatedAt ?? "");
+        return Number.isFinite(parsed) ? parsed : 0;
+      };
+      const newestFirst = (left, right) => updatedMs(right.card) - updatedMs(left.card);
+      for (const list of childrenOf.values()) {
+        list.sort((left, right) => updatedMs(right) - updatedMs(left));
+      }
+
+      // A group is one root plus the same-state parts drawn under it. A part in
+      // another state starts a group in its own column, so every column can be
+      // sorted by recency without breaking the umbrella tree it belongs to.
+      const groups = new Map(STATES.map((state) => [state, []]));
       const seen = new Set();
-      const append = (card, depth, parentState) => {
-        if (seen.has(card.id)) return;
+      const build = (card, depth, parentState) => {
+        if (seen.has(card.id)) return null;
         seen.add(card.id);
         const own = sectionOf.get(card.id) ?? card.state;
-        // A part in another state starts a new tree in its own column; the
-        // depth resets so the row is not indented under a card in the column
-        // above it.
         const sameColumn = own === parentState;
-        const rowDepth = sameColumn ? depth : 0;
-        rows.get(own)?.push({ card, depth: rowDepth, state: own });
+        const node = {
+          card,
+          depth: sameColumn ? depth : 0,
+          state: own,
+          children: [],
+        };
+        if (!sameColumn) groups.get(own).push(node);
         for (const child of childrenOf.get(card.id) ?? []) {
-          append(child, rowDepth + 1, own);
+          const built = build(child, node.depth + 1, own);
+          if (built !== null && built.state === own) node.children.push(built);
         }
+        return node;
       };
-      for (const root of roots) append(root, 0, sectionOf.get(root.id) ?? root.state);
+
+      for (const root of roots) {
+        const node = build(root, 0, sectionOf.get(root.id) ?? root.state);
+        if (node !== null) groups.get(node.state).push(node);
+      }
       // A parent cycle leaves cards that are nobody's root; keep them visible.
       for (const state of STATES) {
-        for (const card of board[state]) if (!seen.has(card.id)) append(card, 0, state);
+        for (const card of board[state]) {
+          if (seen.has(card.id)) continue;
+          const node = build(card, 0, state);
+          if (node !== null) groups.get(node.state).push(node);
+        }
+      }
+
+      const rows = new Map(STATES.map((state) => [state, []]));
+      const flatten = (node, out) => {
+        out.push({ card: node.card, depth: node.depth, state: node.state });
+        for (const child of node.children) flatten(child, out);
+      };
+      for (const state of STATES) {
+        const out = rows.get(state);
+        for (const group of groups.get(state).sort(newestFirst)) flatten(group, out);
       }
       return rows;
     }

@@ -215,8 +215,41 @@ test("a card's children nest under it, one row each", () => {
     assert.equal(text.split(`"data-card":${id}`).length - 1, 1, `#${id} is drawn once`);
   }
   assert.ok(text.indexOf('"data-card":10') < text.indexOf('"data-card":11'));
-  assert.ok(text.indexOf('"data-card":11') < text.indexOf('"data-card":12'));
+  assert.ok(text.indexOf('"data-card":10') < text.indexOf('"data-card":12'));
   assert.ok(text.includes('"data-depth":1'), "parts are indented");
+});
+
+test("cards are newest-first by last change, including nested parts", () => {
+  const state = boardOf({
+    todo: [
+      card(1, "Older root", "using-kanban", {
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }),
+      card(2, "Newest root", "using-kanban", {
+        updatedAt: "2026-03-01T00:00:00.000Z",
+      }),
+      card(10, "Umbrella", "using-kanban", {
+        updatedAt: "2026-02-01T00:00:00.000Z",
+        children: [11, 12],
+      }),
+      card(11, "Older part", "using-kanban", {
+        parent: 10,
+        updatedAt: "2026-01-15T00:00:00.000Z",
+      }),
+      card(12, "Newer part", "using-kanban", {
+        parent: 10,
+        updatedAt: "2026-02-15T00:00:00.000Z",
+      }),
+    ],
+  });
+  const text = JSON.stringify(
+    renderPanel({ state, props: workspaceProps("/Users/x/yard/using-kanban") }),
+  );
+  const at = (id) => text.indexOf(`"data-card":${id},`);
+  assert.ok(at(2) < at(10), "newest root first");
+  assert.ok(at(10) < at(1), "older root after the umbrella");
+  assert.ok(at(12) < at(11), "newest part first inside the umbrella");
+  assert.ok(at(10) < at(12), "the umbrella still precedes its parts");
 });
 
 test("an umbrella row carries its children's progress", () => {
