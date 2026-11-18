@@ -51,9 +51,13 @@ jobs:
       - name: Install browser
         run: pnpm exec playwright install --with-deps chromium
 
-      # browser-check finds the runner's own google-chrome; drag-check uses the
-      # chromium installed above.
+      # browser-check speaks CDP to a Chrome; pin it to the Playwright
+      # chromium installed above. Relying on the runner's google-chrome broke
+      # when that Chrome stopped exposing remote debugging on the shared
+      # profile ("chrome did not expose a debugging endpoint").
       - name: Browser checks (layout, docs, i18n, drag & drop)
         run: |
+          CHROME_PATH=$(cd packages/web && node -e "process.stdout.write(require('playwright').chromium.executablePath())")
+          export CHROME_PATH
           pnpm --filter @wayblink/using-kanban-web browser-check
           pnpm --filter @wayblink/using-kanban-web drag-check
