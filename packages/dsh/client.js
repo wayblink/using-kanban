@@ -645,7 +645,21 @@ window.__ModuleLoader__.load({
       if (fields["created by"]) chips.push(chip(`by ${fields["created by"].split(" · ")[0]}`));
       return h(
         "div",
-        { style: { display: "flex", flexDirection: "column", gap: 6, marginTop: 6 } },
+        {
+          style: {
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
+            marginTop: 6,
+            // Follow the host theme: the base surface is white in light mode
+            // and the dark surface in dark mode. The column accent stays on the
+            // row/border, not on the reading surface.
+            background: T.base,
+            border: `1px solid ${T.border1}`,
+            borderRadius: 8,
+            padding: "6px 8px",
+          },
+        },
         chips.length > 0 ? h("div", { style: { display: "flex", gap: 4, flexWrap: "wrap" } }, ...chips) : null,
         detail.body
           ? h(
@@ -655,10 +669,6 @@ window.__ModuleLoader__.load({
                   overflowWrap: "anywhere",
                   font: "400 12px/1.6 inherit",
                   color: T.text2,
-                  background: `color-mix(in srgb, ${accent} 5%, ${T.base})`,
-                  border: `1px solid ${T.border1}`,
-                  borderRadius: 8,
-                  padding: "7px 9px",
                   maxHeight: 420,
                   overflow: "auto",
                 },
