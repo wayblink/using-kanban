@@ -29,7 +29,13 @@ function card(id, title, project, extra = {}) {
 }
 
 /** A ready board over the five state lists. */
-function boardOf({ todo = [], doing = [], review = [], done = [], someday = [] }) {
+function boardOf({
+  todo = [],
+  doing = [],
+  review = [],
+  done = [],
+  someday = [],
+}) {
   return {
     todo,
     doing,
@@ -43,7 +49,12 @@ function boardOf({ todo = [], doing = [], review = [], done = [], someday = [] }
 
 /** A ready board with one card in each of two projects. */
 function board() {
-  return boardOf({ todo: [card(1, "Ukanban card", "using-kanban"), card(2, "Iceberg card", "iceberg")] });
+  return boardOf({
+    todo: [
+      card(1, "Ukanban card", "using-kanban"),
+      card(2, "Iceberg card", "iceberg"),
+    ],
+  });
 }
 
 /** Load the browser module once and return the components it registered. */
@@ -57,7 +68,10 @@ function loadClient(hookValues, state) {
     slots: {
       inject: (_owner, fn) => fn(),
       register: (options, component) => {
-        registered.set(`${options.name}:${options.key ?? options.id}`, component);
+        registered.set(
+          `${options.name}:${options.key ?? options.id}`,
+          component,
+        );
         return () => {};
       },
     },
@@ -127,7 +141,13 @@ function renderPanel({
   details = {},
 } = {}) {
   const hookValues = [
-    { status: "ready", board: state, identity: state.identity, error: null, at: Date.now() },
+    {
+      status: "ready",
+      board: state,
+      identity: state.identity,
+      error: null,
+      at: Date.now(),
+    },
     0,
     query,
     projectChoice,
@@ -137,7 +157,9 @@ function renderPanel({
     details,
     new Set(),
   ];
-  const panel = loadClient(hookValues, state).get("sidebar.right.pane.tab:@wayblink/using-kanban-dsh/board");
+  const panel = loadClient(hookValues, state).get(
+    "sidebar.right.pane.tab:@wayblink/using-kanban-dsh/board",
+  );
   assert.equal(typeof panel, "function", "panel body must be registered");
   return panel(props);
 }
@@ -145,10 +167,18 @@ function renderPanel({
 /** Render the composer chip once against a ready board (board state, then nonce). */
 function renderChip({ state = board(), props = {} } = {}) {
   const hookValues = [
-    { status: "ready", board: state, identity: state.identity, error: null, at: Date.now() },
+    {
+      status: "ready",
+      board: state,
+      identity: state.identity,
+      error: null,
+      at: Date.now(),
+    },
     0,
   ];
-  const chip = loadClient(hookValues, state).get("conversation.composer.dock:ukb-chip");
+  const chip = loadClient(hookValues, state).get(
+    "conversation.composer.dock:ukb-chip",
+  );
   assert.equal(typeof chip, "function", "composer chip must be registered");
   return chip(props);
 }
@@ -156,43 +186,83 @@ function renderChip({ state = board(), props = {} } = {}) {
 /** Slot props as the real tab hands them over: one session rooted at `cwd`. */
 function workspaceProps(cwd) {
   const sessions = { byId: { "session-1": { cwd } } };
-  return { sessionId: "session-1", useSessions: (selector) => selector(sessions) };
+  return {
+    sessionId: "session-1",
+    useSessions: (selector) => selector(sessions),
+  };
 }
 
 test("the board panel renders a ready board", () => {
   const tree = renderPanel();
-  assert.ok(tree && typeof tree === "object", "panel must return an element tree");
+  assert.ok(
+    tree && typeof tree === "object",
+    "panel must return an element tree",
+  );
   assert.equal(tree.type, "div");
   const text = JSON.stringify(tree);
-  for (const expected of ["Kanban", "Refresh", "Filter cards", "Todo", "Doing", "Review", "Done", "Someday", "using-kanban", "iceberg"]) {
+  for (const expected of [
+    "Kanban",
+    "Refresh",
+    "Filter cards",
+    "Todo",
+    "Doing",
+    "Review",
+    "Done",
+    "Someday",
+    "using-kanban",
+    "iceberg",
+  ]) {
     assert.ok(text.includes(expected), `missing ${expected}`);
   }
 });
 
 test("the panel opens on the Session workspace's project", () => {
-  const text = JSON.stringify(renderPanel({ props: workspaceProps("/Users/x/yard/using-kanban") }));
-  assert.ok(text.includes("Ukanban card"), "the workspace project's card is shown");
-  assert.ok(!text.includes("Iceberg card"), "another project's card is filtered out by default");
-  assert.ok(text.includes("1 of 2"), "the header keeps the whole-board count alongside the filtered one");
+  const text = JSON.stringify(
+    renderPanel({ props: workspaceProps("/Users/x/yard/using-kanban") }),
+  );
+  assert.ok(
+    text.includes("Ukanban card"),
+    "the workspace project's card is shown",
+  );
+  assert.ok(
+    !text.includes("Iceberg card"),
+    "another project's card is filtered out by default",
+  );
+  assert.ok(
+    text.includes("1 of 2"),
+    "the header keeps the whole-board count alongside the filtered one",
+  );
 });
 
 test("a subdirectory of the project's repository counts as the project", () => {
-  const text = JSON.stringify(renderPanel({ props: workspaceProps("/Users/x/yard/using-kanban/packages/dsh") }));
+  const text = JSON.stringify(
+    renderPanel({
+      props: workspaceProps("/Users/x/yard/using-kanban/packages/dsh"),
+    }),
+  );
   assert.ok(text.includes("Ukanban card"));
   assert.ok(!text.includes("Iceberg card"));
 });
 
 test("choosing All projects overrides the workspace default", () => {
   const text = JSON.stringify(
-    renderPanel({ props: workspaceProps("/Users/x/yard/using-kanban"), projectChoice: null }),
+    renderPanel({
+      props: workspaceProps("/Users/x/yard/using-kanban"),
+      projectChoice: null,
+    }),
   );
   assert.ok(text.includes("Ukanban card"));
   assert.ok(text.includes("Iceberg card"));
-  assert.ok(text.includes("2 cards"), "an explicit All projects choice reads as the whole board");
+  assert.ok(
+    text.includes("2 cards"),
+    "an explicit All projects choice reads as the whole board",
+  );
 });
 
 test("a workspace outside every project keeps the whole board", () => {
-  const text = JSON.stringify(renderPanel({ props: workspaceProps("/Users/x/yard/scratch") }));
+  const text = JSON.stringify(
+    renderPanel({ props: workspaceProps("/Users/x/yard/scratch") }),
+  );
   assert.ok(text.includes("Ukanban card"));
   assert.ok(text.includes("Iceberg card"));
   assert.ok(text.includes("2 cards"));
@@ -241,13 +311,19 @@ test("the scope and card id are wrapped as their own marks", () => {
   const text = JSON.stringify(renderPanel());
   assert.ok(text.includes('"data-scope":"using-kanban"'), "project badge");
   assert.ok(text.includes('"data-card-id":1'), "card id badge");
-  assert.ok(text.includes('"title":"using-kanban"'), "project badge keeps a full-name tooltip");
+  assert.ok(
+    text.includes('"title":"using-kanban"'),
+    "project badge keeps a full-name tooltip",
+  );
 });
 
 test("cards render as one row each, not as a two-column grid", () => {
   const text = JSON.stringify(renderPanel());
   assert.ok(!text.includes("auto-fill"), "the card grid is gone");
-  assert.ok(text.includes('"data-depth":0'), "a card is a row that knows its depth");
+  assert.ok(
+    text.includes('"data-depth":0'),
+    "a card is a row that knows its depth",
+  );
 });
 
 test("a card's children nest under it, one row each", () => {
@@ -258,9 +334,15 @@ test("a card's children nest under it, one row each", () => {
       card(12, "Second part", "using-kanban", { parent: 10 }),
     ],
   });
-  const text = JSON.stringify(renderPanel({ state, props: workspaceProps("/Users/x/yard/using-kanban") }));
+  const text = JSON.stringify(
+    renderPanel({ state, props: workspaceProps("/Users/x/yard/using-kanban") }),
+  );
   for (const id of [10, 11, 12]) {
-    assert.equal(text.split(`"data-card":${id}`).length - 1, 1, `#${id} is drawn once`);
+    assert.equal(
+      text.split(`"data-card":${id}`).length - 1,
+      1,
+      `#${id} is drawn once`,
+    );
   }
   assert.ok(text.indexOf('"data-card":10') < text.indexOf('"data-card":11'));
   assert.ok(text.indexOf('"data-card":10') < text.indexOf('"data-card":12'));
@@ -308,44 +390,77 @@ test("an umbrella row carries its children's progress", () => {
     ],
     done: [card(42, "B part", "using-kanban", { state: "done", parent: 40 })],
   });
-  const text = JSON.stringify(renderPanel({ state, props: workspaceProps("/Users/x/yard/using-kanban") }));
+  const text = JSON.stringify(
+    renderPanel({ state, props: workspaceProps("/Users/x/yard/using-kanban") }),
+  );
   assert.ok(text.includes("▸1/2"), "done/total comes from the whole board");
 });
 
 test("a part in another state is drawn once, in its own column", () => {
   const state = boardOf({
     todo: [card(20, "Cross umbrella", "using-kanban", { children: [21] })],
-    done: [card(21, "Done part", "using-kanban", { state: "done", parent: 20 })],
+    done: [
+      card(21, "Done part", "using-kanban", { state: "done", parent: 20 }),
+    ],
   });
-  const text = JSON.stringify(renderPanel({ state, props: workspaceProps("/Users/x/yard/using-kanban") }));
+  const text = JSON.stringify(
+    renderPanel({ state, props: workspaceProps("/Users/x/yard/using-kanban") }),
+  );
   assert.equal(text.split('"data-card":21').length - 1, 1, "one card, one row");
-  assert.ok(text.indexOf('"data-card":21') > text.indexOf("Done"), "it sits in Done, not under the umbrella");
+  assert.ok(
+    text.indexOf('"data-card":21') > text.indexOf("Done"),
+    "it sits in Done, not under the umbrella",
+  );
   assert.ok(text.includes("⤷#20"), "the part still names its umbrella");
 });
 
 test("a card whose umbrella is filtered out keeps the parent marker", () => {
-  const state = boardOf({ todo: [card(30, "Orphan part", "using-kanban", { parent: 99 })] });
-  const text = JSON.stringify(renderPanel({ state, props: workspaceProps("/Users/x/yard/using-kanban") }));
+  const state = boardOf({
+    todo: [card(30, "Orphan part", "using-kanban", { parent: 99 })],
+  });
+  const text = JSON.stringify(
+    renderPanel({ state, props: workspaceProps("/Users/x/yard/using-kanban") }),
+  );
   assert.ok(text.includes("⤷#99"));
 });
 
 test("the composer chip counts only the workspace's project", () => {
   const state = boardOf({
-    todo: [card(1, "Ukanban todo", "using-kanban"), card(2, "Iceberg todo", "iceberg"), card(3, "Another iceberg", "iceberg")],
+    todo: [
+      card(1, "Ukanban todo", "using-kanban"),
+      card(2, "Iceberg todo", "iceberg"),
+      card(3, "Another iceberg", "iceberg"),
+    ],
     doing: [card(4, "Ukanban doing", "using-kanban")],
     review: [card(5, "Iceberg review", "iceberg")],
   });
-  const text = JSON.stringify(renderChip({ state, props: workspaceProps("/Users/x/yard/using-kanban") }));
-  assert.ok(text.includes("using-kanban"), "the chip names the scope it counted");
+  const text = JSON.stringify(
+    renderChip({ state, props: workspaceProps("/Users/x/yard/using-kanban") }),
+  );
+  assert.ok(
+    text.includes("using-kanban"),
+    "the chip names the scope it counted",
+  );
   assert.ok(text.includes("todo 1"), "only the workspace project's todo");
   assert.ok(text.includes("doing 1"));
   assert.ok(text.includes("review 0"));
-  assert.ok(!text.includes("todo 3"), "the other projects' cards stay out of the count");
+  assert.ok(
+    !text.includes("todo 3"),
+    "the other projects' cards stay out of the count",
+  );
 });
 
 test("the chip falls back to the whole board outside any project", () => {
-  const state = boardOf({ todo: [card(1, "A", "using-kanban"), card(2, "B", "iceberg"), card(3, "C", "iceberg")] });
-  const text = JSON.stringify(renderChip({ state, props: workspaceProps("/Users/x/yard/scratch") }));
+  const state = boardOf({
+    todo: [
+      card(1, "A", "using-kanban"),
+      card(2, "B", "iceberg"),
+      card(3, "C", "iceberg"),
+    ],
+  });
+  const text = JSON.stringify(
+    renderChip({ state, props: workspaceProps("/Users/x/yard/scratch") }),
+  );
   assert.ok(text.includes("todo 3"));
 });
 
@@ -354,11 +469,16 @@ test("a workspace with no flow cards hides the chip", () => {
     todo: [card(1, "Elsewhere", "iceberg")],
     done: [card(2, "Shipped here", "using-kanban", { state: "done" })],
   });
-  assert.equal(renderChip({ state, props: workspaceProps("/Users/x/yard/using-kanban") }), null);
+  assert.equal(
+    renderChip({ state, props: workspaceProps("/Users/x/yard/using-kanban") }),
+    null,
+  );
 });
 
 test("a chip without the session hook still counts the whole board", () => {
-  const state = boardOf({ todo: [card(1, "A", "using-kanban"), card(2, "B", "iceberg")] });
+  const state = boardOf({
+    todo: [card(1, "A", "using-kanban"), card(2, "B", "iceberg")],
+  });
   const text = JSON.stringify(renderChip({ state, props: {} }));
   assert.ok(text.includes("todo 2"));
 });

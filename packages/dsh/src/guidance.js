@@ -43,6 +43,8 @@ export function resolveGuidance(overrides) {
  * @returns {string}
  */
 export function renderGuidance(guidance) {
-  const bullets = guidance.promptGuidelines.map((line) => `- ${line}`).join("\n");
+  const bullets = guidance.promptGuidelines
+    .map((line) => `- ${line}`)
+    .join("\n");
   return `${guidance.promptSnippet}\n\n${bullets}`;
 }

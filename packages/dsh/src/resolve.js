@@ -54,12 +54,27 @@ export function resolveNode() {
     if (existsSync(candidate)) return candidate;
   }
 
-  for (const candidate of ["/opt/homebrew/bin/node", "/usr/local/bin/node", join(homedir(), ".local", "bin", "node")]) {
+  for (const candidate of [
+    "/opt/homebrew/bin/node",
+    "/usr/local/bin/node",
+    join(homedir(), ".local", "bin", "node"),
+  ]) {
     if (existsSync(candidate)) return candidate;
   }
 
   // The runtime shipped beside the DSH executable, when it is the desktop app.
-  const bundled = resolve(process.execPath, "..", "..", "Resources", "runtime", "primary-runtime", "dependencies", "node", "bin", "node");
+  const bundled = resolve(
+    process.execPath,
+    "..",
+    "..",
+    "Resources",
+    "runtime",
+    "primary-runtime",
+    "dependencies",
+    "node",
+    "bin",
+    "node",
+  );
   if (existsSync(bundled)) return bundled;
 
   return null;
@@ -73,7 +88,8 @@ export function resolveUkb(explicit) {
   const configured = explicit?.trim() || process.env.UKB_BIN?.trim();
   if (configured !== undefined && configured !== "") {
     const path = expandHome(configured);
-    if (existsSync(path)) return { command: path, prefix: [], source: `configured: ${path}` };
+    if (existsSync(path))
+      return { command: path, prefix: [], source: `configured: ${path}` };
   }
 
   const local = join(SKILL_ROOT, "packages", "cli", "dist", "bin.js");
@@ -90,7 +106,8 @@ export function resolveUkb(explicit) {
 
   for (const dir of (process.env.PATH ?? "").split(delimiter).filter(Boolean)) {
     const candidate = join(dir, "ukb");
-    if (existsSync(candidate)) return { command: candidate, prefix: [], source: `PATH: ${candidate}` };
+    if (existsSync(candidate))
+      return { command: candidate, prefix: [], source: `PATH: ${candidate}` };
   }
 
   const home = homedir();
@@ -99,7 +116,12 @@ export function resolveUkb(explicit) {
     "/usr/local/bin/ukb",
     join(home, ".local", "bin", "ukb"),
   ]) {
-    if (existsSync(candidate)) return { command: candidate, prefix: [], source: `installed: ${candidate}` };
+    if (existsSync(candidate))
+      return {
+        command: candidate,
+        prefix: [],
+        source: `installed: ${candidate}`,
+      };
   }
 
   if (existsSync(local)) {

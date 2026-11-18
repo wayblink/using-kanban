@@ -8,7 +8,14 @@
  * Runs inside the image: `docker compose exec -T ukb node /app/backup.mjs`.
  */
 import { createRequire } from "node:module";
-import { chmodSync, copyFileSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+import {
+  chmodSync,
+  copyFileSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { join } from "node:path";
 
 const base = process.env.UKB_DIR ?? "/data";

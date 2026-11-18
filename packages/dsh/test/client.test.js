@@ -25,7 +25,11 @@ test("the client module registers the panel, the chip and the tool view", () => 
         return fn();
       },
       register(options, component) {
-        assert.equal(typeof component, "function", "slot component must be a function");
+        assert.equal(
+          typeof component,
+          "function",
+          "slot component must be a function",
+        );
         calls.slots.push(`${options.name}:${options.key ?? options.id}`);
         return () => {};
       },
@@ -36,11 +40,18 @@ test("the client module registers the panel, the chip and the tool view", () => 
         return () => {};
       },
     },
-    sidebarRight: { openTab(kind) { calls.openTab.push(kind); } },
+    sidebarRight: {
+      openTab(kind) {
+        calls.openTab.push(kind);
+      },
+    },
   };
   const React = {
     createElement: (...args) => args,
-    useState: (value) => [typeof value === "function" ? value() : value, () => {}],
+    useState: (value) => [
+      typeof value === "function" ? value() : value,
+      () => {},
+    ],
     useEffect: () => {},
     useCallback: (fn) => fn,
     useMemo: (fn) => fn(),
@@ -67,7 +78,11 @@ test("the client module registers the panel, the chip and the tool view", () => 
   };
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
-  vm.runInContext(readFileSync(join(here, "..", "client.js"), "utf8"), sandbox, { filename: "client.js" });
+  vm.runInContext(
+    readFileSync(join(here, "..", "client.js"), "utf8"),
+    sandbox,
+    { filename: "client.js" },
+  );
 
   const [definition] = calls.tabs;
   assert.equal(definition.kind, "ukb-board");

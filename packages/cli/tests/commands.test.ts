@@ -570,12 +570,20 @@ describe("identity", () => {
     ).toEqual({ type: "agent", name: "codex" });
 
     expect(
-      resolveActor({}, { UKB_AGENT: "opencode" }, { agent: "pi", owner: "jyxc" }),
+      resolveActor(
+        {},
+        { UKB_AGENT: "opencode" },
+        { agent: "pi", owner: "jyxc" },
+      ),
     ).toEqual({ type: "human", name: "opencode" });
 
     // An agent front door with no name of its own takes `agent` from the file.
     expect(
-      resolveActor({ "agent-type": "agent" }, {}, { agent: "pi", owner: "jyxc" }),
+      resolveActor(
+        { "agent-type": "agent" },
+        {},
+        { agent: "pi", owner: "jyxc" },
+      ),
     ).toEqual({ type: "agent", name: "pi" });
 
     // The human is the machine's owner — one name for CLI and browser alike.
@@ -588,9 +596,10 @@ describe("identity", () => {
     expect(
       resolveActor({}, { UKB_OWNER: "env-owner" }, { owner: "jyxc" }),
     ).toEqual({ type: "human", name: "env-owner" });
-    expect(
-      resolveActor({}, { UKB_MACHINE_NAME: "workshop" }, {}),
-    ).toEqual({ type: "human", name: "workshop" });
+    expect(resolveActor({}, { UKB_MACHINE_NAME: "workshop" }, {})).toEqual({
+      type: "human",
+      name: "workshop",
+    });
   });
 
   it("rejects an unknown actor type", () => {

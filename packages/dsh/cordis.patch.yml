@@ -3,5 +3,5 @@
 # whether to keep a todo list.
 - insert:
     - id: ukb
-      name: '@wayblink/using-kanban-dsh'
+      name: "@wayblink/using-kanban-dsh"
       config: {}

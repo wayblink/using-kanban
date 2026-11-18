@@ -13,7 +13,11 @@
   },
   "license": "MIT",
   "type": "module",
-  "keywords": ["kanban", "config", "ukb"],
+  "keywords": [
+    "kanban",
+    "config",
+    "ukb"
+  ],
   "publishConfig": {
     "access": "public"
   },
@@ -26,7 +30,9 @@
     },
     "./package.json": "./package.json"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",

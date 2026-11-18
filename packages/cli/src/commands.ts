@@ -383,7 +383,15 @@ export async function runCommand(
 
   switch (command) {
     case "web":
-      return runWeb(parsed.flags, io, dir, storage, postgresUrl, openAccess, auth);
+      return runWeb(
+        parsed.flags,
+        io,
+        dir,
+        storage,
+        postgresUrl,
+        openAccess,
+        auth,
+      );
     case "init":
       // Onboarding a framework is about the project you are standing in, which
       // is no longer the board directory now that the store is centralised.

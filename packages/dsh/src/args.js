@@ -202,9 +202,12 @@ export function summarizeCall(params) {
     parts.push(`#${params.id}`);
   }
   if (params.action === "add" && params.title !== undefined) {
-    parts.push(/[\s"']/.test(params.title) ? JSON.stringify(params.title) : params.title);
+    parts.push(
+      /[\s"']/.test(params.title) ? JSON.stringify(params.title) : params.title,
+    );
   }
-  if (params.action === "move" && params.column !== undefined) parts.push(params.column);
+  if (params.action === "move" && params.column !== undefined)
+    parts.push(params.column);
   if (params.blockedBy !== undefined) parts.push(`--by #${params.blockedBy}`);
   if (params.project !== undefined) parts.push(`--project ${params.project}`);
   return parts.join(" ");

@@ -217,7 +217,9 @@ describe("loadConfig", () => {
       loadConfig(
         withConfig(
           tempHome(),
-          JSON.stringify({ overlay: { split: { states: ["someday", "nope"] } } }),
+          JSON.stringify({
+            overlay: { split: { states: ["someday", "nope"] } },
+          }),
         ),
       ),
     ).toEqual({});
@@ -254,9 +256,9 @@ describe("loadConfig", () => {
     expect(loadConfig(withConfig(tempHome(), '{"openAccess":false}'))).toEqual({
       openAccess: false,
     });
-    expect(
-      loadConfig(withConfig(tempHome(), '{"openAccess":"yes"}')),
-    ).toEqual({});
+    expect(loadConfig(withConfig(tempHome(), '{"openAccess":"yes"}'))).toEqual(
+      {},
+    );
   });
 
   it("trims the owner name it hands back", () => {
@@ -296,14 +298,18 @@ describe("resolveOwnerName", () => {
 
   it("prefers an explicit flag", () => {
     expect(
-      resolveOwnerName({ flag: "cli-owner", env: { UKB_OWNER: "env-owner" }, config }),
+      resolveOwnerName({
+        flag: "cli-owner",
+        env: { UKB_OWNER: "env-owner" },
+        config,
+      }),
     ).toBe("cli-owner");
   });
 
   it("prefers the environment over the file", () => {
-    expect(
-      resolveOwnerName({ env: { UKB_OWNER: "env-owner" }, config }),
-    ).toBe("env-owner");
+    expect(resolveOwnerName({ env: { UKB_OWNER: "env-owner" }, config })).toBe(
+      "env-owner",
+    );
   });
 
   it("prefers the file over the machine name", () => {

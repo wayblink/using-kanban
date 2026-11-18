@@ -18,7 +18,14 @@ import { userInfo } from "node:os";
 
 import { defineTool } from "@deepseek-ai/dsh-tools";
 
-import { ACTIONS, COLUMNS, DIRECTIONS, PRIORITIES, buildArgs, splitTokens } from "./src/args.js";
+import {
+  ACTIONS,
+  COLUMNS,
+  DIRECTIONS,
+  PRIORITIES,
+  buildArgs,
+  splitTokens,
+} from "./src/args.js";
 import { renderGuidance, resolveGuidance } from "./src/guidance.js";
 import { resolveUkb } from "./src/resolve.js";
 
@@ -101,10 +108,18 @@ export function apply(ctx, rowConfig = {}) {
   /** @param {readonly string[]} argv @param {AbortSignal | undefined} signal */
   const invoke = async (argv, signal) => {
     if (cli === null) {
-      return { code: 2, output: "ukb CLI not found: set ukb_path in the bundle config or put `ukb` on PATH." };
+      return {
+        code: 2,
+        output:
+          "ukb CLI not found: set ukb_path in the bundle config or put `ukb` on PATH.",
+      };
     }
     // Identity goes last: the CLI's parser accepts global flags after positionals.
-    return runUkb(cli, [...argv, "--agent", AGENT_NAME, "--agent-type", "agent"], signal);
+    return runUkb(
+      cli,
+      [...argv, "--agent", AGENT_NAME, "--agent-type", "agent"],
+      signal,
+    );
   };
 
   const systemPrompt = ctx.get("systemPrompt");
@@ -130,38 +145,69 @@ export function apply(ctx, rowConfig = {}) {
           description:
             "mine = your open cards (start here); board/list = the whole board; show = one card with body, notes and history; claim before starting; review/done/reopen; add/edit/move; block/parent/relate for structure; note for paperwork.",
         },
-        id: { type: "integer", description: "Card id for the single-card verbs" },
+        id: {
+          type: "integer",
+          description: "Card id for the single-card verbs",
+        },
         ids: {
           type: "array",
           items: { type: "integer" },
-          description: "Several card ids for review/done/reopen/delete (claim accepts several so the CLI can refuse)",
+          description:
+            "Several card ids for review/done/reopen/delete (claim accepts several so the CLI can refuse)",
         },
         title: { type: "string", description: "add/edit: card title" },
         body: {
           type: "string",
-          description: "add/edit: the card body — target files and acceptance criteria",
+          description:
+            "add/edit: the card body — target files and acceptance criteria",
         },
         column: {
           type: "string",
           enum: [...COLUMNS],
-          description: "move: target column; someday parks a card and clears its owner",
+          description:
+            "move: target column; someday parks a card and clears its owner",
         },
-        priority: { type: "string", enum: [...PRIORITIES], description: "add/edit: priority" },
+        priority: {
+          type: "string",
+          enum: [...PRIORITIES],
+          description: "add/edit: priority",
+        },
         assignee: { type: "string", description: "add/edit: assignee name" },
         reviewer: { type: "string", description: "add/edit: reviewer name" },
-        blockedBy: { type: "integer", description: "add/block: the card that must finish first" },
-        project: { type: "string", description: "Project slug, or the board slice for mine/board" },
-        other: { type: "integer", description: "relate/unrelate: the card on the other end" },
+        blockedBy: {
+          type: "integer",
+          description: "add/block: the card that must finish first",
+        },
+        project: {
+          type: "string",
+          description: "Project slug, or the board slice for mine/board",
+        },
+        other: {
+          type: "integer",
+          description: "relate/unrelate: the card on the other end",
+        },
         parent: { type: "integer", description: "parent: the umbrella card" },
         direction: {
           type: "string",
           enum: [...DIRECTIONS],
           description: "relate: which side `other` sits on relative to `id`",
         },
-        noteId: { type: "integer", description: "note-edit/note-remove: the note id shown by show" },
-        text: { type: "string", description: "note: the remark line; note-edit: the new remark" },
-        url: { type: "string", description: "note/note-edit: https://… or a path on this machine" },
-        json: { type: "boolean", description: "list/board: machine-readable output" },
+        noteId: {
+          type: "integer",
+          description: "note-edit/note-remove: the note id shown by show",
+        },
+        text: {
+          type: "string",
+          description: "note: the remark line; note-edit: the new remark",
+        },
+        url: {
+          type: "string",
+          description: "note/note-edit: https://… or a path on this machine",
+        },
+        json: {
+          type: "boolean",
+          description: "list/board: machine-readable output",
+        },
         brief: { type: "boolean", description: "board: one line per card" },
       },
       output: {
@@ -193,7 +239,10 @@ export function apply(ctx, rowConfig = {}) {
             const { code, output } = await invoke(argv, signal);
             return commandResult(code === 0, output);
           } catch (error) {
-            return commandResult(false, error instanceof Error ? error.message : String(error));
+            return commandResult(
+              false,
+              error instanceof Error ? error.message : String(error),
+            );
           }
         },
       }),
@@ -219,13 +268,17 @@ export function apply(ctx, rowConfig = {}) {
     // by both, so it must not guess them from the browser.
     const readIdentity = () => {
       /** @type {{ owner: string | null, agent: string }} */
-      const identity = { owner: process.env.UKB_OWNER?.trim() || null, agent: AGENT_NAME };
+      const identity = {
+        owner: process.env.UKB_OWNER?.trim() || null,
+        agent: AGENT_NAME,
+      };
       if (identity.owner !== null) return identity;
       try {
         const home = process.env.HOME ?? "";
         const base = process.env.XDG_CONFIG_HOME?.trim() || `${home}/.config`;
         const raw = JSON.parse(readFileSync(`${base}/ukb/config.json`, "utf8"));
-        if (typeof raw?.owner === "string" && raw.owner.trim() !== "") identity.owner = raw.owner.trim();
+        if (typeof raw?.owner === "string" && raw.owner.trim() !== "")
+          identity.owner = raw.owner.trim();
       } catch {
         // No config file: fall through to the OS account name.
       }
@@ -242,11 +295,21 @@ export function apply(ctx, rowConfig = {}) {
     /** @param {string | null} project */
     const readBoard = async (project) => {
       const key = project ?? "";
-      if (Date.now() - cache.at < 4_000 && cache.key === key) return cache.value;
-      const argv = ["board", "--json", "--brief", ...(project === null ? [] : ["--project", project])];
+      if (Date.now() - cache.at < 4_000 && cache.key === key)
+        return cache.value;
+      const argv = [
+        "board",
+        "--json",
+        "--brief",
+        ...(project === null ? [] : ["--project", project]),
+      ];
       const { code, output } = await invoke(argv, undefined);
       if (code !== 0) throw new Error(output);
-      const value = { ...JSON.parse(output), identity: readIdentity(), generatedAt: new Date().toISOString() };
+      const value = {
+        ...JSON.parse(output),
+        identity: readIdentity(),
+        generatedAt: new Date().toISOString(),
+      };
       cache.at = Date.now();
       cache.key = key;
       cache.value = value;
@@ -275,13 +338,24 @@ export function apply(ctx, rowConfig = {}) {
                 headers: { "content-type": "application/json; charset=utf-8" },
               });
             }
-            return new Response(JSON.stringify({ id: Number(id), text: output }), {
-              headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
-            });
+            return new Response(
+              JSON.stringify({ id: Number(id), text: output }),
+              {
+                headers: {
+                  "content-type": "application/json; charset=utf-8",
+                  "cache-control": "no-store",
+                },
+              },
+            );
           } catch (error) {
             return new Response(
-              JSON.stringify({ error: error instanceof Error ? error.message : String(error) }),
-              { status: 500, headers: { "content-type": "application/json; charset=utf-8" } },
+              JSON.stringify({
+                error: error instanceof Error ? error.message : String(error),
+              }),
+              {
+                status: 500,
+                headers: { "content-type": "application/json; charset=utf-8" },
+              },
             );
           }
         },
@@ -296,14 +370,24 @@ export function apply(ctx, rowConfig = {}) {
           try {
             const url = new URL(request.url);
             const project = url.searchParams.get("project");
-            const body = await readBoard(project === null || project === "" ? null : project);
+            const body = await readBoard(
+              project === null || project === "" ? null : project,
+            );
             return new Response(JSON.stringify(body), {
-              headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+              headers: {
+                "content-type": "application/json; charset=utf-8",
+                "cache-control": "no-store",
+              },
             });
           } catch (error) {
             return new Response(
-              JSON.stringify({ error: error instanceof Error ? error.message : String(error) }),
-              { status: 500, headers: { "content-type": "application/json; charset=utf-8" } },
+              JSON.stringify({
+                error: error instanceof Error ? error.message : String(error),
+              }),
+              {
+                status: 500,
+                headers: { "content-type": "application/json; charset=utf-8" },
+              },
             );
           }
         },

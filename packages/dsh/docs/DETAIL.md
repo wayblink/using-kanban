@@ -6,11 +6,11 @@ board the agent's todo list instead of a private in-memory list.
 
 ## What it registers
 
-| Surface | DSH mechanism | What it does |
-|---|---|---|
-| `ukb` tool | `ctx.tools.register` | 21 verbs through one typed schema: `mine`, `board`, `show`, `add`, `claim`, `review`, `done`, `reopen`, `move`, `edit`, `delete`, `block`/`unblock`, `parent`/`unparent`, `relate`/`unrelate`, `note`/`note-edit`/`note-remove`, `list` |
-| board guidance | `ctx.systemPrompt.section` | Claim before working, one card in `doing`, read the body first, umbrella/child rules |
-| `/ukb` command | `ctx.commands.register` | No args lists your cards; anything else passes through to the CLI unchanged |
+| Surface        | DSH mechanism              | What it does                                                                                                                                                                                                                            |
+| -------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ukb` tool     | `ctx.tools.register`       | 21 verbs through one typed schema: `mine`, `board`, `show`, `add`, `claim`, `review`, `done`, `reopen`, `move`, `edit`, `delete`, `block`/`unblock`, `parent`/`unparent`, `relate`/`unrelate`, `note`/`note-edit`/`note-remove`, `list` |
+| board guidance | `ctx.systemPrompt.section` | Claim before working, one card in `doing`, read the body first, umbrella/child rules                                                                                                                                                    |
+| `/ukb` command | `ctx.commands.register`    | No args lists your cards; anything else passes through to the CLI unchanged                                                                                                                                                             |
 
 Every call runs the real `ukb` CLI with `--agent dsh --agent-type agent`, so
 attribution, validation, transitions and error codes are the CLI's, not a second

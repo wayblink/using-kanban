@@ -141,8 +141,10 @@ describe("the second pane", () => {
     expect(afterRight.scope).toBe("current-project");
 
     // ... and a later `left` clause goes back to it.
-    const both = parseOverlayCommand("right scope=all left scope=mine", current)
-      .view;
+    const both = parseOverlayCommand(
+      "right scope=all left scope=mine",
+      current,
+    ).view;
     expect(both.scope).toBe("mine");
     expect(both.right.scope).toBe("all");
   });

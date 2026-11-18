@@ -93,9 +93,16 @@ export function resolveMcpOptions(
     token: transport.token,
     postgresUrl:
       parsed.pgUrl ?? env.UKB_PG_URL ?? env.DATABASE_URL ?? undefined,
-    auth: parsed.auth ?? (env.UKB_AUTH === undefined ? config.auth : /^(on|1|true|yes)$/iu.test(env.UKB_AUTH)),
+    auth:
+      parsed.auth ??
+      (env.UKB_AUTH === undefined
+        ? config.auth
+        : /^(on|1|true|yes)$/iu.test(env.UKB_AUTH)),
     openAccess:
-      (parsed.auth ?? (env.UKB_AUTH === undefined ? config.auth : /^(on|1|true|yes)$/iu.test(env.UKB_AUTH))) === false ||
+      (parsed.auth ??
+        (env.UKB_AUTH === undefined
+          ? config.auth
+          : /^(on|1|true|yes)$/iu.test(env.UKB_AUTH))) === false ||
       parsed.openAccess === true ||
       (env.UKB_OPEN_ACCESS !== undefined
         ? /^(1|true|yes)$/iu.test(env.UKB_OPEN_ACCESS)

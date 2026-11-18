@@ -23,22 +23,34 @@ window.__ModuleLoader__.load({
     /** Host theme tokens, each with a neutral fallback so a rename degrades. */
     const T = {
       text: "var(--dsw-alias-label-primary, currentColor)",
-      text2: "var(--dsw-alias-label-secondary, color-mix(in srgb, currentColor 70%, transparent))",
-      text3: "var(--dsw-alias-label-tertiary, color-mix(in srgb, currentColor 52%, transparent))",
-      caption: "var(--dsw-alias-label-caption, color-mix(in srgb, currentColor 45%, transparent))",
+      text2:
+        "var(--dsw-alias-label-secondary, color-mix(in srgb, currentColor 70%, transparent))",
+      text3:
+        "var(--dsw-alias-label-tertiary, color-mix(in srgb, currentColor 52%, transparent))",
+      caption:
+        "var(--dsw-alias-label-caption, color-mix(in srgb, currentColor 45%, transparent))",
       base: "var(--dsw-alias-bg-base, transparent)",
-      layer1: "var(--dsw-alias-bg-layer-1, color-mix(in srgb, currentColor 4%, transparent))",
-      layer2: "var(--dsw-alias-bg-layer-2, color-mix(in srgb, currentColor 7%, transparent))",
+      layer1:
+        "var(--dsw-alias-bg-layer-1, color-mix(in srgb, currentColor 4%, transparent))",
+      layer2:
+        "var(--dsw-alias-bg-layer-2, color-mix(in srgb, currentColor 7%, transparent))",
       card: "var(--dsw-alias-card-fill, color-mix(in srgb, currentColor 3%, transparent))",
-      border1: "var(--dsw-alias-border-l1, color-mix(in srgb, currentColor 10%, transparent))",
-      border2: "var(--dsw-alias-border-l2, color-mix(in srgb, currentColor 16%, transparent))",
-      border3: "var(--dsw-alias-border-l3, color-mix(in srgb, currentColor 26%, transparent))",
-      hover: "var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, currentColor 7%, transparent))",
+      border1:
+        "var(--dsw-alias-border-l1, color-mix(in srgb, currentColor 10%, transparent))",
+      border2:
+        "var(--dsw-alias-border-l2, color-mix(in srgb, currentColor 16%, transparent))",
+      border3:
+        "var(--dsw-alias-border-l3, color-mix(in srgb, currentColor 26%, transparent))",
+      hover:
+        "var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, currentColor 7%, transparent))",
       accent: "var(--dsw-alias-brand-primary, currentColor)",
-      business: "var(--dsw-alias-state-business-primary, color-mix(in srgb, currentColor 72%, transparent))",
-      success: "var(--dsw-alias-state-success-primary, color-mix(in srgb, currentColor 62%, transparent))",
+      business:
+        "var(--dsw-alias-state-business-primary, color-mix(in srgb, currentColor 72%, transparent))",
+      success:
+        "var(--dsw-alias-state-success-primary, color-mix(in srgb, currentColor 62%, transparent))",
       warn: "var(--dsw-alias-state-warn-primary, color-mix(in srgb, currentColor 55%, transparent))",
-      danger: "var(--dsw-alias-state-error-primary, color-mix(in srgb, currentColor 80%, transparent))",
+      danger:
+        "var(--dsw-alias-state-error-primary, color-mix(in srgb, currentColor 80%, transparent))",
     };
 
     const TAB_KIND = "ukb-board";
@@ -56,7 +68,13 @@ window.__ModuleLoader__.load({
       done: "Done",
     };
     /** Rendered rows per column: `done` is history, the others are the work. */
-    const STATE_LIMIT = { todo: 200, doing: 200, review: 200, done: 25, someday: 60 };
+    const STATE_LIMIT = {
+      todo: 200,
+      doing: 200,
+      review: 200,
+      done: 25,
+      someday: 60,
+    };
     // One hue per state, the same values the `ukb web` board uses (`--col-*`),
     // so a card area is recognizable before its label is read.
     const STATE_COLOR = {
@@ -81,7 +99,9 @@ window.__ModuleLoader__.load({
             padding: "1px 7px",
             height: 18,
             borderRadius: 999,
-            font: mono ? "500 10.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace" : "500 11px/1 inherit",
+            font: mono
+              ? "500 10.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace"
+              : "500 11px/1 inherit",
             letterSpacing: "0.01em",
             color: color ?? (strong ? T.text : T.text2),
             background: T.layer1,
@@ -118,7 +138,8 @@ window.__ModuleLoader__.load({
             color: active ? T.text : T.text2,
             font: "500 11px/1 inherit",
             cursor: "pointer",
-            transition: "background 120ms ease, border-color 120ms ease, color 120ms ease",
+            transition:
+              "background 120ms ease, border-color 120ms ease, color 120ms ease",
           },
         },
         label,
@@ -170,7 +191,8 @@ window.__ModuleLoader__.load({
         "select",
         {
           value: value ?? "",
-          onChange: (event) => onChange(event.target.value === "" ? null : event.target.value),
+          onChange: (event) =>
+            onChange(event.target.value === "" ? null : event.target.value),
           title: following
             ? `Filter by project — following this session's workspace (${value})`
             : "Filter by project",
@@ -187,14 +209,23 @@ window.__ModuleLoader__.load({
           },
         },
         h("option", { value: "" }, "All projects"),
-        ...projects.map((project) => h("option", { key: project, value: project }, project)),
+        ...projects.map((project) =>
+          h("option", { key: project, value: project }, project),
+        ),
       );
     }
 
     function searchInput(value, onChange) {
       return h(
         "div",
-        { style: { display: "flex", alignItems: "center", flex: "1 1 160px", minWidth: 140 } },
+        {
+          style: {
+            display: "flex",
+            alignItems: "center",
+            flex: "1 1 160px",
+            minWidth: 140,
+          },
+        },
         h(
           "label",
           {
@@ -212,9 +243,28 @@ window.__ModuleLoader__.load({
           },
           h(
             "svg",
-            { width: 13, height: 13, viewBox: "0 0 24 24", "aria-hidden": true, style: { flex: "0 0 auto", opacity: 0.6 } },
-            h("circle", { cx: 11, cy: 11, r: 7, fill: "none", stroke: "currentColor", strokeWidth: 2 }),
-            h("path", { d: "M16.5 16.5 21 21", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" }),
+            {
+              width: 13,
+              height: 13,
+              viewBox: "0 0 24 24",
+              "aria-hidden": true,
+              style: { flex: "0 0 auto", opacity: 0.6 },
+            },
+            h("circle", {
+              cx: 11,
+              cy: 11,
+              r: 7,
+              fill: "none",
+              stroke: "currentColor",
+              strokeWidth: 2,
+            }),
+            h("path", {
+              d: "M16.5 16.5 21 21",
+              fill: "none",
+              stroke: "currentColor",
+              strokeWidth: 2,
+              strokeLinecap: "round",
+            }),
           ),
           h("input", {
             value,
@@ -390,7 +440,8 @@ window.__ModuleLoader__.load({
     const MD_HEADING = /^(#{1,6})\s+(.*)$/u;
     const MD_FENCE = /^\s*```([\w-]*)\s*$/u;
     const MD_RULE = /^\s*(---|\*\*\*|___)\s*$/u;
-    const MD_TABLE_SEPARATOR = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/u;
+    const MD_TABLE_SEPARATOR =
+      /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/u;
 
     function markdownBlocks(source, accent) {
       const lines = String(source).replace(/\r\n?/gu, "\n").split("\n");
@@ -410,7 +461,9 @@ window.__ModuleLoader__.load({
         MD_RULE.test(line) ||
         MD_LIST.test(line) ||
         /^\s*>/u.test(line) ||
-        (line.includes("|") && index + 1 < lines.length && MD_TABLE_SEPARATOR.test(lines[index + 1]));
+        (line.includes("|") &&
+          index + 1 < lines.length &&
+          MD_TABLE_SEPARATOR.test(lines[index + 1]));
 
       while (index < lines.length) {
         const line = lines[index];
@@ -477,7 +530,11 @@ window.__ModuleLoader__.load({
           blocks.push(
             h("hr", {
               key: key++,
-              style: { border: 0, borderTop: `1px solid ${T.border2}`, margin: "8px 0" },
+              style: {
+                border: 0,
+                borderTop: `1px solid ${T.border2}`,
+                margin: "8px 0",
+              },
             }),
           );
           index += 1;
@@ -498,7 +555,11 @@ window.__ModuleLoader__.load({
           const header = cells(line);
           index += 2;
           const rows = [];
-          while (index < lines.length && lines[index].includes("|") && !isBlank(lines[index])) {
+          while (
+            index < lines.length &&
+            lines[index].includes("|") &&
+            !isBlank(lines[index])
+          ) {
             rows.push(cells(lines[index]));
             index += 1;
           }
@@ -514,7 +575,12 @@ window.__ModuleLoader__.load({
               "table",
               {
                 key: key++,
-                style: { borderCollapse: "collapse", margin: "0 0 8px", width: "100%", tableLayout: "auto" },
+                style: {
+                  borderCollapse: "collapse",
+                  margin: "0 0 8px",
+                  width: "100%",
+                  tableLayout: "auto",
+                },
               },
               h(
                 "thead",
@@ -525,7 +591,14 @@ window.__ModuleLoader__.load({
                   ...header.map((cell, cellIndex) =>
                     h(
                       "th",
-                      { key: cellIndex, style: { ...cellStyle, background: T.layer1, fontWeight: 650 } },
+                      {
+                        key: cellIndex,
+                        style: {
+                          ...cellStyle,
+                          background: T.layer1,
+                          fontWeight: 650,
+                        },
+                      },
                       ...inlineMarkdown(cell, accent),
                     ),
                   ),
@@ -539,7 +612,11 @@ window.__ModuleLoader__.load({
                     "tr",
                     { key: rowIndex },
                     ...row.map((cell, cellIndex) =>
-                      h("td", { key: cellIndex, style: cellStyle }, ...inlineMarkdown(cell, accent)),
+                      h(
+                        "td",
+                        { key: cellIndex, style: cellStyle },
+                        ...inlineMarkdown(cell, accent),
+                      ),
                     ),
                   ),
                 ),
@@ -596,7 +673,13 @@ window.__ModuleLoader__.load({
             items.push(
               h(
                 "li",
-                { key: key++, style: { margin: "2px 0", marginLeft: Math.min(indent, 4) * 4 } },
+                {
+                  key: key++,
+                  style: {
+                    margin: "2px 0",
+                    marginLeft: Math.min(indent, 4) * 4,
+                  },
+                },
                 task === null
                   ? null
                   : h("input", {
@@ -620,12 +703,20 @@ window.__ModuleLoader__.load({
         }
 
         const paragraph = [];
-        while (index < lines.length && !isBlank(lines[index]) && !startsBlock(lines[index])) {
+        while (
+          index < lines.length &&
+          !isBlank(lines[index]) &&
+          !startsBlock(lines[index])
+        ) {
           paragraph.push(lines[index].trim());
           index += 1;
         }
         blocks.push(
-          h("p", { key: key++, style: paragraphStyle }, ...inlineMarkdown(paragraph.join(" "), accent)),
+          h(
+            "p",
+            { key: key++, style: paragraphStyle },
+            ...inlineMarkdown(paragraph.join(" "), accent),
+          ),
         );
       }
       return blocks;
@@ -633,16 +724,28 @@ window.__ModuleLoader__.load({
 
     function detailBlock(detail, accent) {
       if (detail === undefined || detail === null) {
-        return h("div", { style: { font: "400 11.5px/1.4 inherit", color: T.text3 } }, "Loading card…");
+        return h(
+          "div",
+          { style: { font: "400 11.5px/1.4 inherit", color: T.text3 } },
+          "Loading card…",
+        );
       }
       if (detail.status === "error") {
-        return h("div", { style: { font: "400 11.5px/1.4 inherit", color: T.danger } }, detail.error);
+        return h(
+          "div",
+          { style: { font: "400 11.5px/1.4 inherit", color: T.danger } },
+          detail.error,
+        );
       }
       const fields = detail.fields ?? {};
       const chips = [];
       if (fields["parent"]) chips.push(chip(fields["parent"], { mono: true }));
-      if (fields["blocked by"] && fields["blocked by"] !== "—") chips.push(chip(`blocked by ${fields["blocked by"]}`, { color: T.warn }));
-      if (fields["created by"]) chips.push(chip(`by ${fields["created by"].split(" · ")[0]}`));
+      if (fields["blocked by"] && fields["blocked by"] !== "—")
+        chips.push(
+          chip(`blocked by ${fields["blocked by"]}`, { color: T.warn }),
+        );
+      if (fields["created by"])
+        chips.push(chip(`by ${fields["created by"].split(" · ")[0]}`));
       return h(
         "div",
         {
@@ -660,7 +763,13 @@ window.__ModuleLoader__.load({
             padding: "6px 8px",
           },
         },
-        chips.length > 0 ? h("div", { style: { display: "flex", gap: 4, flexWrap: "wrap" } }, ...chips) : null,
+        chips.length > 0
+          ? h(
+              "div",
+              { style: { display: "flex", gap: 4, flexWrap: "wrap" } },
+              ...chips,
+            )
+          : null,
         detail.body
           ? h(
               "div",
@@ -675,7 +784,11 @@ window.__ModuleLoader__.load({
               },
               ...markdownBlocks(detail.body, accent),
             )
-          : h("div", { style: { font: "400 11.5px/1.4 inherit", color: T.text3 } }, "No body."),
+          : h(
+              "div",
+              { style: { font: "400 11.5px/1.4 inherit", color: T.text3 } },
+              "No body.",
+            ),
         detail.history
           ? h(
               "details",
@@ -721,7 +834,8 @@ window.__ModuleLoader__.load({
      */
     function rowsByState(board) {
       const sectionOf = new Map();
-      for (const state of STATES) for (const card of board[state]) sectionOf.set(card.id, state);
+      for (const state of STATES)
+        for (const card of board[state]) sectionOf.set(card.id, state);
       const childrenOf = new Map();
       const roots = [];
       for (const state of STATES) {
@@ -741,7 +855,8 @@ window.__ModuleLoader__.load({
         const parsed = Date.parse(card?.updatedAt ?? "");
         return Number.isFinite(parsed) ? parsed : 0;
       };
-      const newestFirst = (left, right) => updatedMs(right.card) - updatedMs(left.card);
+      const newestFirst = (left, right) =>
+        updatedMs(right.card) - updatedMs(left.card);
       for (const list of childrenOf.values()) {
         list.sort((left, right) => updatedMs(right) - updatedMs(left));
       }
@@ -790,7 +905,8 @@ window.__ModuleLoader__.load({
       };
       for (const state of STATES) {
         const out = rows.get(state);
-        for (const group of groups.get(state).sort(newestFirst)) flatten(group, out);
+        for (const group of groups.get(state).sort(newestFirst))
+          flatten(group, out);
       }
       return rows;
     }
@@ -801,13 +917,16 @@ window.__ModuleLoader__.load({
      */
     function hierarchySuffix(card, byId, nested) {
       const parts = [];
-      if (!nested && typeof card.parent === "number") parts.push(`⤷#${card.parent}`);
+      if (!nested && typeof card.parent === "number")
+        parts.push(`⤷#${card.parent}`);
       const children = Array.isArray(card.children) ? card.children : [];
       if (children.length > 0) {
         const resolved =
           byId === undefined
             ? []
-            : children.map((id) => byId.get(id)).filter((child) => child !== undefined);
+            : children
+                .map((id) => byId.get(id))
+                .filter((child) => child !== undefined);
         parts.push(
           resolved.length === children.length
             ? `▸${resolved.filter((child) => child.state === "done").length}/${children.length}`
@@ -872,7 +991,9 @@ window.__ModuleLoader__.load({
             padding: compact ? "2px 6px" : "3px 7px",
             paddingLeft: depth === 0 ? 7 : 8,
             borderRadius: 7,
-            background: expanded ? `color-mix(in srgb, ${accent} 9%, transparent)` : "transparent",
+            background: expanded
+              ? `color-mix(in srgb, ${accent} 9%, transparent)`
+              : "transparent",
             cursor: "pointer",
             whiteSpace: "nowrap",
             overflow: "hidden",
@@ -956,29 +1077,74 @@ window.__ModuleLoader__.load({
         hierarchy !== null
           ? h(
               "span",
-              { style: { flex: "0 0 auto", font: "500 10px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace", color: T.text3 } },
+              {
+                style: {
+                  flex: "0 0 auto",
+                  font: "500 10px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace",
+                  color: T.text3,
+                },
+              },
               hierarchy,
             )
           : null,
         blocked > 0
-          ? h("span", { style: { flex: "0 0 auto", font: "500 10px/1.3 inherit", color: T.warn } }, `⛔${blocked}`)
+          ? h(
+              "span",
+              {
+                style: {
+                  flex: "0 0 auto",
+                  font: "500 10px/1.3 inherit",
+                  color: T.warn,
+                },
+              },
+              `⛔${blocked}`,
+            )
           : null,
         noteCount > 0
-          ? h("span", { style: { flex: "0 0 auto", font: "500 10px/1.3 inherit", color: T.text3 } }, `✎${noteCount}`)
+          ? h(
+              "span",
+              {
+                style: {
+                  flex: "0 0 auto",
+                  font: "500 10px/1.3 inherit",
+                  color: T.text3,
+                },
+              },
+              `✎${noteCount}`,
+            )
           : null,
         owner !== null
-          ? h("span", { style: { flex: "0 0 auto", font: "500 10px/1.3 inherit", color: T.text2 } }, owner)
+          ? h(
+              "span",
+              {
+                style: {
+                  flex: "0 0 auto",
+                  font: "500 10px/1.3 inherit",
+                  color: T.text2,
+                },
+              },
+              owner,
+            )
           : null,
       );
 
       if (!expanded) return line;
       return h(
         "div",
-        { key: String(card.id), style: { display: "flex", flexDirection: "column" } },
+        {
+          key: String(card.id),
+          style: { display: "flex", flexDirection: "column" },
+        },
         line,
         h(
           "div",
-          { style: { marginLeft: depth === 0 ? 7 : 20, marginRight: 6, marginBottom: 4 } },
+          {
+            style: {
+              marginLeft: depth === 0 ? 7 : 20,
+              marginRight: 6,
+              marginBottom: 4,
+            },
+          },
           detailBlock(options?.detail, accent),
         ),
       );
@@ -1011,7 +1177,9 @@ window.__ModuleLoader__.load({
             onClick: () => options?.onToggleSection?.(state),
             role: "button",
             tabIndex: 0,
-            title: collapsed ? `Show ${STATE_LABEL[state]}` : `Collapse ${STATE_LABEL[state]}`,
+            title: collapsed
+              ? `Show ${STATE_LABEL[state]}`
+              : `Collapse ${STATE_LABEL[state]}`,
             style: {
               display: "flex",
               alignItems: "center",
@@ -1026,10 +1194,25 @@ window.__ModuleLoader__.load({
               backdropFilter: "blur(6px)",
             },
           },
-          h("span", { style: { width: 8, height: 8, borderRadius: 999, background: color, flex: "0 0 auto" } }),
+          h("span", {
+            style: {
+              width: 8,
+              height: 8,
+              borderRadius: 999,
+              background: color,
+              flex: "0 0 auto",
+            },
+          }),
           h(
             "span",
-            { style: { font: "700 11px/1.2 inherit", letterSpacing: "0.06em", textTransform: "uppercase", color } },
+            {
+              style: {
+                font: "700 11px/1.2 inherit",
+                letterSpacing: "0.06em",
+                textTransform: "uppercase",
+                color,
+              },
+            },
             STATE_LABEL[state] ?? state,
           ),
           h(
@@ -1047,7 +1230,11 @@ window.__ModuleLoader__.load({
             String(rows.length),
           ),
           h("span", { style: { flex: "1 1 auto" } }),
-          h("span", { style: { font: "600 10px/1 inherit", color: T.text3 } }, collapsed ? "▸" : "▾"),
+          h(
+            "span",
+            { style: { font: "600 10px/1 inherit", color: T.text3 } },
+            collapsed ? "▸" : "▾",
+          ),
         ),
         collapsed
           ? null
@@ -1091,7 +1278,13 @@ window.__ModuleLoader__.load({
               rows.length > shown.length
                 ? h(
                     "div",
-                    { style: { font: "400 11px/1.4 inherit", color: T.text3, paddingLeft: 4 } },
+                    {
+                      style: {
+                        font: "400 11px/1.4 inherit",
+                        color: T.text3,
+                        paddingLeft: 4,
+                      },
+                    },
                     `+${rows.length - shown.length} more`,
                   )
                 : null,
@@ -1102,7 +1295,8 @@ window.__ModuleLoader__.load({
     function boardView(board, options) {
       const rows = rowsByState(board);
       const byId = new Map();
-      for (const state of STATES) for (const card of board[state]) byId.set(card.id, card);
+      for (const state of STATES)
+        for (const card of board[state]) byId.set(card.id, card);
       return h(
         "div",
         { style: { display: "flex", flexDirection: "column", gap: 12 } },
@@ -1119,7 +1313,8 @@ window.__ModuleLoader__.load({
 
     /** A board object is `{ someday, todo, doing, review, done }` of card arrays. */
     function boardOf(value) {
-      if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+      if (value === null || typeof value !== "object" || Array.isArray(value))
+        return null;
       for (const state of STATES) {
         if (!Array.isArray(value[state])) return null;
       }
@@ -1144,9 +1339,36 @@ window.__ModuleLoader__.load({
           "aria-hidden": true,
           style: { display: "block" },
         },
-        h("rect", { x: 3, y: 4, width: 5, height: 16, rx: 1.4, fill: "none", stroke: "currentColor", strokeWidth: 1.7 }),
-        h("rect", { x: 9.5, y: 4, width: 5, height: 10, rx: 1.4, fill: "none", stroke: "currentColor", strokeWidth: 1.7 }),
-        h("rect", { x: 16, y: 4, width: 5, height: 13, rx: 1.4, fill: "none", stroke: "currentColor", strokeWidth: 1.7 }),
+        h("rect", {
+          x: 3,
+          y: 4,
+          width: 5,
+          height: 16,
+          rx: 1.4,
+          fill: "none",
+          stroke: "currentColor",
+          strokeWidth: 1.7,
+        }),
+        h("rect", {
+          x: 9.5,
+          y: 4,
+          width: 5,
+          height: 10,
+          rx: 1.4,
+          fill: "none",
+          stroke: "currentColor",
+          strokeWidth: 1.7,
+        }),
+        h("rect", {
+          x: 16,
+          y: 4,
+          width: 5,
+          height: 13,
+          rx: 1.4,
+          fill: "none",
+          stroke: "currentColor",
+          strokeWidth: 1.7,
+        }),
       );
     }
 
@@ -1159,9 +1381,22 @@ window.__ModuleLoader__.load({
      */
     function boardUrls(project) {
       const bases = [];
-      try { bases.push(document.baseURI); } catch { /* no document base */ }
-      try { if (location.origin && location.origin !== "null") bases.push(`${location.origin}/`); } catch { /* no origin */ }
-      try { bases.push(location.href); } catch { /* no location */ }
+      try {
+        bases.push(document.baseURI);
+      } catch {
+        /* no document base */
+      }
+      try {
+        if (location.origin && location.origin !== "null")
+          bases.push(`${location.origin}/`);
+      } catch {
+        /* no origin */
+      }
+      try {
+        bases.push(location.href);
+      } catch {
+        /* no location */
+      }
       const paths = [];
       for (const base of bases) {
         try {
@@ -1188,7 +1423,9 @@ window.__ModuleLoader__.load({
       for (const url of boardUrls(project)) {
         tried.push(url);
         try {
-          const response = await fetch(url, { headers: { accept: "application/json" } });
+          const response = await fetch(url, {
+            headers: { accept: "application/json" },
+          });
           const text = await response.text();
           let body;
           try {
@@ -1205,15 +1442,32 @@ window.__ModuleLoader__.load({
           // Try the next candidate.
         }
       }
-      return { ok: false, error: `no candidate answered JSON; tried ${tried.join(", ")}`, tried };
+      return {
+        ok: false,
+        error: `no candidate answered JSON; tried ${tried.join(", ")}`,
+        tried,
+      };
     }
 
     /** Candidate URLs for the card-detail route, same resolution as the board. */
     function cardUrls(id) {
       const bases = [];
-      try { bases.push(document.baseURI); } catch { /* no document base */ }
-      try { if (location.origin && location.origin !== "null") bases.push(`${location.origin}/`); } catch { /* no origin */ }
-      try { bases.push(location.href); } catch { /* no location */ }
+      try {
+        bases.push(document.baseURI);
+      } catch {
+        /* no document base */
+      }
+      try {
+        if (location.origin && location.origin !== "null")
+          bases.push(`${location.origin}/`);
+      } catch {
+        /* no origin */
+      }
+      try {
+        bases.push(location.href);
+      } catch {
+        /* no location */
+      }
       const paths = [];
       for (const base of bases) {
         try {
@@ -1240,7 +1494,9 @@ window.__ModuleLoader__.load({
       for (const url of cardUrls(id)) {
         tried.push(url);
         try {
-          const response = await fetch(url, { headers: { accept: "application/json" } });
+          const response = await fetch(url, {
+            headers: { accept: "application/json" },
+          });
           const text = await response.text();
           let body;
           try {
@@ -1248,14 +1504,18 @@ window.__ModuleLoader__.load({
           } catch {
             continue;
           }
-          if (body && typeof body === "object" && body.error) return { ok: false, error: String(body.error) };
+          if (body && typeof body === "object" && body.error)
+            return { ok: false, error: String(body.error) };
           if (!response.ok || typeof body.text !== "string") continue;
           return { ok: true, body };
         } catch {
           // Try the next candidate.
         }
       }
-      return { ok: false, error: `no candidate answered; tried ${tried.join(", ")}` };
+      return {
+        ok: false,
+        error: `no candidate answered; tried ${tried.join(", ")}`,
+      };
     }
 
     /**
@@ -1269,7 +1529,11 @@ window.__ModuleLoader__.load({
       const body = [];
       const history = [];
       let sectionName = "";
-      for (let index = head === null ? 0 : 1; index < lines.length; index += 1) {
+      for (
+        let index = head === null ? 0 : 1;
+        index < lines.length;
+        index += 1
+      ) {
         const line = lines[index];
         const field = /^([a-z][a-z ]*):\s*(.*)$/u.exec(line);
         if (field !== null) {
@@ -1278,7 +1542,8 @@ window.__ModuleLoader__.load({
           continue;
         }
         if (sectionName === "body") body.push(line.replace(/^ {2}/u, ""));
-        else if (sectionName === "history") history.push(line.replace(/^ {2}/u, ""));
+        else if (sectionName === "history")
+          history.push(line.replace(/^ {2}/u, ""));
       }
       return {
         status: "ready",
@@ -1291,7 +1556,13 @@ window.__ModuleLoader__.load({
     }
 
     function useBoard() {
-      const [state, setState] = useState({ status: "loading", board: null, identity: null, error: null, at: null });
+      const [state, setState] = useState({
+        status: "loading",
+        board: null,
+        identity: null,
+        error: null,
+        at: null,
+      });
       const [nonce, setNonce] = useState(0);
       const refresh = useCallback(() => setNonce((value) => value + 1), []);
       useEffect(() => {
@@ -1300,7 +1571,13 @@ window.__ModuleLoader__.load({
           const result = await readBoardJson(null);
           if (!alive) return;
           if (!result.ok) {
-            setState({ status: "error", board: null, identity: null, error: result.error, at: null });
+            setState({
+              status: "error",
+              board: null,
+              identity: null,
+              error: result.error,
+              at: null,
+            });
             return;
           }
           const board = boardOf(result.body);
@@ -1333,8 +1610,13 @@ window.__ModuleLoader__.load({
      * than blanking the slot.
      */
     function useSessionCwd(props = {}) {
-      const useSessions = typeof props.useSessions === "function" ? props.useSessions : () => undefined;
-      return useSessions((state) => (props.sessionId ? state.byId[props.sessionId]?.cwd : undefined));
+      const useSessions =
+        typeof props.useSessions === "function"
+          ? props.useSessions
+          : () => undefined;
+      return useSessions((state) =>
+        props.sessionId ? state.byId[props.sessionId]?.cwd : undefined,
+      );
     }
 
     /**
@@ -1351,11 +1633,13 @@ window.__ModuleLoader__.load({
      * @returns {string | null}
      */
     function projectFromWorkspace(cwd, projects) {
-      if (typeof cwd !== "string" || cwd === "" || !Array.isArray(projects)) return null;
+      if (typeof cwd !== "string" || cwd === "" || !Array.isArray(projects))
+        return null;
       /** @type {Map<string, string>} */
       const known = new Map();
       for (const name of projects) {
-        if (typeof name === "string" && name !== "") known.set(name.toLowerCase(), name);
+        if (typeof name === "string" && name !== "")
+          known.set(name.toLowerCase(), name);
       }
       if (known.size === 0) return null;
       const segments = cwd.split(/[\\/]+/);
@@ -1381,25 +1665,42 @@ window.__ModuleLoader__.load({
       const names = new Set();
       for (const state of STATES) {
         for (const card of board[state]) {
-          if (typeof card.project === "string" && card.project !== "") names.add(card.project);
+          if (typeof card.project === "string" && card.project !== "")
+            names.add(card.project);
         }
       }
       return [...names].sort((a, b) => a.localeCompare(b));
     }
 
     function matches(card, filters, identity) {
-      if (filters.project !== null && card.project !== filters.project) return false;
+      if (filters.project !== null && card.project !== filters.project)
+        return false;
       const owner = identity?.owner ?? null;
       const agent = identity?.agent ?? null;
-      if (filters.scope === "mine" && (owner === null || card.assignee !== owner)) return false;
-      if (filters.scope === "agent" && (agent === null || card.assignee !== agent)) return false;
+      if (
+        filters.scope === "mine" &&
+        (owner === null || card.assignee !== owner)
+      )
+        return false;
+      if (
+        filters.scope === "agent" &&
+        (agent === null || card.assignee !== agent)
+      )
+        return false;
       if (filters.scope === "review") {
         if (card.state !== "review") return false;
-        if (owner !== null && card.reviewer !== null && card.reviewer !== undefined && card.reviewer !== owner) return false;
+        if (
+          owner !== null &&
+          card.reviewer !== null &&
+          card.reviewer !== undefined &&
+          card.reviewer !== owner
+        )
+          return false;
       }
       const query = filters.query.trim().toLowerCase();
       if (query !== "") {
-        const haystack = `${card.id} ${card.title ?? ""} ${card.project ?? ""} ${card.assignee ?? ""}`.toLowerCase();
+        const haystack =
+          `${card.id} ${card.title ?? ""} ${card.project ?? ""} ${card.assignee ?? ""}`.toLowerCase();
         if (!haystack.includes(query)) return false;
       }
       return true;
@@ -1407,7 +1708,10 @@ window.__ModuleLoader__.load({
 
     function applyFilters(board, filters, identity) {
       const out = {};
-      for (const state of STATES) out[state] = board[state].filter((card) => matches(card, filters, identity));
+      for (const state of STATES)
+        out[state] = board[state].filter((card) =>
+          matches(card, filters, identity),
+        );
       return out;
     }
 
@@ -1425,7 +1729,10 @@ window.__ModuleLoader__.load({
 
     function writeDensity(compact) {
       try {
-        globalThis.localStorage?.setItem(DENSITY_KEY, compact ? "compact" : "comfortable");
+        globalThis.localStorage?.setItem(
+          DENSITY_KEY,
+          compact ? "compact" : "comfortable",
+        );
       } catch {
         // Storage may be unavailable; density simply does not persist.
       }
@@ -1456,7 +1763,9 @@ window.__ModuleLoader__.load({
           void readCardJson(id).then((result) => {
             setDetails((map) => ({
               ...map,
-              [id]: result.ok ? parseShow(result.body.text) : { status: "error", error: result.error },
+              [id]: result.ok
+                ? parseShow(result.body.text)
+                : { status: "error", error: result.error },
             }));
           });
         },
@@ -1472,17 +1781,31 @@ window.__ModuleLoader__.load({
         });
       }, []);
 
-      const projects = useMemo(() => (board === null ? [] : projectsOf(board)), [board]);
-      const workspaceProject = useMemo(() => projectFromWorkspace(cwd, projects), [cwd, projects]);
-      const project = projectChoice === undefined ? workspaceProject : projectChoice;
-      const filters = useMemo(() => ({ query, project, scope }), [query, project, scope]);
-      const filtered = useMemo(() => (board === null ? null : applyFilters(board, filters, identity)), [board, filters, identity]);
+      const projects = useMemo(
+        () => (board === null ? [] : projectsOf(board)),
+        [board],
+      );
+      const workspaceProject = useMemo(
+        () => projectFromWorkspace(cwd, projects),
+        [cwd, projects],
+      );
+      const project =
+        projectChoice === undefined ? workspaceProject : projectChoice;
+      const filters = useMemo(
+        () => ({ query, project, scope }),
+        [query, project, scope],
+      );
+      const filtered = useMemo(
+        () => (board === null ? null : applyFilters(board, filters, identity)),
+        [board, filters, identity],
+      );
       const total = filtered === null ? 0 : countOf(filtered);
       const grandTotal = board === null ? 0 : countOf(board);
       /** The visible board is narrowed — by a choice or by the workspace default. */
       const scoped = query !== "" || project !== null || scope !== "all";
       /** The reader has overridden a default, so Clear has something to restore. */
-      const adjusted = query !== "" || projectChoice !== undefined || scope !== "all";
+      const adjusted =
+        query !== "" || projectChoice !== undefined || scope !== "all";
 
       const clearFilters = useCallback(() => {
         setQuery("");
@@ -1492,7 +1815,15 @@ window.__ModuleLoader__.load({
 
       return h(
         "div",
-        { style: { display: "flex", flexDirection: "column", height: "100%", minHeight: 0, color: T.text } },
+        {
+          style: {
+            display: "flex",
+            flexDirection: "column",
+            height: "100%",
+            minHeight: 0,
+            color: T.text,
+          },
+        },
         h(
           "div",
           {
@@ -1504,15 +1835,35 @@ window.__ModuleLoader__.load({
               flexWrap: "wrap",
             },
           },
-          h("span", { style: { font: "650 14px/1.2 inherit", letterSpacing: "-0.01em" } }, "Kanban"),
-          h("span", { style: { font: "500 11px/1 inherit", color: T.text3 } }, scoped ? `${total} of ${grandTotal}` : `${grandTotal} cards`),
-          at !== null ? h("span", { style: { font: "400 10.5px/1 inherit", color: T.caption } }, timeAgo(at)) : null,
+          h(
+            "span",
+            {
+              style: { font: "650 14px/1.2 inherit", letterSpacing: "-0.01em" },
+            },
+            "Kanban",
+          ),
+          h(
+            "span",
+            { style: { font: "500 11px/1 inherit", color: T.text3 } },
+            scoped ? `${total} of ${grandTotal}` : `${grandTotal} cards`,
+          ),
+          at !== null
+            ? h(
+                "span",
+                { style: { font: "400 10.5px/1 inherit", color: T.caption } },
+                timeAgo(at),
+              )
+            : null,
           h("span", { style: { flex: "1 1 auto" } }),
-          iconButton(compact ? "Comfortable" : "Compact", () => {
-            const next = !compact;
-            setCompact(next);
-            writeDensity(next);
-          }, compact),
+          iconButton(
+            compact ? "Comfortable" : "Compact",
+            () => {
+              const next = !compact;
+              setCompact(next);
+              writeDensity(next);
+            },
+            compact,
+          ),
           iconButton("Refresh", refresh),
         ),
         h(
@@ -1528,17 +1879,38 @@ window.__ModuleLoader__.load({
             },
           },
           searchInput(query, setQuery),
-          projectSelect(projects, project, setProjectChoice, projectChoice === undefined && workspaceProject !== null),
+          projectSelect(
+            projects,
+            project,
+            setProjectChoice,
+            projectChoice === undefined && workspaceProject !== null,
+          ),
           segmented(SCOPES, scope, setScope),
           adjusted ? iconButton("Clear", clearFilters) : null,
         ),
         status === "loading"
-          ? h("div", { style: { padding: "18px 14px", font: "400 12px/1.5 inherit", color: T.text3 } }, "Reading the board…")
+          ? h(
+              "div",
+              {
+                style: {
+                  padding: "18px 14px",
+                  font: "400 12px/1.5 inherit",
+                  color: T.text3,
+                },
+              },
+              "Reading the board…",
+            )
           : null,
         status === "error"
           ? h(
               "div",
-              { style: { padding: "16px 14px", font: "400 12px/1.5 inherit", color: T.text2 } },
+              {
+                style: {
+                  padding: "16px 14px",
+                  font: "400 12px/1.5 inherit",
+                  color: T.text2,
+                },
+              },
               `Could not read the board: ${error}`,
             )
           : null,
@@ -1557,7 +1929,16 @@ window.__ModuleLoader__.load({
               total === 0 && scoped
                 ? h(
                     "div",
-                    { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: "28px 0", color: T.text3 } },
+                    {
+                      style: {
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        gap: 8,
+                        padding: "28px 0",
+                        color: T.text3,
+                      },
+                    },
                     h(
                       "div",
                       { style: { font: "500 12.5px/1.4 inherit" } },
@@ -1568,13 +1949,16 @@ window.__ModuleLoader__.load({
                     // The workspace default is the only filter here: clearing it
                     // would land on the same empty view, so offer the whole board.
                     workspaceProject !== null && projectChoice === undefined
-                      ? iconButton("Show all projects", () => setProjectChoice(null))
+                      ? iconButton("Show all projects", () =>
+                          setProjectChoice(null),
+                        )
                       : iconButton("Clear filters", clearFilters),
                   )
                 : boardView(filtered, {
                     compact,
                     expandedId,
-                    detail: expandedId === null ? undefined : details[expandedId],
+                    detail:
+                      expandedId === null ? undefined : details[expandedId],
                     onToggleCard: toggleCard,
                     collapsedStates,
                     onToggleSection: toggleSection,
@@ -1601,7 +1985,8 @@ window.__ModuleLoader__.load({
       // so both read the Session workspace's project through the same rule. No
       // match means the whole board, which is what this chip always showed.
       const project = useMemo(
-        () => (board === null ? null : projectFromWorkspace(cwd, projectsOf(board))),
+        () =>
+          board === null ? null : projectFromWorkspace(cwd, projectsOf(board)),
         [board, cwd],
       );
       const open = useCallback(() => {
@@ -1614,7 +1999,9 @@ window.__ModuleLoader__.load({
       if (status !== "ready") return null;
       const counts = ["doing", "todo", "review"].map((state) => [
         state,
-        board[state].filter((card) => project === null || card.project === project).length,
+        board[state].filter(
+          (card) => project === null || card.project === project,
+        ).length,
       ]);
       if (counts.every(([, count]) => count === 0)) return null;
       return h(
@@ -1622,7 +2009,10 @@ window.__ModuleLoader__.load({
         {
           type: "button",
           onClick: open,
-          title: project === null ? "Open the kanban board" : `Open the kanban board — ${project} (this workspace)`,
+          title:
+            project === null
+              ? "Open the kanban board"
+              : `Open the kanban board — ${project} (this workspace)`,
           style: {
             display: "inline-flex",
             alignItems: "center",
@@ -1657,8 +2047,24 @@ window.__ModuleLoader__.load({
         ...counts.map(([state, count]) =>
           h(
             "span",
-            { key: state, style: { display: "inline-flex", alignItems: "center", gap: 4, color: count === 0 ? T.caption : T.text } },
-            h("span", { style: { width: 5, height: 5, borderRadius: 999, background: STATE_COLOR[state], opacity: count === 0 ? 0.4 : 1 } }),
+            {
+              key: state,
+              style: {
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                color: count === 0 ? T.caption : T.text,
+              },
+            },
+            h("span", {
+              style: {
+                width: 5,
+                height: 5,
+                borderRadius: 999,
+                background: STATE_COLOR[state],
+                opacity: count === 0 ? 0.4 : 1,
+              },
+            }),
             `${STATE_LABEL[state].toLowerCase()} ${count}`,
           ),
         ),
@@ -1718,7 +2124,14 @@ window.__ModuleLoader__.load({
     function header(action, extra) {
       return h(
         "div",
-        { style: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" } },
+        {
+          style: {
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            flexWrap: "wrap",
+          },
+        },
         h("span", { style: { font: "600 12px/1.2 inherit" } }, "kanban"),
         chip(action ? String(action) : "ukb", { strong: true }),
         ...extra,
@@ -1730,13 +2143,21 @@ window.__ModuleLoader__.load({
         const args = argsOf(props);
         const action = typeof args.action === "string" ? args.action : "ukb";
         const extra = [];
-        if (args.id !== undefined) extra.push(chip(`#${args.id}`, { mono: true }));
-        if (Array.isArray(args.ids) && args.ids.length > 0) extra.push(chip(args.ids.map((id) => `#${id}`).join(" "), { mono: true }));
+        if (args.id !== undefined)
+          extra.push(chip(`#${args.id}`, { mono: true }));
+        if (Array.isArray(args.ids) && args.ids.length > 0)
+          extra.push(
+            chip(args.ids.map((id) => `#${id}`).join(" "), { mono: true }),
+          );
         if (typeof args.column === "string") extra.push(chip(args.column));
         if (typeof args.project === "string") extra.push(chip(args.project));
 
         if (props.phase !== "result") {
-          return h("div", { style: { padding: "4px 2px" } }, header(action, extra));
+          return h(
+            "div",
+            { style: { padding: "4px 2px" } },
+            header(action, extra),
+          );
         }
 
         const text = textOf(props.block && props.block.content);
@@ -1750,19 +2171,32 @@ window.__ModuleLoader__.load({
         }
 
         if (props.block && props.block.isError) {
-          return h("div", { style: { padding: "4px 2px" } }, header(action, [...extra, chip("failed", { color: T.danger })]), output(text));
+          return h(
+            "div",
+            { style: { padding: "4px 2px" } },
+            header(action, [...extra, chip("failed", { color: T.danger })]),
+            output(text),
+          );
         }
 
         return h(
           "div",
           { style: { padding: "4px 2px", minWidth: 0 } },
           header(action, extra),
-          parsed ? boardView(parsed, { compact: true, limit: 6 }) : output(text),
+          parsed
+            ? boardView(parsed, { compact: true, limit: 6 })
+            : output(text),
         );
       } catch (error) {
         return h(
           "div",
-          { style: { padding: "4px 2px", font: "400 12px/1.4 inherit", color: T.text2 } },
+          {
+            style: {
+              padding: "4px 2px",
+              font: "400 12px/1.4 inherit",
+              color: T.text2,
+            },
+          },
           `ukb result could not be rendered: ${String(error && error.message ? error.message : error)}`,
         );
       }
@@ -1796,17 +2230,26 @@ window.__ModuleLoader__.load({
         );
         ctx.effect(() =>
           ctx.slots.inject("sidebar.right.pane.tab", () =>
-            ctx.slots.register({ name: "sidebar.right.pane.tab", key: TAB_ID }, BoardPanel),
+            ctx.slots.register(
+              { name: "sidebar.right.pane.tab", key: TAB_ID },
+              BoardPanel,
+            ),
           ),
         );
         ctx.effect(() =>
           ctx.slots.inject("conversation.composer.dock", () =>
-            ctx.slots.register({ name: "conversation.composer.dock", id: "ukb-chip", order: 20 }, BoardChip),
+            ctx.slots.register(
+              { name: "conversation.composer.dock", id: "ukb-chip", order: 20 },
+              BoardChip,
+            ),
           ),
         );
         ctx.effect(() =>
           ctx.slots.inject("tool.call.toolview", () =>
-            ctx.slots.register({ name: "tool.call.toolview", key: "ukb" }, UkbView),
+            ctx.slots.register(
+              { name: "tool.call.toolview", key: "ukb" },
+              UkbView,
+            ),
           ),
         );
       },
