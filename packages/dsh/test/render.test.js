@@ -330,6 +330,10 @@ test("each row shows the card priority", () => {
     assert.ok(text.includes(label), `#${id} label`);
   }
   assert.ok(text.includes('title":"high priority"'), "full priority tooltip");
+  assert.ok(
+    text.indexOf('"data-card-id":1') < text.indexOf('"data-priority":"high"'),
+    "priority follows the card id",
+  );
 });
 
 test("the scope and card id are wrapped as their own marks", () => {

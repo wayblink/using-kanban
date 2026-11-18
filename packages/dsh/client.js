@@ -306,6 +306,10 @@ window.__ModuleLoader__.load({
 
     /* ---------------------------------- cards --------------------------------- */
 
+    /** One font for every meta mark: scope, id, priority, counts and owner. */
+    const META_FONT =
+      "500 10px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace";
+
     /** A compact priority label: HIGH is loud, NORMAL/LOW stay quiet. */
     function priorityBadge(card) {
       const priority = card.priority ?? "normal";
@@ -326,8 +330,8 @@ window.__ModuleLoader__.load({
               ? `color-mix(in srgb, ${T.danger} 9%, transparent)`
               : "none",
             color: high ? T.danger : T.text3,
-            font: "600 8.5px/1.6 inherit",
-            letterSpacing: "0.04em",
+            font: META_FONT,
+            letterSpacing: "0.02em",
             opacity: priority === "low" ? 0.65 : 1,
           },
         },
@@ -1018,7 +1022,6 @@ window.__ModuleLoader__.load({
             if (!expanded) event.currentTarget.style.background = "transparent";
           },
         },
-        priorityBadge(card),
         row.state !== sectionState
           ? h("span", {
               title: STATE_LABEL[row.state] ?? row.state,
@@ -1048,7 +1051,7 @@ window.__ModuleLoader__.load({
                   border: `1px solid ${T.border1}`,
                   background: T.layer1,
                   color: T.text2,
-                  font: "500 9.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace",
+                  font: META_FONT,
                 },
               },
               scope,
@@ -1066,12 +1069,13 @@ window.__ModuleLoader__.load({
               border: `1px solid color-mix(in srgb, ${accent} 26%, ${T.border1})`,
               background: `color-mix(in srgb, ${accent} 8%, transparent)`,
               color: T.text2,
-              font: "600 10px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace",
+              font: META_FONT,
               fontVariantNumeric: "tabular-nums",
             },
           },
           `#${card.id}`,
         ),
+        priorityBadge(card),
         h(
           "span",
           {
@@ -1093,7 +1097,7 @@ window.__ModuleLoader__.load({
               {
                 style: {
                   flex: "0 0 auto",
-                  font: "500 10px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace",
+                  font: META_FONT,
                   color: T.text3,
                 },
               },
@@ -1106,7 +1110,7 @@ window.__ModuleLoader__.load({
               {
                 style: {
                   flex: "0 0 auto",
-                  font: "500 10px/1.3 inherit",
+                  font: META_FONT,
                   color: T.warn,
                 },
               },
@@ -1119,7 +1123,7 @@ window.__ModuleLoader__.load({
               {
                 style: {
                   flex: "0 0 auto",
-                  font: "500 10px/1.3 inherit",
+                  font: META_FONT,
                   color: T.text3,
                 },
               },
@@ -1132,7 +1136,7 @@ window.__ModuleLoader__.load({
               {
                 style: {
                   flex: "0 0 auto",
-                  font: "500 10px/1.3 inherit",
+                  font: META_FONT,
                   color: T.text2,
                 },
               },
@@ -2046,7 +2050,7 @@ window.__ModuleLoader__.load({
               "span",
               {
                 style: {
-                  font: "500 10px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace",
+                  font: META_FONT,
                   color: T.text3,
                   maxWidth: 110,
                   overflow: "hidden",
