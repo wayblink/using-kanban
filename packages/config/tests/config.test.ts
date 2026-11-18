@@ -240,6 +240,13 @@ describe("loadConfig", () => {
     expect(loadConfig(withConfig(tempHome(), '{"owner":"  "}'))).toEqual({});
   });
 
+  it("reads auth only as a boolean", () => {
+    expect(loadConfig(withConfig(tempHome(), '{"auth":false}'))).toEqual({
+      auth: false,
+    });
+    expect(loadConfig(withConfig(tempHome(), '{"auth":"off"}'))).toEqual({});
+  });
+
   it("reads openAccess only as a boolean", () => {
     expect(loadConfig(withConfig(tempHome(), '{"openAccess":true}'))).toEqual({
       openAccess: true,

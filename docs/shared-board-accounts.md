@@ -116,16 +116,25 @@ its assignee, or the server's `owner`; `delete` allows the creator or owner.
 This exists so one person's agents do not lock that person out of their own
 board, and so a shared board has _some_ separation.
 
-A personal board can switch the guard off entirely with
-`UKB_OPEN_ACCESS=1` (or `--open-access` on `ukb web` / `ukb-server`). Every
-signed-in user may then edit and delete any card; login, tokens and roles are
-unchanged. Do not use it for a board shared by people who should not be able
-to change each other's cards.
+### One switch: `auth`
+
+`auth` is the single switch for this concern:
+
+- `auth: true` (default): accounts are required on a server, and the per-card
+  creator/assignee guard is on.
+- `auth: false`: no login challenge and no per-card guard. On a server this
+  also allows anonymous writes, so use it only for a personal/trusted board —
+  never on a public host.
+
+Set it in `~/.config/ukb/config.json` for the local CLI/Pi/DSH, with
+`UKB_AUTH=off` or `--auth off` for one invocation, or in the server
+environment (`.env`: `UKB_AUTH=off`). The old `openAccess`/`allowAnonymous`
+fields remain accepted as legacy aliases, but new setups should use `auth`.
 
 The usual cause of "only the creator can delete" on a personal board is that
 the browser is signed in as `admin` while the server's `owner` is the machine
 name. Either set `UKB_OWNER=admin` (keeps the guard, makes that account the
-owner) or enable open access.
+owner) or turn `auth` off.
 
 ## Operating it
 

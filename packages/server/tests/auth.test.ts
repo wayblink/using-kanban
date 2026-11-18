@@ -235,3 +235,31 @@ describe("a trusted network without accounts", () => {
     if (!result.ok) expect(result.status).toBe(401);
   });
 });
+
+describe("auth off", () => {
+  it("lets an anonymous request through without opening accounts", async () => {
+    const dir = tempDir();
+    await AccountStore.inStoreDir(dir).addUser(
+      "alice",
+      "alice password",
+      "admin",
+    );
+    const options = resolveServerOptions({
+      dir,
+      host: "0.0.0.0",
+      token: TOKEN,
+      auth: false,
+    });
+    const result = await authorizeRequest(
+      { headers: {} } as unknown as IncomingMessage,
+      new URL("http://board.lan/api/cards"),
+      options,
+      AccountStore.inStoreDir(dir),
+      true,
+      "192.168.1.20",
+      new LoginThrottle(),
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.identity).toBeNull();
+  });
+});

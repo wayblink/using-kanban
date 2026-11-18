@@ -67,6 +67,31 @@ describe("the non-loopback bind policy", () => {
   });
 });
 
+describe("auth switch", () => {
+  it("maps auth off/on to allowAnonymous and openAccess", () => {
+    const dir = tempDir();
+    const off = resolveServerOptions({ dir, auth: false });
+    expect(off.auth).toBe(false);
+    expect(off.allowAnonymous).toBe(true);
+    expect(off.openAccess).toBe(true);
+    const on = resolveServerOptions({ dir, auth: true });
+    expect(on.auth).toBe(true);
+    expect(on.allowAnonymous).toBe(false);
+    expect(on.openAccess).toBe(false);
+    expect(resolveServerOptions({ dir }).auth).toBe(true);
+  });
+
+  it("lets a non-loopback bind start with auth off", () => {
+    const dir = tempDir();
+    const options = resolveServerOptions({
+      dir,
+      host: "0.0.0.0",
+      auth: false,
+    });
+    expect(() => assertBindPolicy(options, false)).not.toThrow();
+  });
+});
+
 describe("open access", () => {
   it("defaults to the creator/assignee guard and honors the flag", () => {
     const dir = tempDir();

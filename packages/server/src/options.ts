@@ -37,6 +37,12 @@ export const ServerOptionsSchema = z.object({
    */
   openAccess: z.boolean().default(false),
   /**
+   * The one authentication switch. `true` (default) requires accounts for a
+   * non-loopback bind and keeps the per-card guard; `false` turns both off
+   * (anonymous requests, any caller may edit/delete any card).
+   */
+  auth: z.boolean().optional(),
+  /**
    * The machine's human name (`config.owner`) — the permission escape hatch,
    * and the default actor of the Web UI. Defaults to the machine's name.
    */
@@ -72,6 +78,7 @@ export interface ResolvedServerOptions {
   postgresUrl?: string | undefined;
   allowAnonymous: boolean;
   openAccess: boolean;
+  auth: boolean;
   owner: string;
   actor: z.infer<typeof ActorSchema>;
   uiDir?: string | undefined;
@@ -117,11 +124,18 @@ export function resolveServerOptions(
   options: ServerOptions = {},
 ): ResolvedServerOptions {
   const parsed = ServerOptionsSchema.parse(options);
+  // `auth` is the one switch; the old allowAnonymous/openAccess fields remain
+  // as internal/legacy knobs for callers that have not moved yet.
+  const auth = parsed.auth ?? true;
+  const explicitAuth = parsed.auth !== undefined;
   // One name for the person at this machine: the owner is the Web UI's default
   // actor and the one identity the permission guard always lets through.
   const owner = parsed.owner ?? machineName();
   return {
     ...parsed,
+    auth,
+    allowAnonymous: explicitAuth ? !auth : parsed.allowAnonymous,
+    openAccess: explicitAuth ? !auth : parsed.openAccess,
     owner,
     actor: parsed.actor ?? { type: "human", name: owner },
     token: parsed.token ?? generateToken(),
@@ -142,11 +156,16 @@ export function resolveServerOptions(
 export function assertBindPolicy(
   options: Pick<
     ResolvedServerOptions,
-    "host" | "dir" | "accountsPath" | "allowAnonymous"
+    "host" | "dir" | "accountsPath" | "allowAnonymous" | "auth"
   >,
   hasAccounts: boolean,
 ): void {
-  if (isLoopbackHost(options.host) || options.allowAnonymous || hasAccounts) {
+  if (
+    options.auth === false ||
+    isLoopbackHost(options.host) ||
+    options.allowAnonymous ||
+    hasAccounts
+  ) {
     return;
   }
   throw new ServerConfigError(

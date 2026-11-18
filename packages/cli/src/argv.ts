@@ -145,12 +145,48 @@ export function resolveDir(
   return flagString(flags, "dir") ?? env.UKB_DIR ?? homedir();
 }
 
-/** `--open-access` (or UKB_OPEN_ACCESS) turns off the per-card guard. */
+function parseAuth(value: string): boolean | undefined {
+  const normalized = value.trim().toLowerCase();
+  if (["on", "1", "true", "yes", "enable", "enabled"].includes(normalized)) {
+    return true;
+  }
+  if (["off", "0", "false", "no", "disable", "disabled"].includes(normalized)) {
+    return false;
+  }
+  return undefined;
+}
+
+/** The single authentication switch: `--auth off`, UKB_AUTH, config.auth. */
+export function resolveAuth(
+  flags: Record<string, string | true>,
+  env: NodeJS.ProcessEnv,
+  config: { auth?: boolean } = {},
+): boolean | undefined {
+  const flag = flags["auth"];
+  if (flag !== undefined) {
+    if (flag === true) return true;
+    const parsed = parseAuth(flag);
+    if (parsed === undefined) {
+      throw new UsageError(`--auth expects on|off (got "${flag}")`);
+    }
+    return parsed;
+  }
+  const envValue = env.UKB_AUTH;
+  if (envValue !== undefined && envValue.trim() !== "") {
+    const parsed = parseAuth(envValue);
+    if (parsed !== undefined) return parsed;
+  }
+  return config.auth;
+}
+
+/** `--open-access` / config.openAccess is the legacy per-card guard switch. */
 export function resolveOpenAccess(
   flags: Record<string, string | true>,
   env: NodeJS.ProcessEnv,
   config: { openAccess?: boolean } = {},
+  auth?: boolean,
 ): boolean {
+  if (auth !== undefined) return auth === false;
   const flag = flags["open-access"];
   if (flag !== undefined) return true;
   const fromEnv = env.UKB_OPEN_ACCESS;

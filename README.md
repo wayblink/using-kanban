@@ -104,7 +104,7 @@ Install the bundle through DSH after writing the workflow snippet. The bundle su
 ### Storage, identity, and access
 
 - SQLite is the local default. Select JSONL, in-memory storage, or Postgres with `--storage` or `UKB_STORAGE`. Postgres reads its connection URL from `--pg-url`, `UKB_PG_URL`, or `DATABASE_URL`. The board and its history are derived from the append-only event log. Card IDs and event IDs have separate sequences.
-- The local CLI and browser default to the board owner. Set `owner` in `~/.config/ukb/config.json` (or `$XDG_CONFIG_HOME/ukb/config.json`) or override it with `UKB_OWNER`. The CLI accepts `--agent <name> --agent-type agent` for agent actions. Pi also reads `guidance` and `overlay` from the same config file. `openAccess: true` in that file turns off the per-card creator/assignee guard for local front doors; login still applies where configured.
+- The local CLI and browser default to the board owner. Set `owner` in `~/.config/ukb/config.json` (or `$XDG_CONFIG_HOME/ukb/config.json`) or override it with `UKB_OWNER`. The CLI accepts `--agent <name> --agent-type agent` for agent actions. Pi also reads `guidance` and `overlay` from the same config file. `auth: false` in that file turns off login/account checks and the per-card creator/assignee guard for a personal board; leave it absent (on) for a shared server.
 - Card edits are available to the creator, assignee, and board owner. The creator and board owner may delete. For a personal board, `--open-access` or `UKB_OPEN_ACCESS=1` lets any caller with write access edit or delete any card. Server authentication still applies.
 
 ### Run a shared server

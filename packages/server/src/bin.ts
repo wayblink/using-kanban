@@ -42,6 +42,14 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
       case "--open-access":
         options.openAccess = true;
         break;
+      case "--auth": {
+        const value = next().trim().toLowerCase();
+        if (!["on", "off", "1", "0", "true", "false"].includes(value)) {
+          throw new Error(`--auth expects on|off (got "${value}")`);
+        }
+        options.auth = ["on", "1", "true"].includes(value);
+        break;
+      }
       case "--allow-anonymous":
         options.allowAnonymous = true;
         break;
@@ -119,6 +127,11 @@ async function main(): Promise<void> {
   const owner = options.owner ?? resolveOwnerName({ env: process.env, config });
   const running = await startServer({
     ...options,
+    auth:
+      options.auth ??
+      (process.env.UKB_AUTH === undefined
+        ? undefined
+        : /^(on|1|true|yes)$/iu.test(process.env.UKB_AUTH)),
     openAccess:
       options.openAccess ??
       /^(1|true|yes)$/iu.test(process.env.UKB_OPEN_ACCESS ?? ""),

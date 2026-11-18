@@ -5,6 +5,7 @@ import {
   flagNumbers,
   flagString,
   parseArgv,
+  resolveAuth,
   resolveDir,
   resolveOpenAccess,
   resolveStorage,
@@ -72,6 +73,15 @@ describe("storage and dir resolution", () => {
     expect(resolveStorage({ storage: "jsonl" }, {})).toBe("jsonl");
     expect(resolveStorage({}, { UKB_STORAGE: "jsonl" })).toBe("jsonl");
     expect(resolveStorage({}, {})).toBe("sqlite");
+  });
+
+  it("resolves the auth switch and lets it drive open access", () => {
+    expect(resolveAuth({}, {})).toBeUndefined();
+    expect(resolveAuth({ auth: "off" }, {})).toBe(false);
+    expect(resolveAuth({}, { UKB_AUTH: "off" })).toBe(false);
+    expect(resolveAuth({}, {}, { auth: false })).toBe(false);
+    expect(resolveOpenAccess({}, {}, {}, false)).toBe(true);
+    expect(resolveOpenAccess({}, {}, {}, true)).toBe(false);
   });
 
   it("resolves open access from the flag, environment or config", () => {

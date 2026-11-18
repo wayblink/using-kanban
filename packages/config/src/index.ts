@@ -144,6 +144,13 @@ export interface UkbConfig {
    * applies. Defaults to false.
    */
   readonly openAccess?: boolean;
+  /**
+   * The one authentication switch. `true` (default) requires accounts for a
+   * server and keeps the per-card creator/assignee guard; `false` turns both
+   * off (anonymous server access, any caller may edit/delete any card).
+   * Intended for a personal board; do not disable it on a shared server.
+   */
+  readonly auth?: boolean;
 }
 
 /* ------------------------------ file location ------------------------------ */
@@ -382,6 +389,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): UkbConfig {
     overlay?: UkbOverlayConfig;
     server?: string;
     openAccess?: boolean;
+    auth?: boolean;
   } = {};
 
   const owner = nonEmptyString(document.owner);
@@ -401,6 +409,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): UkbConfig {
 
   if (typeof document.openAccess === "boolean") {
     config.openAccess = document.openAccess;
+  }
+  if (typeof document.auth === "boolean") {
+    config.auth = document.auth;
   }
 
   return config;

@@ -22,6 +22,8 @@ export const McpOptionsSchema = z.object({
   pgUrl: z.string().min(1).optional(),
   /** Turn off the per-card creator/assignee guard (personal board). */
   openAccess: z.boolean().optional(),
+  /** The single auth switch; false also implies openAccess. */
+  auth: z.boolean().optional(),
 });
 export type McpOptions = z.input<typeof McpOptionsSchema>;
 
@@ -41,6 +43,8 @@ export interface ResolvedMcpOptions {
   postgresUrl: string | undefined;
   /** Disable the per-card permission guard (personal board). */
   openAccess: boolean;
+  /** The one authentication switch, when explicitly configured. */
+  auth: boolean | undefined;
 }
 
 const DEFAULT_AGENT_NAME = "agent";
@@ -89,11 +93,13 @@ export function resolveMcpOptions(
     token: transport.token,
     postgresUrl:
       parsed.pgUrl ?? env.UKB_PG_URL ?? env.DATABASE_URL ?? undefined,
+    auth: parsed.auth ?? (env.UKB_AUTH === undefined ? config.auth : /^(on|1|true|yes)$/iu.test(env.UKB_AUTH)),
     openAccess:
-      parsed.openAccess ??
-      (env.UKB_OPEN_ACCESS === undefined
-        ? config.openAccess === true
-        : /^(1|true|yes)$/iu.test(env.UKB_OPEN_ACCESS)),
+      (parsed.auth ?? (env.UKB_AUTH === undefined ? config.auth : /^(on|1|true|yes)$/iu.test(env.UKB_AUTH))) === false ||
+      parsed.openAccess === true ||
+      (env.UKB_OPEN_ACCESS !== undefined
+        ? /^(1|true|yes)$/iu.test(env.UKB_OPEN_ACCESS)
+        : config.openAccess === true),
     usedDefaultAgent:
       parsed.agent === undefined &&
       env.UKB_AGENT === undefined &&
@@ -142,6 +148,11 @@ function parseArgv(argv: readonly string[]): McpOptions {
       case "--open-access":
         options.openAccess = true;
         break;
+      case "--auth": {
+        const value = next().trim().toLowerCase();
+        options.auth = ["on", "1", "true", "yes"].includes(value);
+        break;
+      }
       case "--help":
       case "-h":
         throw new Error(

@@ -108,6 +108,13 @@ export async function authorizeRequest(
   clientIp: string,
   throttle: LoginThrottle,
 ): Promise<AuthResult> {
+  // The single auth switch is authoritative: when off, every request is
+  // accepted without a credential (writes included). Only for a personal or
+  // otherwise trusted board.
+  if (options.auth === false) {
+    return { ok: true, identity: null };
+  }
+
   const configured = accounts.hasUsers();
 
   if (configured) {
