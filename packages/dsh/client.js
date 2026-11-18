@@ -272,6 +272,365 @@ window.__ModuleLoader__.load({
       });
     }
 
+    /* ------------------------------- markdown ------------------------------- */
+
+    /**
+     * A deliberately small Markdown renderer for card bodies.
+     *
+     * Card bodies are Markdown written for terminals and the Web UI; the panel
+     * used to print the source in a monospace box. This handles the constructs
+     * cards actually use (headings, lists, task boxes, fenced/inline code,
+     * emphasis, links, quotes, tables, rules) and returns React elements, so
+     * text is escaped by the renderer — no `dangerouslySetInnerHTML`, no raw
+     * HTML support.
+     */
+    function inlineMarkdown(text, accent) {
+      const out = [];
+      let index = 0;
+      let key = 0;
+      const push = (value) => {
+        if (value !== "") out.push(value);
+      };
+      while (index < text.length) {
+        const char = text[index];
+        if (char === "`") {
+          const end = text.indexOf("`", index + 1);
+          if (end > index) {
+            out.push(
+              h(
+                "code",
+                {
+                  key: key++,
+                  style: {
+                    font: "500 10.5px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace",
+                    background: T.layer2,
+                    border: `1px solid ${T.border1}`,
+                    borderRadius: 4,
+                    padding: "0 3px",
+                  },
+                },
+                text.slice(index + 1, end),
+              ),
+            );
+            index = end + 1;
+            continue;
+          }
+        }
+        if (text.startsWith("**", index) || text.startsWith("__", index)) {
+          const mark = text.slice(index, index + 2);
+          const end = text.indexOf(mark, index + 2);
+          if (end > index + 2) {
+            out.push(
+              h(
+                "strong",
+                { key: key++, style: { fontWeight: 650 } },
+                ...inlineMarkdown(text.slice(index + 2, end), accent),
+              ),
+            );
+            index = end + 2;
+            continue;
+          }
+        }
+        if (char === "*" || char === "_") {
+          const end = text.indexOf(char, index + 1);
+          if (end > index + 1) {
+            out.push(
+              h(
+                "em",
+                { key: key++ },
+                ...inlineMarkdown(text.slice(index + 1, end), accent),
+              ),
+            );
+            index = end + 1;
+            continue;
+          }
+        }
+        if (char === "[") {
+          const close = text.indexOf("]", index + 1);
+          const open = close + 1;
+          if (close > index && text[open] === "(") {
+            const closeParen = text.indexOf(")", open + 1);
+            if (closeParen > open) {
+              const label = text.slice(index + 1, close);
+              const href = text.slice(open + 1, closeParen).trim();
+              if (/^(https?:\/\/|mailto:|#)/iu.test(href)) {
+                out.push(
+                  h(
+                    "a",
+                    {
+                      key: key++,
+                      href,
+                      target: "_blank",
+                      rel: "noreferrer",
+                      style: { color: T.business, textDecoration: "underline" },
+                    },
+                    ...inlineMarkdown(label, accent),
+                  ),
+                );
+                index = closeParen + 1;
+                continue;
+              }
+              // A relative path is a repo document, not a panel URL: keep the
+              // label but do not create a dead link.
+              out.push(...inlineMarkdown(label, accent));
+              index = closeParen + 1;
+              continue;
+            }
+          }
+        }
+        let end = index + 1;
+        while (end < text.length && "`*_[".indexOf(text[end]) === -1) end += 1;
+        push(text.slice(index, end));
+        index = end;
+      }
+      return out;
+    }
+
+    const MD_LIST = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/u;
+    const MD_HEADING = /^(#{1,6})\s+(.*)$/u;
+    const MD_FENCE = /^\s*```([\w-]*)\s*$/u;
+    const MD_RULE = /^\s*(---|\*\*\*|___)\s*$/u;
+    const MD_TABLE_SEPARATOR = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/u;
+
+    function markdownBlocks(source, accent) {
+      const lines = String(source).replace(/\r\n?/gu, "\n").split("\n");
+      const blocks = [];
+      let index = 0;
+      let key = 0;
+      const paragraphStyle = { margin: "0 0 7px", lineHeight: 1.6 };
+      const headingStyle = (level) => ({
+        margin: level <= 2 ? "10px 0 4px" : "8px 0 3px",
+        font: `650 ${level === 1 ? 15 : level === 2 ? 13.5 : 12.5}px/1.35 inherit`,
+        color: T.text,
+      });
+      const isBlank = (line) => line.trim() === "";
+      const startsBlock = (line) =>
+        MD_FENCE.test(line) ||
+        MD_HEADING.test(line) ||
+        MD_RULE.test(line) ||
+        MD_LIST.test(line) ||
+        /^\s*>/u.test(line) ||
+        (line.includes("|") && index + 1 < lines.length && MD_TABLE_SEPARATOR.test(lines[index + 1]));
+
+      while (index < lines.length) {
+        const line = lines[index];
+        if (isBlank(line)) {
+          index += 1;
+          continue;
+        }
+
+        const fence = MD_FENCE.exec(line);
+        if (fence) {
+          const code = [];
+          index += 1;
+          while (index < lines.length && !/^\s*```\s*$/u.test(lines[index])) {
+            code.push(lines[index]);
+            index += 1;
+          }
+          index += 1;
+          blocks.push(
+            h(
+              "pre",
+              {
+                key: key++,
+                style: {
+                  margin: "0 0 7px",
+                  padding: "7px 9px",
+                  borderRadius: 6,
+                  border: `1px solid ${T.border1}`,
+                  background: T.layer2,
+                  overflow: "auto",
+                  maxHeight: 320,
+                },
+              },
+              h(
+                "code",
+                {
+                  style: {
+                    font: "400 10.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace",
+                    whiteSpace: "pre",
+                  },
+                },
+                code.join("\n"),
+              ),
+            ),
+          );
+          continue;
+        }
+
+        const heading = MD_HEADING.exec(line);
+        if (heading) {
+          const level = Math.min(heading[1].length, 6);
+          const tag = `h${level}`;
+          blocks.push(
+            h(
+              tag,
+              { key: key++, style: headingStyle(level) },
+              ...inlineMarkdown(heading[2], accent),
+            ),
+          );
+          index += 1;
+          continue;
+        }
+
+        if (MD_RULE.test(line)) {
+          blocks.push(
+            h("hr", {
+              key: key++,
+              style: { border: 0, borderTop: `1px solid ${T.border2}`, margin: "8px 0" },
+            }),
+          );
+          index += 1;
+          continue;
+        }
+
+        if (
+          line.includes("|") &&
+          index + 1 < lines.length &&
+          MD_TABLE_SEPARATOR.test(lines[index + 1])
+        ) {
+          const cells = (row) =>
+            row
+              .replace(/^\s*\|/u, "")
+              .replace(/\|\s*$/u, "")
+              .split("|")
+              .map((cell) => cell.trim());
+          const header = cells(line);
+          index += 2;
+          const rows = [];
+          while (index < lines.length && lines[index].includes("|") && !isBlank(lines[index])) {
+            rows.push(cells(lines[index]));
+            index += 1;
+          }
+          const cellStyle = {
+            border: `1px solid ${T.border1}`,
+            padding: "3px 6px",
+            textAlign: "left",
+            verticalAlign: "top",
+            font: "400 11px/1.45 inherit",
+          };
+          blocks.push(
+            h(
+              "table",
+              {
+                key: key++,
+                style: { borderCollapse: "collapse", margin: "0 0 8px", width: "100%", tableLayout: "auto" },
+              },
+              h(
+                "thead",
+                null,
+                h(
+                  "tr",
+                  null,
+                  ...header.map((cell, cellIndex) =>
+                    h(
+                      "th",
+                      { key: cellIndex, style: { ...cellStyle, background: T.layer1, fontWeight: 650 } },
+                      ...inlineMarkdown(cell, accent),
+                    ),
+                  ),
+                ),
+              ),
+              h(
+                "tbody",
+                null,
+                ...rows.map((row, rowIndex) =>
+                  h(
+                    "tr",
+                    { key: rowIndex },
+                    ...row.map((cell, cellIndex) =>
+                      h("td", { key: cellIndex, style: cellStyle }, ...inlineMarkdown(cell, accent)),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+          continue;
+        }
+
+        if (/^\s*>/u.test(line)) {
+          const quote = [];
+          while (index < lines.length && /^\s*>/u.test(lines[index])) {
+            quote.push(lines[index].replace(/^\s*>\s?/u, ""));
+            index += 1;
+          }
+          blocks.push(
+            h(
+              "blockquote",
+              {
+                key: key++,
+                style: {
+                  margin: "0 0 7px",
+                  padding: "2px 0 2px 9px",
+                  borderLeft: `3px solid ${T.border3}`,
+                  color: T.text2,
+                },
+              },
+              ...markdownBlocks(quote.join("\n"), accent),
+            ),
+          );
+          continue;
+        }
+
+        const list = MD_LIST.exec(line);
+        if (list) {
+          const ordered = /^\d/u.test(list[2]);
+          const items = [];
+          while (index < lines.length) {
+            const item = MD_LIST.exec(lines[index]);
+            if (!item || /^\d/u.test(item[2]) !== ordered) break;
+            const indent = item[1].length;
+            let content = item[3];
+            index += 1;
+            while (
+              index < lines.length &&
+              /^\s{2,}\S/u.test(lines[index]) &&
+              !MD_LIST.test(lines[index])
+            ) {
+              content += ` ${lines[index].trim()}`;
+              index += 1;
+            }
+            const task = /^\[([ xX])\]\s+(.*)$/u.exec(content);
+            const body = task === null ? content : task[2];
+            items.push(
+              h(
+                "li",
+                { key: key++, style: { margin: "2px 0", marginLeft: Math.min(indent, 4) * 4 } },
+                task === null
+                  ? null
+                  : h("input", {
+                      type: "checkbox",
+                      checked: task[1].toLowerCase() === "x",
+                      disabled: true,
+                      style: { margin: "0 5px 0 0", verticalAlign: "middle" },
+                    }),
+                ...inlineMarkdown(body, accent),
+              ),
+            );
+          }
+          blocks.push(
+            h(
+              ordered ? "ol" : "ul",
+              { key: key++, style: { margin: "0 0 7px", paddingLeft: 20 } },
+              ...items,
+            ),
+          );
+          continue;
+        }
+
+        const paragraph = [];
+        while (index < lines.length && !isBlank(lines[index]) && !startsBlock(lines[index])) {
+          paragraph.push(lines[index].trim());
+          index += 1;
+        }
+        blocks.push(
+          h("p", { key: key++, style: paragraphStyle }, ...inlineMarkdown(paragraph.join(" "), accent)),
+        );
+      }
+      return blocks;
+    }
+
     function detailBlock(detail, accent) {
       if (detail === undefined || detail === null) {
         return h("div", { style: { font: "400 11.5px/1.4 inherit", color: T.text3 } }, "Loading card…");
@@ -293,9 +652,8 @@ window.__ModuleLoader__.load({
               "div",
               {
                 style: {
-                  whiteSpace: "pre-wrap",
                   overflowWrap: "anywhere",
-                  font: "400 11.5px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace",
+                  font: "400 12px/1.6 inherit",
                   color: T.text2,
                   background: `color-mix(in srgb, ${accent} 5%, ${T.base})`,
                   border: `1px solid ${T.border1}`,
@@ -305,7 +663,7 @@ window.__ModuleLoader__.load({
                   overflow: "auto",
                 },
               },
-              detail.body,
+              ...markdownBlocks(detail.body, accent),
             )
           : h("div", { style: { font: "400 11.5px/1.4 inherit", color: T.text3 } }, "No body."),
         detail.history

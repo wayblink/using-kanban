@@ -117,7 +117,15 @@ function loadClient(hookValues, state) {
  * query, the project choice, the scope, density, the expanded card id, the card
  * details and the collapsed sections.
  */
-function renderPanel({ state = board(), props = {}, query = "", projectChoice = undefined, scope = "all" } = {}) {
+function renderPanel({
+  state = board(),
+  props = {},
+  query = "",
+  projectChoice = undefined,
+  scope = "all",
+  expandedId = null,
+  details = {},
+} = {}) {
   const hookValues = [
     { status: "ready", board: state, identity: state.identity, error: null, at: Date.now() },
     0,
@@ -125,8 +133,8 @@ function renderPanel({ state = board(), props = {}, query = "", projectChoice = 
     projectChoice,
     scope,
     false,
-    null,
-    {},
+    expandedId,
+    details,
     new Set(),
   ];
   const panel = loadClient(hookValues, state).get("sidebar.right.pane.tab:@wayblink/using-kanban-dsh/board");
@@ -194,6 +202,39 @@ test("a host without the session hook still renders", () => {
   const text = JSON.stringify(renderPanel({ props: {} }));
   assert.ok(text.includes("Ukanban card"));
   assert.ok(text.includes("Iceberg card"));
+});
+
+test("a card body renders Markdown instead of its source", () => {
+  const state = boardOf({
+    todo: [card(1, "Markdown card", "using-kanban")],
+  });
+  const details = {
+    1: {
+      status: "ready",
+      fields: {},
+      body: [
+        "## 标题",
+        "",
+        "- **重点**",
+        "- `inline code`",
+        "",
+        "```js",
+        "const x = 1;",
+        "```",
+        "",
+        "| 列 | 值 |",
+        "| --- | --- |",
+        "| a | 1 |",
+      ].join("\n"),
+      history: "",
+    },
+  };
+  const text = JSON.stringify(renderPanel({ state, expandedId: 1, details }));
+  assert.ok(text.includes('"type":"h2"'), "heading element");
+  assert.ok(text.includes('"type":"strong"'), "bold element");
+  assert.ok(text.includes('"type":"code"'), "code elements");
+  assert.ok(text.includes('"type":"table"'), "table element");
+  assert.ok(!text.includes("## 标题"), "the source marker is gone");
 });
 
 test("the scope and card id are wrapped as their own marks", () => {
