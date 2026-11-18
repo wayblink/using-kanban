@@ -90,7 +90,10 @@ export function resolveMcpOptions(
     postgresUrl:
       parsed.pgUrl ?? env.UKB_PG_URL ?? env.DATABASE_URL ?? undefined,
     openAccess:
-      parsed.openAccess ?? /^(1|true|yes)$/iu.test(env.UKB_OPEN_ACCESS ?? ""),
+      parsed.openAccess ??
+      (env.UKB_OPEN_ACCESS === undefined
+        ? config.openAccess === true
+        : /^(1|true|yes)$/iu.test(env.UKB_OPEN_ACCESS)),
     usedDefaultAgent:
       parsed.agent === undefined &&
       env.UKB_AGENT === undefined &&

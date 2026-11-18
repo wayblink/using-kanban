@@ -149,10 +149,13 @@ export function resolveDir(
 export function resolveOpenAccess(
   flags: Record<string, string | true>,
   env: NodeJS.ProcessEnv,
+  config: { openAccess?: boolean } = {},
 ): boolean {
   const flag = flags["open-access"];
   if (flag !== undefined) return true;
-  return /^(1|true|yes)$/iu.test(env.UKB_OPEN_ACCESS ?? "");
+  const fromEnv = env.UKB_OPEN_ACCESS;
+  if (fromEnv !== undefined) return /^(1|true|yes)$/iu.test(fromEnv);
+  return config.openAccess === true;
 }
 
 /** Connection URL for `--storage postgres`: flag → environment. */

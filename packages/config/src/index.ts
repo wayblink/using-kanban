@@ -138,6 +138,12 @@ export interface UkbConfig {
    * machine credential lives in `credentials.json` beside this file.
    */
   readonly server?: string;
+  /**
+   * Turn off the cooperative per-card creator/assignee guard. For a personal
+   * board; authentication (accounts/tokens) is a separate layer and still
+   * applies. Defaults to false.
+   */
+  readonly openAccess?: boolean;
 }
 
 /* ------------------------------ file location ------------------------------ */
@@ -375,6 +381,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): UkbConfig {
     guidance?: UkbGuidanceConfig;
     overlay?: UkbOverlayConfig;
     server?: string;
+    openAccess?: boolean;
   } = {};
 
   const owner = nonEmptyString(document.owner);
@@ -391,6 +398,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): UkbConfig {
 
   const server = nonEmptyString(document.server);
   if (server !== undefined) config.server = server;
+
+  if (typeof document.openAccess === "boolean") {
+    config.openAccess = document.openAccess;
+  }
 
   return config;
 }

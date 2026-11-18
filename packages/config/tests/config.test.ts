@@ -240,6 +240,18 @@ describe("loadConfig", () => {
     expect(loadConfig(withConfig(tempHome(), '{"owner":"  "}'))).toEqual({});
   });
 
+  it("reads openAccess only as a boolean", () => {
+    expect(loadConfig(withConfig(tempHome(), '{"openAccess":true}'))).toEqual({
+      openAccess: true,
+    });
+    expect(loadConfig(withConfig(tempHome(), '{"openAccess":false}'))).toEqual({
+      openAccess: false,
+    });
+    expect(
+      loadConfig(withConfig(tempHome(), '{"openAccess":"yes"}')),
+    ).toEqual({});
+  });
+
   it("trims the owner name it hands back", () => {
     expect(loadConfig(withConfig(tempHome(), '{"owner":" pi "}'))).toEqual({
       owner: "pi",

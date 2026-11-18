@@ -350,8 +350,8 @@ export async function runCommand(
   const dir = resolveDir(parsed.flags, io.env);
   const storage = resolveStorage(parsed.flags, io.env);
   const postgresUrl = resolvePostgresUrl(parsed.flags, io.env);
-  const openAccess = resolveOpenAccess(parsed.flags, io.env);
   const config = loadConfig(io.env);
+  const openAccess = resolveOpenAccess(parsed.flags, io.env, config);
 
   if (command === "login") {
     return runLogin(parsed.flags, io, config);

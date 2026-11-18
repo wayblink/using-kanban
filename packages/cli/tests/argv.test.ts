@@ -74,10 +74,12 @@ describe("storage and dir resolution", () => {
     expect(resolveStorage({}, {})).toBe("sqlite");
   });
 
-  it("resolves open access from the flag or environment", () => {
+  it("resolves open access from the flag, environment or config", () => {
     expect(resolveOpenAccess({}, {})).toBe(false);
     expect(resolveOpenAccess({}, { UKB_OPEN_ACCESS: "1" })).toBe(true);
     expect(resolveOpenAccess({ "open-access": true }, {})).toBe(true);
+    expect(resolveOpenAccess({}, {}, { openAccess: true })).toBe(true);
+    expect(resolveOpenAccess({}, { UKB_OPEN_ACCESS: "0" }, { openAccess: true })).toBe(false);
   });
 
   it("accepts postgres and rejects unknown storage kinds", () => {
