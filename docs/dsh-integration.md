@@ -6,7 +6,7 @@ system prompt. It is the counterpart of the Pi extension, not a second board
 implementation — every call runs the `ukb` CLI, so validation, transitions,
 attribution and error codes stay in one place.
 
-![The DeepSeek Harness Kanban sidebar with a card expanded](dsh-kanban.png)
+![The DeepSeek Harness Kanban sidebar with state columns](dsh-kanban.png)
 
 ## Install
 
