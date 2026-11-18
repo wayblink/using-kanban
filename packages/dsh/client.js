@@ -306,20 +306,33 @@ window.__ModuleLoader__.load({
 
     /* ---------------------------------- cards --------------------------------- */
 
-    function priorityDot(card) {
+    /** A compact priority label: HIGH is loud, NORMAL/LOW stay quiet. */
+    function priorityBadge(card) {
       const priority = card.priority ?? "normal";
-      if (priority === "normal") return null;
-      return h("span", {
-        title: `${priority} priority`,
-        style: {
-          width: 6,
-          height: 6,
-          borderRadius: 999,
-          flex: "0 0 auto",
-          background: priority === "high" ? T.danger : T.text3,
-          opacity: priority === "high" ? 1 : 0.7,
+      const high = priority === "high";
+      return h(
+        "span",
+        {
+          "data-priority": priority,
+          title: `${priority} priority`,
+          style: {
+            flex: "0 0 auto",
+            padding: high ? "0 4px" : "0 2px",
+            borderRadius: 4,
+            border: high
+              ? `1px solid color-mix(in srgb, ${T.danger} 32%, transparent)`
+              : "none",
+            background: high
+              ? `color-mix(in srgb, ${T.danger} 9%, transparent)`
+              : "none",
+            color: high ? T.danger : T.text3,
+            font: "600 8.5px/1.6 inherit",
+            letterSpacing: "0.04em",
+            opacity: priority === "low" ? 0.65 : 1,
+          },
         },
-      });
+        priority === "high" ? "HIGH" : priority === "low" ? "LOW" : "NORMAL",
+      );
     }
 
     /* ------------------------------- markdown ------------------------------- */
@@ -1005,7 +1018,7 @@ window.__ModuleLoader__.load({
             if (!expanded) event.currentTarget.style.background = "transparent";
           },
         },
-        priorityDot(card),
+        priorityBadge(card),
         row.state !== sectionState
           ? h("span", {
               title: STATE_LABEL[row.state] ?? row.state,

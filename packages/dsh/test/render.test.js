@@ -307,6 +307,31 @@ test("a card body renders Markdown instead of its source", () => {
   assert.ok(!text.includes("## 标题"), "the source marker is gone");
 });
 
+test("each row shows the card priority", () => {
+  const state = boardOf({
+    todo: [
+      card(1, "Urgent", "using-kanban", { priority: "high" }),
+      card(2, "Routine", "using-kanban"),
+      card(3, "Later", "using-kanban", { priority: "low" }),
+    ],
+  });
+  const text = JSON.stringify(
+    renderPanel({ state, props: workspaceProps("/Users/x/yard/using-kanban") }),
+  );
+  for (const [id, label] of [
+    [1, "HIGH"],
+    [2, "NORMAL"],
+    [3, "LOW"],
+  ]) {
+    assert.ok(
+      text.includes(`"data-priority":"${label.toLowerCase()}"`),
+      `#${id} priority mark`,
+    );
+    assert.ok(text.includes(label), `#${id} label`);
+  }
+  assert.ok(text.includes('title":"high priority"'), "full priority tooltip");
+});
+
 test("the scope and card id are wrapped as their own marks", () => {
   const text = JSON.stringify(renderPanel());
   assert.ok(text.includes('"data-scope":"using-kanban"'), "project badge");
