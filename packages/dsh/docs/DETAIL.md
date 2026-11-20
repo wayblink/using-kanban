@@ -10,7 +10,7 @@ board the agent's todo list instead of a private in-memory list.
 | -------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ukb` tool     | `ctx.tools.register`       | 21 verbs through one typed schema: `mine`, `board`, `show`, `add`, `claim`, `review`, `done`, `reopen`, `move`, `edit`, `delete`, `block`/`unblock`, `parent`/`unparent`, `relate`/`unrelate`, `note`/`note-edit`/`note-remove`, `list` |
 | board guidance | `ctx.systemPrompt.section` | Claim before working, one card in `doing`, read the body first, umbrella/child rules                                                                                                                                                    |
-| `/ukb` command | `ctx.commands.register`    | No args lists your cards; anything else passes through to the CLI unchanged                                                                                                                                                             |
+| `/ukb` command | `ctx.commands.register`    | No args lists your cards; `web` starts/reuses the full board UI and answers with its URL; `web stop` stops the one this Host started; anything else passes through to the CLI unchanged                                                 |
 
 Every call runs the real `ukb` CLI with `--agent dsh --agent-type agent`, so
 attribution, validation, transitions and error codes are the CLI's, not a second
@@ -46,8 +46,12 @@ The bundle also ships a browser half (`client.js`, declared through `dsh.client`
   state as a colored dot, and a card whose umbrella is filtered out keeps `⤷#parent`.
   Clicking a row expands it in place with the `ukb show` body and history, fetched
   from `GET /api/ukb/card?id=`.
-  The header carries a filtered/total counter, "updated Ns ago", Refresh and a
-  persisted Comfortable/Compact switch; the filter bar carries free-text search
+  The header carries a filtered/total counter, "updated Ns ago", Refresh, a
+  persisted Comfortable/Compact switch and a **Full board ↗** button that asks
+  `GET /api/ukb/web` for the `ukb web` URL and opens it in a new tab (the Host
+  starts the CLI detached on first use, reuses it afterwards, opens the
+  configured remote board instead when `server`/`$UKB_SERVER` is set, and stops
+  only the server it started when the bundle unloads); the filter bar carries free-text search
   (id/title/project/assignee), a project selector and All / Mine / Agent / Review
   scope. The project selector starts on the Session workspace's project — the
   deepest segment of the session's `cwd` that names a board project — so a
@@ -64,7 +68,11 @@ The bundle also ships a browser half (`client.js`, declared through `dsh.client`
 
 The panel and chip read one Host route, `GET /api/ukb/board` (optional
 `?project=`), which runs `ukb board --json --brief` and caches the result for four
-seconds so a polling chip does not fork a process per second.
+seconds so a polling chip does not fork a process per second. A second route,
+`GET /api/ukb/web`, starts or reuses `ukb web` and answers its URL — the process
+owns the port and the per-launch token, so the page cannot build the URL itself.
+The launcher (`src/web.js`) is the Pi extension's `/ukb web` logic in plain JS:
+detached spawn, the URL read from the CLI banner, SIGTERM then SIGKILL on stop.
 
 It is plain JS on purpose: the browser module table supplies React, so a DSH
 bundle needs no build step. A page refresh after installation is enough; while
@@ -72,8 +80,9 @@ bundle needs no build step. A page refresh after installation is enough; while
 
 ## What differs from the Pi port
 
-- **No overlay panel.** DSH plugins render through slots, not a TUI pane; human
-  viewers use `/ukb web` (the CLI's own web UI) instead.
+- **No overlay panel.** DSH plugins render through slots, not a TUI pane; the
+  Kanban panel's Full board button (or `/ukb web`) starts the CLI's own full Web
+  UI and opens it in a new tab.
 - **No per-turn board digest yet.** Pi injects it from `before_agent_start`; DSH
   has no pre-turn message hook guaranteed to land before the turn's first step,
   so a digest would arrive one step late. The guidance section covers the same
@@ -85,7 +94,9 @@ bundle needs no build step. A page refresh after installation is enough; while
 
 - The tool cannot see the overlay's terminal-specific scope/group settings; those
   remain `/ukb web` and `gui` concerns.
-- `ukb web` is not managed by this bundle: start it yourself, or keep using the
-  CLI.
+- The bundle manages only the `ukb web` process it started: that one is stopped
+  when the bundle unloads. A server started by hand (`ukb web` in a terminal) is
+  left running, and a new Full board click after a DSH restart starts its own
+  server on a fresh port.
 - Cards are attributed to the literal agent name `dsh`; set `$UKB_AGENT` if you
   want a different actor for a machine.

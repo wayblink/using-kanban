@@ -97,7 +97,7 @@ The native `ukb` tool and skill teach the agent the workflow. The default agent 
 
 ### DeepSeek Harness
 
-Install the bundle through DSH after writing the workflow snippet. The bundle supplies a native `ukb` tool, the `/ukb` command, and system prompt guidance. It runs the CLI as `dsh`. Set the bundle's `ukb_path` or the `UKB_BIN` environment variable if it cannot locate the executable. Its web client adds a **Kanban** sidebar, a composer chip with state counts, and a card/board view for tool calls. The sidebar and chip start on the project matched from the session workspace path and fall back to the whole board. [DeepSeek Harness installation](docs/dsh-integration.md#install)
+Install the bundle through DSH after writing the workflow snippet. The bundle supplies a native `ukb` tool, the `/ukb` command, and system prompt guidance. It runs the CLI as `dsh`. Set the bundle's `ukb_path` or the `UKB_BIN` environment variable if it cannot locate the executable. Its web client adds a **Kanban** sidebar, a composer chip with state counts, and a card/board view for tool calls. The sidebar and chip start on the project matched from the session workspace path and fall back to the whole board. The sidebar's **Full board** button starts the full Web UI (`ukb web`) and opens it in a new tab; with a remote board configured it opens that server instead. [DeepSeek Harness installation](docs/dsh-integration.md#install)
 
 ![The DeepSeek Harness Kanban sidebar with state columns](docs/dsh-kanban.png)
 

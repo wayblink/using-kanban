@@ -6,14 +6,13 @@
  * CLI; there is no board logic here at all.
  *
  * Differences from the Pi extension, all forced by the host:
- *  - no overlay panel (DSH plugins render through slots, not a TUI) — humans use
- *    `/ukb web`;
+ *  - no overlay panel (DSH plugins render through slots, not a TUI) — the
+ *    browser half's Full board button starts `ukb web` and opens it;
  *  - no per-turn digest yet: DSH has no pre-turn message hook that is guaranteed
  *    to land before the turn's first step, so the digest would arrive late.
  */
 
 import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
 import { userInfo } from "node:os";
 
 import { defineTool } from "@deepseek-ai/dsh-tools";
@@ -26,8 +25,16 @@ import {
   buildArgs,
   splitTokens,
 } from "./src/args.js";
+import { readUkbConfig } from "./src/config.js";
 import { renderGuidance, resolveGuidance } from "./src/guidance.js";
 import { resolveUkb } from "./src/resolve.js";
+import {
+  WEB_ARGS,
+  WEB_VERB,
+  createDetachedWebSpawner,
+  launchWebServer,
+  remoteWebUrl,
+} from "./src/web.js";
 
 export const name = "ukb";
 
@@ -121,6 +128,107 @@ export function apply(ctx, rowConfig = {}) {
       signal,
     );
   };
+
+  /* ---------------------------- full board (`ukb web`) ---------------------- */
+
+  /**
+   * The full board server this Host started, if any. The panel's Full board
+   * button and the `/ukb web` command share it: a second launch would only fail
+   * on the first one's port, so both ask this one first.
+   *
+   * @type {import("./src/web.js").WebServer | null}
+   */
+  let ukbWeb = null;
+  /** @type {Promise<{ url: string, mode: "local" | "remote", reused: boolean }> | null} */
+  let startingWeb = null;
+
+  /**
+   * Start — or reuse — the full board UI (`ukb web`).
+   *
+   * A remote board is opened at its own URL: `ukb web` is a local-mode verb, so
+   * a CLI pointed at a shared server has nothing to start here. A local one is
+   * started detached and its URL read back from the banner; the page (or the
+   * command's answer) only ever needs that URL, token included.
+   *
+   * @returns {Promise<{ url: string, mode: "local" | "remote", reused: boolean }>}
+   */
+  const startWeb = async () => {
+    const remote = remoteWebUrl(process.env, readUkbConfig());
+    if (remote !== null) return { url: remote, mode: "remote", reused: true };
+    if (ukbWeb !== null && !ukbWeb.exited) {
+      return { url: ukbWeb.url, mode: "local", reused: true };
+    }
+    if (cli === null) {
+      throw new Error(
+        "ukb CLI not found: set ukb_path in the bundle config or put `ukb` on PATH.",
+      );
+    }
+    const launch = await launchWebServer({
+      argv: [WEB_VERB, ...WEB_ARGS],
+      spawn: createDetachedWebSpawner(cli),
+    });
+    if (!launch.ok) throw new Error(launch.error);
+    ukbWeb = launch.server;
+    return { url: launch.server.url, mode: "local", reused: false };
+  };
+
+  // Two clicks must not start two servers on two ports: the second waits for
+  // the first launch instead of racing it.
+  const ensureWeb = () => {
+    startingWeb ??= startWeb().finally(() => {
+      startingWeb = null;
+    });
+    return startingWeb;
+  };
+
+  /**
+   * `/ukb web` — the same launch as the panel's Full board button, answered
+   * with the URL instead of a tab.
+   *
+   * The generic command path awaits the CLI, and `ukb web` is the one verb that
+   * does not return, so it would park the command until it was aborted. `stop`
+   * is this Host's word: the process to wind down is the one it started.
+   *
+   * @param {readonly string[]} rest tokens after the `web` verb
+   */
+  const handleWebCommand = async (rest) => {
+    if (rest.length === 1 && rest[0] === "stop") {
+      const server = ukbWeb;
+      ukbWeb = null;
+      if (server === null || server.exited) {
+        return commandResult(true, "ukb web: no server started by this Host");
+      }
+      await server.stop();
+      return commandResult(true, `ukb web: stopped ${server.url}`);
+    }
+    const args = rest.filter((token) => token !== "--no-open");
+    if (args.length > 0) {
+      return commandResult(
+        false,
+        "ukb web: usage: /ukb web [--no-open] | /ukb web stop",
+      );
+    }
+    try {
+      const { url, mode, reused } = await ensureWeb();
+      const state = reused ? "already running" : "started";
+      const where =
+        mode === "remote" ? "configured remote board" : "local server";
+      return commandResult(true, `ukb web: ${state} (${where}) — ${url}`);
+    } catch (error) {
+      return commandResult(
+        false,
+        `ukb web: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  };
+
+  // The Host owns the server it started, exactly as `/ukb web` owns it in Pi.
+  // A server started outside the panel (`ukb web` in a terminal) is not ours.
+  ctx.effect(() => () => {
+    const server = ukbWeb;
+    ukbWeb = null;
+    if (server !== null) void server.stop().catch(() => undefined);
+  });
 
   const systemPrompt = ctx.get("systemPrompt");
   if (systemPrompt !== undefined) {
@@ -230,10 +338,12 @@ export function apply(ctx, rowConfig = {}) {
       commands.register({
         name: "ukb",
         description:
-          "using-kanban — no args lists your cards; `help` prints the CLI help; any other input passes through to the ukb CLI",
+          "using-kanban — no args lists your cards; `web` starts (or reuses) the full board UI and answers with its URL; `help` prints the CLI help; any other input passes through to the ukb CLI",
         input: { hint: "[mine|board|show <id>|claim <id>|web|help]" },
         handler: async ({ rawInput, signal }) => {
           const tokens = splitTokens((rawInput ?? "").trim());
+          // `ukb web` serves until signalled and must not be awaited here.
+          if (tokens[0] === "web") return handleWebCommand(tokens.slice(1));
           const argv = tokens.length === 0 ? ["mine"] : tokens;
           try {
             const { code, output } = await invoke(argv, signal);
@@ -267,21 +377,14 @@ export function apply(ctx, rowConfig = {}) {
     // machine name), and the agent name this bundle acts as. The panel filters
     // by both, so it must not guess them from the browser.
     const readIdentity = () => {
+      const config = readUkbConfig();
+      const configured =
+        typeof config.owner === "string" ? config.owner.trim() : "";
       /** @type {{ owner: string | null, agent: string }} */
       const identity = {
-        owner: process.env.UKB_OWNER?.trim() || null,
+        owner: process.env.UKB_OWNER?.trim() || configured || null,
         agent: AGENT_NAME,
       };
-      if (identity.owner !== null) return identity;
-      try {
-        const home = process.env.HOME ?? "";
-        const base = process.env.XDG_CONFIG_HOME?.trim() || `${home}/.config`;
-        const raw = JSON.parse(readFileSync(`${base}/ukb/config.json`, "utf8"));
-        if (typeof raw?.owner === "string" && raw.owner.trim() !== "")
-          identity.owner = raw.owner.trim();
-      } catch {
-        // No config file: fall through to the OS account name.
-      }
       if (identity.owner === null) {
         try {
           identity.owner = userInfo().username;
@@ -386,6 +489,40 @@ export function apply(ctx, rowConfig = {}) {
               }),
               {
                 status: 500,
+                headers: { "content-type": "application/json; charset=utf-8" },
+              },
+            );
+          }
+        },
+      }),
+    );
+
+    // The Full board button: start (or reuse) `ukb web` and answer with the URL
+    // the page opens. The server owns the port and the token, so the URL comes
+    // from it rather than from a second implementation here.
+    //
+    // `resource` routes answer GET/HEAD only, and starting a server is not a
+    // mutation of the board — one GET both starts it and reads its address.
+    ctx.effect(() =>
+      webServer.register({
+        kind: "exact",
+        path: "/api/ukb/web",
+        resource: async () => {
+          try {
+            const body = await ensureWeb();
+            return new Response(JSON.stringify(body), {
+              headers: {
+                "content-type": "application/json; charset=utf-8",
+                "cache-control": "no-store",
+              },
+            });
+          } catch (error) {
+            return new Response(
+              JSON.stringify({
+                error: error instanceof Error ? error.message : String(error),
+              }),
+              {
+                status: 502,
                 headers: { "content-type": "application/json; charset=utf-8" },
               },
             );

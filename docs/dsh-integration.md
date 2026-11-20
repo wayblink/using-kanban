@@ -1,8 +1,8 @@
 # DeepSeek Harness integration
 
 DeepSeek Harness (DSH) gets the board through `packages/dsh`, a normal DSH
-bundle: one native `ukb` tool, a `/ukb` command, and the board guidance in the
-system prompt. It is the counterpart of the Pi extension, not a second board
+bundle: one native `ukb` tool, a `/ukb` command, the board guidance in the
+system prompt, and a Kanban panel whose Full board button starts the full Web UI. It is the counterpart of the Pi extension, not a second board
 implementation — every call runs the `ukb` CLI, so validation, transitions,
 attribution and error codes stay in one place.
 
@@ -58,12 +58,30 @@ The chosen source is logged when the bundle loads (`[ukb] using …`).
 
 ## Differences from the Pi extension
 
-| Pi                                             | DSH                                          | Why                                                                                                              |
-| ---------------------------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| overlay panel above the editor                 | none; humans use `ukb web`                   | DSH plugins render through slots, not a TUI pane                                                                 |
-| per-turn board digest via `before_agent_start` | not implemented                              | DSH has no pre-turn hook guaranteed to land before the turn's first step, so a digest would arrive one step late |
-| rendering truncation in the TUI                | the tool result is bounded at 24,000 chars   | DSH puts tool results into context verbatim                                                                      |
-| `pi.exec`                                      | `child_process.spawn` with the resolved Node | see CLI resolution                                                                                               |
+| Pi                                               | DSH                                                 | Why                                                                                                              |
+| ------------------------------------------------ | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| overlay panel above the editor                   | the Kanban panel's Full board button, or `/ukb web` | DSH plugins render through slots, not a TUI pane                                                                 |
+| per-turn board digest via `before_agent_start`   | not implemented                                     | DSH has no pre-turn hook guaranteed to land before the turn's first step, so a digest would arrive one step late |
+| rendering truncation in the TUI                  | the tool result is bounded at 24,000 chars          | DSH puts tool results into context verbatim                                                                      |
+| `pi.exec`                                        | `child_process.spawn` with the resolved Node        | see CLI resolution                                                                                               |
+| `/ukb web` opens the URL / starts a local server | the same, from the panel button or `/ukb web`       | both read the URL out of the CLI's banner; the process is started detached                                       |
+
+## Full board (ukb web)
+
+The Kanban panel's **Full board ↗** button starts `ukb web` the way the CLI
+intends and opens the result in a new tab:
+
+- the Host spawns the resolved CLI detached and reads the URL from its banner —
+  the port may be OS-assigned and the token is generated per launch, so only the
+  process knows its address;
+- the server is reused until it exits, so repeated clicks open the same tab;
+- with a remote board (`server` in `~/.config/ukb/config.json`, or `$UKB_SERVER`),
+  the button opens that server instead: `ukb web` is a local-mode verb;
+- a server the bundle started is stopped when the bundle unloads; one started by
+  hand is not touched.
+
+`/ukb web` performs the same launch and answers with the URL instead of opening
+a tab; `/ukb web stop` stops the server this Host started.
 
 ## Troubleshooting
 
@@ -73,3 +91,4 @@ The chosen source is logged when the bundle loads (`[ukb] using …`).
 | `better-sqlite3 … NODE_MODULE_VERSION` | the Electron Node loaded a native addon built for the system Node | set `UKB_NODE` to the Node you use for the CLI, or rebuild the addon                        |
 | `forbidden` on claim/edit              | the card belongs to someone else                                  | set `auth: false` for a personal board, or `show` the card and let its creator/assignee act |
 | Board JSON truncated                   | the tool result cap                                               | use `board` without `json`, or a `--project` slice                                          |
+| Full board reports an error            | the CLI's `web` verb failed to serve or to print its URL          | run `ukb web --no-open` once in a terminal to see its own output                            |

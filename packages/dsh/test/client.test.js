@@ -8,12 +8,14 @@ import vm from "node:vm";
 const here = dirname(fileURLToPath(import.meta.url));
 
 /**
- * Execute the browser module against a stub context: the factory must produce
- * `{ inject, apply }`, and apply must register the board panel, the composer
- * chip and the tool view. This is the contract the Client loader relies on; a
- * typo in a slot name fails here instead of blanking the slot in the page.
+ * Execute the browser module against a stub context and return what it built.
+ * The factory must produce `{ inject, apply }`; the tests reach the pure
+ * helpers through `internals`, because a browser bundle cannot import its
+ * Node-testable siblings.
  */
-test("the client module registers the panel, the chip and the tool view", () => {
+function loadClient({
+  fetch = async () => ({ ok: true, text: async () => "{}" }),
+} = {}) {
   const calls = { tabs: [], slots: [], openTab: [] };
   const context = {
     effect(fn) {
@@ -56,11 +58,13 @@ test("the client module registers the panel, the chip and the tool view", () => 
     useCallback: (fn) => fn,
     useMemo: (fn) => fn(),
   };
+  /** @type {{ inject: string[], apply: Function, internals?: object } | null} */
+  let module = null;
   const sandbox = {
     window: {
       __ModuleLoader__: {
         load({ factory }) {
-          const module = factory((name) => {
+          module = factory((name) => {
             if (name === "react") return React;
             throw new Error(`unexpected require ${name}`);
           });
@@ -70,7 +74,7 @@ test("the client module registers the panel, the chip and the tool view", () => 
       },
     },
     document: { baseURI: "http://example/" },
-    fetch: async () => ({ ok: true, json: async () => ({}) }),
+    fetch,
     setInterval: () => 0,
     clearInterval: () => {},
     URL,
@@ -83,6 +87,15 @@ test("the client module registers the panel, the chip and the tool view", () => 
     sandbox,
     { filename: "client.js" },
   );
+  return { module, calls };
+}
+
+/**
+ * This is the contract the Client loader relies on; a typo in a slot name fails
+ * here instead of blanking the slot in the page.
+ */
+test("the client module registers the panel, the chip and the tool view", () => {
+  const { calls } = loadClient();
 
   const [definition] = calls.tabs;
   assert.equal(definition.kind, "ukb-board");
@@ -94,4 +107,47 @@ test("the client module registers the panel, the chip and the tool view", () => 
   assert.ok(keys.includes(`sidebar.right.pane.tab:${definition.id}`));
   assert.ok(keys.includes("conversation.composer.dock"));
   assert.ok(keys.includes("tool.call.toolview:ukb"));
+});
+
+/**
+ * The Full board button only has one contract with the Host: ask
+ * `GET api/ukb/web`, prefer the first JSON answer, and return the URL it
+ * carries. The panel opens the tab; the Host owns the process.
+ */
+test("startFullBoard returns the URL the Host answered with", async () => {
+  const asked = [];
+  const { module } = loadClient({
+    fetch: async (url) => {
+      asked.push(String(url));
+      return {
+        ok: true,
+        text: async () =>
+          JSON.stringify({
+            url: "http://127.0.0.1:7321/?token=abc",
+            mode: "local",
+            reused: false,
+          }),
+      };
+    },
+  });
+
+  const result = await module.internals.startFullBoard();
+  assert.equal(result.ok, true);
+  assert.equal(result.url, "http://127.0.0.1:7321/?token=abc");
+  assert.equal(result.mode, "local");
+  assert.ok(asked.some((url) => url.endsWith("/api/ukb/web")));
+});
+
+test("startFullBoard reports a Host failure instead of a blank tab", async () => {
+  const { module } = loadClient({
+    fetch: async () => ({
+      ok: false,
+      status: 502,
+      text: async () => JSON.stringify({ error: "ukb CLI not found" }),
+    }),
+  });
+
+  const result = await module.internals.startFullBoard();
+  assert.equal(result.ok, false);
+  assert.match(result.error, /ukb CLI not found/);
 });

@@ -1392,11 +1392,11 @@ window.__ModuleLoader__.load({
     /* ---------------------------------- data ---------------------------------- */
 
     /**
-     * Candidate URLs for the host route. The app may be served from a sub-path,
+     * Candidate URLs for a Host route. The app may be served from a sub-path,
      * from `dsh-app://app/`, or with an SPA route already in `document.baseURI`;
      * the first candidate that answers JSON wins.
      */
-    function boardUrls(project) {
+    function routeUrls(path, params = {}) {
       const bases = [];
       try {
         bases.push(document.baseURI);
@@ -1417,21 +1417,30 @@ window.__ModuleLoader__.load({
       const paths = [];
       for (const base of bases) {
         try {
-          paths.push(new URL("api/ukb/board", base).toString());
+          paths.push(new URL(path, base).toString());
         } catch {
           // A base that cannot be parsed simply contributes no candidate.
         }
       }
       try {
-        paths.push(new URL("/api/ukb/board", location.origin).toString());
+        paths.push(new URL(`/${path}`, location.origin).toString());
       } catch {
         // `file:` and similar origins have no usable origin.
       }
       return [...new Set(paths)].map((href) => {
         const url = new URL(href);
-        if (project) url.searchParams.set("project", project);
+        for (const [name, value] of Object.entries(params)) {
+          if (value !== null && value !== undefined && value !== "") {
+            url.searchParams.set(name, String(value));
+          }
+        }
         return url.toString();
       });
+    }
+
+    /** Candidate URLs for the board route. */
+    function boardUrls(project) {
+      return routeUrls("api/ukb/board", { project });
     }
 
     /** One JSON answer from the first candidate that speaks JSON. */
@@ -1468,41 +1477,7 @@ window.__ModuleLoader__.load({
 
     /** Candidate URLs for the card-detail route, same resolution as the board. */
     function cardUrls(id) {
-      const bases = [];
-      try {
-        bases.push(document.baseURI);
-      } catch {
-        /* no document base */
-      }
-      try {
-        if (location.origin && location.origin !== "null")
-          bases.push(`${location.origin}/`);
-      } catch {
-        /* no origin */
-      }
-      try {
-        bases.push(location.href);
-      } catch {
-        /* no location */
-      }
-      const paths = [];
-      for (const base of bases) {
-        try {
-          paths.push(new URL("api/ukb/card", base).toString());
-        } catch {
-          // Unusable base.
-        }
-      }
-      try {
-        paths.push(new URL("/api/ukb/card", location.origin).toString());
-      } catch {
-        // No usable origin.
-      }
-      return [...new Set(paths)].map((href) => {
-        const url = new URL(href);
-        url.searchParams.set("id", String(id));
-        return url.toString();
-      });
+      return routeUrls("api/ukb/card", { id });
     }
 
     /** `ukb show <id>` as `{ status, fields, body, history }`, or an error. */
@@ -1532,6 +1507,58 @@ window.__ModuleLoader__.load({
       return {
         ok: false,
         error: `no candidate answered; tried ${tried.join(", ")}`,
+      };
+    }
+
+    /**
+     * Ask the Host to start (or reuse) the full board UI and hand back its URL.
+     *
+     * One GET on `api/ukb/web`: the Host starts `ukb web` detached when no
+     * server is running, opens the configured remote board when the CLI points
+     * at one, or answers the server it already started. The URL carries the
+     * server's per-launch token, which is why the page cannot build it itself.
+     */
+    async function startFullBoard() {
+      const tried = [];
+      for (const url of routeUrls("api/ukb/web")) {
+        tried.push(url);
+        try {
+          const response = await fetch(url, {
+            headers: { accept: "application/json" },
+          });
+          const text = await response.text();
+          let body;
+          try {
+            body = JSON.parse(text);
+          } catch {
+            continue;
+          }
+          if (
+            body &&
+            typeof body === "object" &&
+            typeof body.url === "string" &&
+            body.url !== ""
+          ) {
+            return {
+              ok: true,
+              url: body.url,
+              mode: typeof body.mode === "string" ? body.mode : "local",
+              reused: body.reused === true,
+              tried,
+            };
+          }
+          if (body && typeof body === "object" && body.error) {
+            return { ok: false, error: String(body.error), tried };
+          }
+          if (!response.ok) continue;
+        } catch {
+          // Try the next candidate.
+        }
+      }
+      return {
+        ok: false,
+        error: `no candidate answered JSON; tried ${tried.join(", ")}`,
+        tried,
       };
     }
 
@@ -1755,6 +1782,57 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /* ------------------------------- full board ------------------------------- */
+
+    /** A blank tab opened inside the click handler, or null when blocked. */
+    function openBlankTab() {
+      try {
+        return typeof window === "undefined" ||
+          typeof window.open !== "function"
+          ? null
+          : window.open("about:blank", "_blank");
+      } catch {
+        return null;
+      }
+    }
+
+    /** Send the blank tab to `url`, or fall back to a programmatic link click. */
+    function openInTab(tab, url) {
+      if (tab !== null && tab !== undefined) {
+        try {
+          tab.opener = null;
+          tab.location.replace(url);
+          return true;
+        } catch {
+          // A tab the host closed in the meantime: fall through.
+        }
+      }
+      try {
+        if (
+          typeof document === "undefined" ||
+          typeof document.createElement !== "function"
+        ) {
+          return false;
+        }
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.target = "_blank";
+        anchor.rel = "noopener noreferrer";
+        anchor.click();
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    function closeTab(tab) {
+      try {
+        tab?.close?.();
+      } catch {
+        // The tab is the host's; it may already be gone.
+      }
+    }
+
     /* ---------------------------------- panel --------------------------------- */
 
     function BoardPanel(props = {}) {
@@ -1769,6 +1847,8 @@ window.__ModuleLoader__.load({
       const [expandedId, setExpandedId] = useState(null);
       const [details, setDetails] = useState({});
       const [collapsedStates, setCollapsedStates] = useState(() => new Set());
+
+      const [fullBoard, setFullBoard] = useState({ status: "idle" });
 
       const toggleCard = useCallback(
         (id) => {
@@ -1797,6 +1877,36 @@ window.__ModuleLoader__.load({
           return next;
         });
       }, []);
+
+      /**
+       * The full board (`ukb web`) in a new tab.
+       *
+       * The blank tab is opened inside the click handler on purpose: a tab
+       * opened after the Host answers would be treated as a popup and blocked.
+       * The Host starts the CLI on first use and answers the URL it printed.
+       */
+      const openFullBoard = useCallback(() => {
+        if (fullBoard.status === "opening") return;
+        const tab = openBlankTab();
+        setFullBoard({ status: "opening" });
+        void startFullBoard().then((result) => {
+          if (!result.ok) {
+            closeTab(tab);
+            setFullBoard({ status: "error", error: result.error });
+            return;
+          }
+          if (openInTab(tab, result.url)) {
+            setFullBoard({ status: "idle" });
+            return;
+          }
+          // The tab was blocked: leave the URL on screen as a real link.
+          setFullBoard({
+            status: "ready",
+            url: result.url,
+            mode: result.mode,
+          });
+        });
+      }, [fullBoard.status]);
 
       const projects = useMemo(
         () => (board === null ? [] : projectsOf(board)),
@@ -1882,6 +1992,10 @@ window.__ModuleLoader__.load({
             compact,
           ),
           iconButton("Refresh", refresh),
+          iconButton(
+            fullBoard.status === "opening" ? "Starting…" : "Full board ↗",
+            openFullBoard,
+          ),
         ),
         h(
           "div",
@@ -1905,6 +2019,33 @@ window.__ModuleLoader__.load({
           segmented(SCOPES, scope, setScope),
           adjusted ? iconButton("Clear", clearFilters) : null,
         ),
+        fullBoard.status === "error"
+          ? footerNote(
+              `Could not start the full board: ${fullBoard.error}`,
+              T.warn,
+            )
+          : null,
+        fullBoard.status === "ready"
+          ? footerNote(
+              h(
+                "a",
+                {
+                  href: fullBoard.url,
+                  target: "_blank",
+                  rel: "noopener noreferrer",
+                  style: {
+                    color: T.accent,
+                    fontWeight: 500,
+                    wordBreak: "break-all",
+                  },
+                },
+                fullBoard.mode === "remote"
+                  ? "Open the remote board ↗"
+                  : "Open the full board ↗",
+              ),
+              T.text2,
+            )
+          : null,
         status === "loading"
           ? h(
               "div",
@@ -1991,6 +2132,21 @@ window.__ModuleLoader__.load({
       if (seconds < 60) return `${seconds}s ago`;
       const minutes = Math.round(seconds / 60);
       return `${minutes}m ago`;
+    }
+
+    /** A one-line notice under the filter bar (a launch error, a blocked tab). */
+    function footerNote(content, color) {
+      return h(
+        "div",
+        {
+          style: {
+            padding: "8px 14px 0",
+            font: "400 11.5px/1.45 inherit",
+            color,
+          },
+        },
+        content,
+      );
     }
 
     /* ---------------------------------- chip ---------------------------------- */
@@ -2226,7 +2382,7 @@ window.__ModuleLoader__.load({
        * test reaches the pure workspace → project mapping through the factory
        * because a browser bundle cannot import its Node-testable siblings.
        */
-      internals: { projectFromWorkspace },
+      internals: { projectFromWorkspace, startFullBoard },
       apply(ctx) {
         ctxRef.current = ctx;
         ctx.effect(() =>

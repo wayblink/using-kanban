@@ -1,7 +1,8 @@
 # @wayblink/using-kanban-dsh
 
 DeepSeek Harness bundle for `using-kanban`: one `ukb` tool, the `/ukb` command,
-and the board guidance in the system prompt.
+the board guidance in the system prompt, and a Full board button that starts
+`ukb web` and opens it.
 
 It holds no board logic. Every call runs the `ukb` CLI, so validation,
 transitions, attribution and error codes are the CLI's.
@@ -23,7 +24,8 @@ Then install the bundle directory in DSH: **Plugins** → **Add plugin** →
 - `ukb` tool — 21 verbs, typed parameters, ids positional exactly as on the CLI.
 - `tool:ukb` prompt section — claim-before-work, one card in `doing`, bodies
   before action, umbrella/child rules.
-- `/ukb` command — no args lists your cards; everything else passes through.
+- `/ukb` command — no args lists your cards; `web` starts (or reuses) the full
+  board UI and answers with its URL; everything else passes through.
 
 ## Visualization
 
@@ -35,6 +37,14 @@ the bundle's own `GET /api/ukb/board` route. Both start on the Session
 workspace's project (the deepest `cwd` segment that names a board project), so
 they show the work in front of you; a workspace naming no project falls back to
 the whole board. Plain JS, no build step.
+
+The panel header's **Full board ↗** button is the way out of the narrow panel:
+it asks `GET /api/ukb/web`, the Host starts `ukb web` detached (or reuses the
+server it already started), and the page opens the URL the CLI printed — port
+and token included — in a new tab. With a remote board configured (`server` in
+the ukb config, or `$UKB_SERVER`), the button opens that server instead: `ukb web`
+is a local-mode verb. A server this bundle started is stopped when the bundle
+unloads; one started by hand is left alone.
 
 ## Tests
 

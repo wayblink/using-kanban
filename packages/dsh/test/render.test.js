@@ -129,7 +129,7 @@ function loadClient(hookValues, state) {
  *
  * The state slots come in call order: the board state, its refresh nonce, the
  * query, the project choice, the scope, density, the expanded card id, the card
- * details and the collapsed sections.
+ * details, the collapsed sections and the full-board launch state.
  */
 function renderPanel({
   state = board(),
@@ -139,6 +139,7 @@ function renderPanel({
   scope = "all",
   expandedId = null,
   details = {},
+  fullBoard = { status: "idle" },
 } = {}) {
   const hookValues = [
     {
@@ -156,6 +157,7 @@ function renderPanel({
     expandedId,
     details,
     new Set(),
+    fullBoard,
   ];
   const panel = loadClient(hookValues, state).get(
     "sidebar.right.pane.tab:@wayblink/using-kanban-dsh/board",
@@ -266,6 +268,37 @@ test("a workspace outside every project keeps the whole board", () => {
   assert.ok(text.includes("Ukanban card"));
   assert.ok(text.includes("Iceberg card"));
   assert.ok(text.includes("2 cards"));
+});
+
+test("the panel header offers the full board", () => {
+  const text = JSON.stringify(renderPanel());
+  assert.ok(
+    text.includes("Full board ↗"),
+    "the header carries the button that starts `ukb web`",
+  );
+});
+
+test("a failed full-board launch is reported, not swallowed", () => {
+  const text = JSON.stringify(
+    renderPanel({
+      fullBoard: { status: "error", error: "ukb CLI not found" },
+    }),
+  );
+  assert.ok(text.includes("Could not start the full board: ukb CLI not found"));
+});
+
+test("a blocked tab leaves the URL behind as a real link", () => {
+  const text = JSON.stringify(
+    renderPanel({
+      fullBoard: {
+        status: "ready",
+        url: "http://127.0.0.1:7000/?token=t",
+        mode: "local",
+      },
+    }),
+  );
+  assert.ok(text.includes("Open the full board ↗"));
+  assert.ok(text.includes("http://127.0.0.1:7000/?token=t"));
 });
 
 test("a host without the session hook still renders", () => {
